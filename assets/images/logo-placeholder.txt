@@ -1,0 +1,10 @@
+Direktori ini untuk menyimpan logo TNI.
+File logo.png harus diletakkan di sini.
+
+Instruksi:
+1. Copy file logo TNI yang diberikan user
+2. Rename menjadi "logo.png"
+3. Letakkan di direktori ini: assets/images/logo.png
+
+Format yang didukung: PNG, JPG, SVG
+Ukuran yang disarankan: 512x512px atau persegi lainnya

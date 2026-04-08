@@ -1,0 +1,33 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="256" cy="256" r="250" fill="#DC143C" stroke="#FFD700" stroke-width="12"/>
+  
+  <!-- Inner Gold Circle -->
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#FFD700" stroke-width="8"/>
+  
+  <!-- TNI Star Symbol (simplified) -->
+  <g transform="translate(256,256)">
+    <!-- Central Star -->
+    <polygon points="0,-60 18,-18 60,-18 30,6 36,48 0,24 -36,48 -30,6 -60,-18 -18,-18" 
+             fill="#FFD700" stroke="#DC143C" stroke-width="2"/>
+    
+    <!-- Inner Star -->
+    <polygon points="0,-30 9,-9 30,-9 15,3 18,24 0,12 -18,24 -15,3 -30,-9 -9,-9" 
+             fill="#DC143C"/>
+  </g>
+  
+  <!-- TNI Text -->
+  <text x="256" y="380" text-anchor="middle" fill="#FFD700" font-family="Arial, sans-serif" 
+        font-size="48" font-weight="bold" stroke="#DC143C" stroke-width="1">TNI</text>
+  
+      <!-- SI-KENDI Text -->
+      <text x="256" y="420" text-anchor="middle" fill="#FFD700" font-family="Arial, sans-serif" 
+                        font-size="24" font-weight="normal">SI-KENDI</text>
+  
+  <!-- Decorative Elements -->
+  <circle cx="256" cy="150" r="8" fill="#FFD700"/>
+  <circle cx="200" cy="180" r="6" fill="#FFD700" opacity="0.8"/>
+  <circle cx="312" cy="180" r="6" fill="#FFD700" opacity="0.8"/>
+  <circle cx="180" cy="230" r="4" fill="#FFD700" opacity="0.6"/>
+  <circle cx="332" cy="230" r="4" fill="#FFD700" opacity="0.6"/>
+</svg>

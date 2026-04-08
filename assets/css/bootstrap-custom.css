@@ -1,0 +1,643 @@
+/* 
+ * RANDIS Bootstrap Custom Styles
+ * Custom Bootstrap components and utilities for RANDIS vehicle management system
+ * NOTE: For cohesive navy card styling load 'cards-unified.css' AFTER this file.
+ */
+
+/* ==========================================================================
+   Base Bootstrap Extensions
+   ========================================================================== */
+
+/* Container and Layout */
+.container-fluid {
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+.main-content {
+    padding: 1.5rem;
+    background-color: #f8f9fa;
+    min-height: calc(100vh - 60px);
+}
+
+/* ========================================================================== 
+   Cards and Panels (Muted Navy Variant)
+   ========================================================================== */
+
+/* Shared palette (kept lightweight to avoid collision with global.css) */
+:root {
+    --card-bg: #f3f6f8;                 /* soft neutral contrasting navy */
+    --card-bg-alt: #eef2f5;             /* subtle alternate tone */
+    --card-border: #d6e1e7;             /* cool border tone */
+    --card-shadow: 0 2px 6px rgba(15,47,69,0.10), 0 1px 2px rgba(15,47,69,0.06);
+    --card-header-bg: linear-gradient(135deg, #133b57 0%, #1d577b 70%, #2b6d8e 100%);
+    --card-header-bg-soft: linear-gradient(135deg, rgba(19,59,87,0.9) 0%, rgba(45,109,142,0.85) 100%);
+    --card-header-text: #ffffff;
+    --card-text: #2f3e48;
+}
+
+.card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    box-shadow: var(--card-shadow);
+    border-radius: 0.75rem;
+    margin-bottom: 1.5rem;
+    transition: background .3s ease, box-shadow .3s ease, border-color .3s ease;
+}
+
+/* Light hover lift without "glow" */
+.card:hover {
+    background: var(--card-bg-alt);
+    box-shadow: 0 4px 14px -4px rgba(15,47,69,0.18), 0 1px 3px rgba(15,47,69,0.08);
+}
+
+.card-header {
+    background: var(--card-header-bg-soft);
+    color: var(--card-header-text);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    border-radius: 0.75rem 0.75rem 0 0 !important;
+    padding: 0.9rem 1.25rem 0.85rem;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Subtle texture overlay */
+.card-header::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 85% 15%, rgba(255,255,255,0.25), transparent 55%),
+                linear-gradient(90deg, rgba(255,255,255,0.06), transparent 60%);
+    pointer-events: none;
+    mix-blend-mode: overlay;
+}
+
+.card-title { margin: 0; font-weight:600; font-size:1.05rem; letter-spacing:.3px; }
+
+.card-body { padding: 1.25rem 1.25rem 1.35rem; color: var(--card-text); }
+
+.card-footer { background: #f1f5f7; border-top: 1px solid var(--card-border); padding: .85rem 1.25rem; border-radius: 0 0 .75rem .75rem; }
+
+/* Utility variant: compact */
+.card.card-compact .card-body { padding: .9rem 1rem; }
+.card.card-compact .card-header { padding: .65rem 1rem; }
+
+/* Remove legacy bright gradient overrides if any element still adds them */
+.card-header.gradient, .card-header.purple, .card-header.theme-purple {
+    background: var(--card-header-bg) !important;
+}
+
+/* Card Actions */
+.card-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.card-actions .badge {
+    background: rgba(255,255,255,0.2);
+    color: white;
+    font-size: 0.8rem;
+}
+
+/* ==========================================================================
+   Page Headers
+   ========================================================================== */
+
+.page-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 2rem 1.5rem;
+    margin-bottom: 2rem;
+    border-radius: 0.5rem;
+}
+
+.page-header h1 {
+    margin: 0 0 0.5rem 0;
+    font-weight: 700;
+    font-size: 2rem;
+}
+
+.page-header p {
+    margin: 0;
+    opacity: 0.9;
+    font-size: 1.1rem;
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.header-actions .btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    font-weight: 500;
+}
+
+.header-actions .btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+.table {
+    background: white;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.table thead th {
+    border-top: none;
+    border-bottom: 2px solid #dee2e6;
+    font-weight: 600;
+    color: #495057;
+    background-color: #f8f9fa;
+    padding: 0.875rem 0.75rem;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(102, 126, 234, 0.05);
+}
+
+.table td {
+    padding: 0.875rem 0.75rem;
+    vertical-align: middle;
+}
+
+.table-responsive {
+    border-radius: 0.5rem;
+    border: 1px solid #dee2e6;
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+
+.btn {
+    border-radius: 0.375rem;
+    font-weight: 500;
+    margin: 0;
+    padding: 0.5rem 1rem;
+    transition: all 0.15s ease-in-out;
+}
+
+.btn-sm {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+}
+
+.btn-lg {
+    padding: 0.75rem 1.5rem;
+    font-size: 1.125rem;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: #667eea;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+    border-color: #5a6fd8;
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid #dee2e6;
+    color: #6c757d;
+}
+
+.btn-outline:hover {
+    background: #f8f9fa;
+    border-color: #adb5bd;
+}
+
+/* ==========================================================================
+   Forms
+   ========================================================================== */
+
+.form-container {
+    margin-bottom: 2rem;
+}
+
+.form-card {
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    overflow: hidden;
+}
+
+.form-header {
+    background: #f8f9fa;
+    padding: 1.5rem;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.form-header h3 {
+    margin: 0;
+    color: #495057;
+    font-weight: 600;
+}
+
+.form-body {
+    padding: 2rem;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.form-control {
+    border: 1px solid #ced4da;
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.form-control:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+}
+
+.required {
+    color: #dc3545;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.75rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #dee2e6;
+}
+
+/* ==========================================================================
+   Badges and Labels
+   ========================================================================== */
+
+.badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+}
+
+.badge-lg {
+    font-size: 0.875rem;
+    padding: 0.5rem 0.875rem;
+}
+
+.badge-outline-primary {
+    color: #667eea;
+    background: transparent;
+    border: 1px solid #667eea;
+}
+
+.badge-outline-success {
+    color: #28a745;
+    background: transparent;
+    border: 1px solid #28a745;
+}
+
+.badge-outline-warning {
+    color: #ffc107;
+    background: transparent;
+    border: 1px solid #ffc107;
+}
+
+.badge-outline-danger {
+    color: #dc3545;
+    background: transparent;
+    border: 1px solid #dc3545;
+}
+
+.badge-outline-secondary {
+    color: #6c757d;
+    background: transparent;
+    border: 1px solid #6c757d;
+}
+
+/* ==========================================================================
+   Avatars and Media Objects
+   ========================================================================== */
+
+.avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.avatar-lg {
+    width: 60px;
+    height: 60px;
+}
+
+.avatar-sm {
+    width: 30px;
+    height: 30px;
+}
+
+.avatar-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #6c757d;
+    color: white;
+    border-radius: 50%;
+    font-weight: 600;
+}
+
+.vehicle-avatar {
+    flex-shrink: 0;
+}
+
+.vehicle-avatar img {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 0.375rem;
+}
+
+.vehicle-placeholder {
+    width: 50px;
+    height: 50px;
+    background-color: #6c757d;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+}
+
+/* ==========================================================================
+   Empty States
+   ========================================================================== */
+
+.empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.empty-icon {
+    font-size: 4rem;
+    color: #dee2e6;
+    margin-bottom: 1.5rem;
+}
+
+.empty-state h3 {
+    color: #6c757d;
+    margin-bottom: 1rem;
+}
+
+.empty-state p {
+    color: #adb5bd;
+    margin-bottom: 2rem;
+}
+
+.empty-actions {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+}
+
+/* Utility classes for common inline styles */
+.vehicle-image-container {
+    height: 200px;
+}
+
+.vehicle-image-detail {
+    height: 300px;
+}
+
+.img-small {
+    width: 40px;
+    height: 40px;
+}
+
+.img-medium {
+    width: 50px;
+    height: 50px;
+}
+
+.icon-width {
+    width: 20px;
+}
+
+.max-height-300 {
+    max-height: 300px;
+}
+
+.max-width-150 {
+    max-width: 150px;
+}
+
+.fs-2-5 {
+    font-size: 2.5rem;
+}
+
+.rounded-bottom-only {
+    border-radius: 0 0 0.5rem 0.5rem;
+}
+}
+
+/* ==========================================================================
+   Modals
+   ========================================================================== */
+
+.modal-header {
+    border-bottom: 1px solid #dee2e6;
+    padding: 1rem 1.5rem;
+}
+
+.modal-body {
+    padding: 1.5rem;
+}
+
+.modal-footer {
+    border-top: 1px solid #dee2e6;
+    padding: 1rem 1.5rem;
+}
+
+.modal-xl {
+    max-width: 1200px;
+}
+
+.modal-lg {
+    max-width: 900px;
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+.text-primary {
+    color: #2d5b90ff !important;
+}
+
+.bg-primary {
+    background: linear-gradient(135deg, #2d5b90ff 0%, #764ba2 100%) !important;
+}
+
+.border-primary {
+    border-color: #2d5b90ff !important;
+}
+
+/* Spacing utilities */
+.me-1 { margin-right: 0.25rem; }
+.me-2 { margin-right: 0.5rem; }
+.me-3 { margin-right: 1rem; }
+.me-4 { margin-right: 1.5rem; }
+
+.ms-1 { margin-left: 0.25rem; }
+.ms-2 { margin-left: 0.5rem; }
+.ms-3 { margin-left: 1rem; }
+.ms-4 { margin-left: 1.5rem; }
+
+.mb-0 { margin-bottom: 0; }
+.mb-1 { margin-bottom: 0.25rem; }
+.mb-2 { margin-bottom: 0.5rem; }
+.mb-3 { margin-bottom: 1rem; }
+.mb-4 { margin-bottom: 1.5rem; }
+.mb-5 { margin-bottom: 3rem; }
+
+.mt-0 { margin-top: 0; }
+.mt-1 { margin-top: 0.25rem; }
+.mt-2 { margin-top: 0.5rem; }
+.mt-3 { margin-top: 1rem; }
+.mt-4 { margin-top: 1.5rem; }
+.mt-5 { margin-top: 3rem; }
+
+.p-0 { padding: 0; }
+.p-1 { padding: 0.25rem; }
+.p-2 { padding: 0.5rem; }
+.p-3 { padding: 1rem; }
+.p-4 { padding: 1.5rem; }
+.p-5 { padding: 3rem; }
+
+/* Display utilities */
+.d-none { display: none; }
+.d-block { display: block; }
+.d-flex { display: flex; }
+.d-inline-flex { display: inline-flex; }
+
+/* Flexbox utilities */
+.justify-content-start { justify-content: flex-start; }
+.justify-content-center { justify-content: center; }
+.justify-content-end { justify-content: flex-end; }
+.justify-content-between { justify-content: space-between; }
+
+.align-items-start { align-items: flex-start; }
+.align-items-center { align-items: center; }
+.align-items-end { align-items: flex-end; }
+
+.flex-column { flex-direction: column; }
+.flex-wrap { flex-wrap: wrap; }
+
+/* Text utilities */
+.text-center { text-align: center; }
+.text-left { text-align: left; }
+.text-right { text-align: right; }
+
+.text-muted { color: #6c757d; }
+.text-success { color: #28a745; }
+.text-danger { color: #dc3545; }
+.text-warning { color: #ffc107; }
+.text-info { color: #17a2b8; }
+
+.font-weight-normal { font-weight: 400; }
+.font-weight-bold { font-weight: 700; }
+
+/* ==========================================================================
+   Responsive Design
+   ========================================================================== */
+
+@media (max-width: 768px) {
+    .header-content {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .page-header h1 {
+        font-size: 1.5rem;
+    }
+    
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .card-actions {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+    
+    .vehicle-avatar {
+        margin-right: 0.5rem;
+    }
+    
+    .vehicle-avatar img,
+    .vehicle-placeholder {
+        width: 40px;
+        height: 40px;
+    }
+}
+
+@media (max-width: 576px) {
+    .main-content {
+        padding: 1rem;
+    }
+    
+    .page-header {
+        padding: 1.5rem 1rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .card-body {
+        padding: 1rem;
+    }
+    
+    .form-body {
+        padding: 1.5rem;
+    }
+}

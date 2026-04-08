@@ -1,0 +1,122 @@
+<?php
+// ====================
+// CONFIG.PHP
+// ====================
+
+// Start output buffering to prevent header issues
+ob_start();
+
+// Start session if not already started
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Error reporting (development mode)
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+// Timezone & Date format
+date_default_timezone_set('Asia/Jakarta');
+define('DATE_FORMAT', 'd/m/y');
+
+// Database credentials
+define('DB_HOST', 'localhost');
+define('DB_USER', 'root');
+define('DB_PASS', '');
+define('DB_NAME', 'randis');
+
+// Base URL (ubah sesuai kebutuhan)
+define('BASE_URL', 'http://localhost/randis/');
+
+// ====================
+// DB CONNECTION (MySQLi Persistent)
+// ====================
+$mysqli = @new mysqli('p:' . DB_HOST, DB_USER, DB_PASS, DB_NAME);
+
+// Check connection
+if ($mysqli->connect_error) {
+    die("Koneksi database gagal: " . $mysqli->connect_error);
+}
+
+// Set charset to UTF-8
+$mysqli->set_charset('utf8mb4');
+
+// Create $conn alias for backward compatibility
+$conn = $mysqli;
+
+// ====================
+// SECURITY FUNCTIONS
+// ====================
+
+// Password hashing (bcrypt)
+function hash_password($password) {
+    return password_hash($password, PASSWORD_BCRYPT);
+}
+
+// Password verify
+function verify_password($password, $hash) {
+    return password_verify($password, $hash);
+}
+
+// CSRF Token Generator
+function generate_csrf_token() {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+// CSRF Token Validator
+function validate_csrf_token($token) {
+    if (!isset($_SESSION['csrf_token'])) {
+        error_log("CSRF: No session token exists");
+        return false;
+    }
+    
+    if (empty($token)) {
+        error_log("CSRF: Empty token provided");
+        return false;
+    }
+    
+    $result = hash_equals($_SESSION['csrf_token'], $token);
+    if (!$result) {
+        error_log("CSRF: Token mismatch. Session: " . substr($_SESSION['csrf_token'], 0, 8) . "... Posted: " . substr($token, 0, 8) . "...");
+    }
+    
+    return $result;
+}
+
+// ====================
+// LOGGING FUNCTIONS
+// ====================
+function log_user_activity($activity) {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
+    $agent = $_SERVER['HTTP_USER_AGENT'] ?? 'UNKNOWN';
+    $time = date(DATE_FORMAT . ' H:i:s');
+    $log = "[{$time}] {$ip} | {$agent} | {$activity}\n";
+
+    file_put_contents(__DIR__ . '/logs/user_activity.log', $log, FILE_APPEND);
+}
+
+// ====================
+// HELPER FUNCTIONS
+// ====================
+
+// Redirect helper
+function redirect($url) {
+    header("Location: " . BASE_URL . $url);
+    exit;
+}
+
+// Base URL helper
+function base_url($path = '') {
+    return BASE_URL . ltrim($path, '/');
+}
+
+// ====================
+// AUTH INCLUDE
+// ====================
+// Include auth functions after database connection is established
+require_once __DIR__ . '/includes/auth.php';
+?>
