@@ -144,9 +144,9 @@ if ($action === 'export_excel') {
     $sheet->mergeCells('A4:K4');
     $sheet->mergeCells('A5:K5');
     $sheet->mergeCells('A6:K6');
-    $sheet->setCellValue('A1','MARKAS BESAR TENTARA NASIONAL INDONESIA');
-    $sheet->setCellValue('A2','PUSAT INFORMASI DAN PENGOLAHAN DATA');
-    $sheet->setCellValue('A5','LAPORAN PENGGUNAAN BBM INTENSITAS PERTALITE PUSINFOLAHTA TNI');
+    $sheet->setCellValue('A1','KEMENTERIAN PERTAHANAN REPUBLIK INDONESIA');
+    $sheet->setCellValue('A2','SPBT KEMHAN CAWANG');
+    $sheet->setCellValue('A5','LAPORAN PENGGUNAAN BBM INTENSITAS PERTALITE SPBT KEMHAN CAWANG');
     $sheet->setCellValue('A6', $periode_label);
 
     // Draw a bottom border under row2 (institution line)

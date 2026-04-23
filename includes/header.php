@@ -48,6 +48,10 @@ function vehicle_label($v) {
     <!-- Sidebar JavaScript -->
     <script src="assets/js/sidebar.js"></script>
     
+    <!-- Leaflet (map) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    
     <!-- CSRF Token -->
     <meta name="csrf-token" content="<?= generate_csrf_token() ?>">
 </head>

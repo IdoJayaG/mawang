@@ -16,6 +16,11 @@ if ($kendaraan_id <= 0) {
     exit;
 }
 
+if (!can_operate() && !can_access_vehicle($kendaraan_id)) {
+    echo '<div class="alert alert-danger">Anda tidak memiliki akses ke kendaraan ini.</div>';
+    exit;
+}
+
 // Fetch vehicle info
 $stmt = $mysqli->prepare("SELECT id, no_polisi, no_reg, merk, tipe FROM kendaraan WHERE id = ?");
 $stmt->bind_param('i', $kendaraan_id);
@@ -40,7 +45,7 @@ $logs_stmt->close();
     <h1><i class="fas fa-gas-pump"></i> Detail Log BBM - <?= htmlspecialchars($vehicle['no_polisi']) ?> <?= !empty($vehicle['no_reg']) ? '<small class="text-muted">(Reg: ' . htmlspecialchars($vehicle['no_reg']) . ')</small>' : '' ?></h1>
     <div class="header-actions">
         <a href="index.php?page=log_bahan_bakar" class="btn btn-outline">&larr; Kembali</a>
-        <?php if (can_operate() || $current_role === 'user'): ?>
+        <?php if (can_operate() || in_array($current_role, ['user', 'driver'], true)): ?>
             <a href="index.php?page=log_bahan_bakar&action=add&kendaraan_id=<?= $kendaraan_id ?>" class="btn btn-warning">Tambah Log BBM</a>
         <?php endif; ?>
     </div>
@@ -62,6 +67,9 @@ $logs_stmt->close();
                         <th>Metode</th>
                         <th>User</th>
                         <th>Keterangan</th>
+                        <?php if (can_operate() || in_array($current_role, ['user', 'driver'], true)): ?>
+                            <th>Aksi</th>
+                        <?php endif; ?>
                     </tr>
                 </thead>
                 <tbody>
@@ -77,9 +85,16 @@ $logs_stmt->close();
                             <td><?= htmlspecialchars($row['metode_bayar']) ?></td>
                             <td><?= htmlspecialchars($row['user_name'] ?? '-') ?></td>
                             <td><?= htmlspecialchars($row['keterangan']) ?></td>
+                            <?php if (can_operate() || in_array($current_role, ['user', 'driver'], true)): ?>
+                                <td>
+                                    <a href="index.php?page=log_bahan_bakar&action=edit&id=<?= (int)$row['id'] ?>" class="btn btn-sm btn-outline-primary" title="Edit Log BBM">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                </td>
+                            <?php endif; ?>
                         </tr>
                     <?php endwhile; else: ?>
-                        <tr><td colspan="10" class="text-center">Belum ada log BBM untuk kendaraan ini.</td></tr>
+                        <tr><td colspan="<?= (can_operate() || in_array($current_role, ['user', 'driver'], true)) ? '11' : '10' ?>" class="text-center">Belum ada log BBM untuk kendaraan ini.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>

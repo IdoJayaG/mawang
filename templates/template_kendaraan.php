@@ -11,7 +11,7 @@ if (!class_exists('PhpOffice\\PhpSpreadsheet\\Spreadsheet')) {
     header('Content-Disposition: attachment; filename="template_kendaraan.csv"');
     $out = fopen('php://output', 'w');
     fputcsv($out, ['no_rangka','no_mesin','no_reg','merk','tipe','tahun_pembuatan','warna','jenis','bahan_bakar','satker','penanggung_jawab','kondisi','status_kendaraan']);
-    fputcsv($out, ['MH8XXX1234567890','1NZ-1234567','REG-001','TOYOTA','AVANZA','2022','HITAM','Roda 4','Pertalite','PUSINFOLAHTA','Kapusinfolahta TNI','Baik','Operasional']);
+    fputcsv($out, ['MH8XXX1234567890','1NZ-1234567','REG-001','TOYOTA','AVANZA','2022','HITAM','Roda 4','Pertalite','SPBT KEMHAN CAWANG','Kepala SPBT Kemhan Cawang','Baik','Operasional']);
     fclose($out); exit;
 }
 
@@ -31,7 +31,7 @@ $sheet->getStyle('A1:M1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_C
 $sheet->getStyle('A1:M1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE8EEF7');
 
 $sheet->fromArray([
-    ['MH8XXX1234567890','1NZ-1234567','REG-001','TOYOTA','AVANZA','2022','HITAM','Roda 4','Pertalite','PUSINFOLAHTA','Kapusinfolahta TNI','Baik','Operasional']
+    ['MH8XXX1234567890','1NZ-1234567','REG-001','TOYOTA','AVANZA','2022','HITAM','Roda 4','Pertalite','SPBT KEMHAN CAWANG','Kepala SPBT Kemhan Cawang','Baik','Operasional']
 ], null, 'A2');
 
 foreach (range('A','M') as $c) { $sheet->getColumnDimension($c)->setAutoSize(true); }

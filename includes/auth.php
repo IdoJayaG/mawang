@@ -180,7 +180,7 @@ function can_admin() {
 
 // Check if user can perform operator actions
 function can_operate() {
-    return in_array(get_current_role(), ['admin', 'operator']);
+    return in_array(get_current_role(), ['admin', 'operator', 'pimpinan']);
 }
 
 // Check if user can access specific vehicle
@@ -195,7 +195,7 @@ function can_access_vehicle($vehicle_id) {
     }
     
     // User can only access vehicles they are using/approved to use
-    if ($role === 'user' && $user_id) {
+    if (in_array($role, ['user', 'driver'], true) && $user_id) {
         // Check active peminjaman_kendaraan
         if (db_table_exists('peminjaman_kendaraan')) {
             $appCol = pk_applicant_column();
@@ -254,7 +254,7 @@ function get_accessible_vehicles($role, $user_id = null, $search = '', $limit = 
         // Guest: Only operational vehicles in good condition with public visibility
         $where_conditions[] = "k.status_kendaraan = 'Operasional'";
         $where_conditions[] = "k.kondisi IN ('Baik', 'Rusak Ringan')";
-    } elseif ($role === 'user' && $user_id) {
+    } elseif (in_array($role, ['user', 'driver'], true) && $user_id) {
         // User: vehicles they are approved/ongoing to use (pk or surat_tugas)
         $existsClauses = [];
         if (db_table_exists('peminjaman_kendaraan')) {
@@ -435,7 +435,7 @@ function can_download_documents($vehicle_id) {
     }
     
     // User can download documents for their assigned vehicles
-    if ($role === 'user' && $user_id) {
+    if (in_array($role, ['user', 'driver'], true) && $user_id) {
         global $mysqli;
         // peminjaman_kendaraan check
         if (db_table_exists('peminjaman_kendaraan')) {
@@ -480,7 +480,7 @@ function get_dashboard_stats($role, $user_id = null) {
             FROM kendaraan");
         $stats = $result->fetch_assoc();
         
-    } elseif ($role === 'user' && $user_id) {
+    } elseif (in_array($role, ['user', 'driver'], true) && $user_id) {
         // User personal statistics using peminjaman_kendaraan and surat_tugas
         $kendaraanSaya = 0; $totalPemakaian = 0; $totalPerawatan = 0;
         // Build EXISTS clauses
@@ -588,8 +588,8 @@ function redirect_to_dashboard() {
     // Flexible mapping: support multiple kode_role variants/aliases
     $mapping = [
         'dashboard_admin' => ['admin', 'administrator', 'superadmin', 'adm', 'manajer'],
-        'dashboard_operator' => ['operator', 'petugas', 'staff', 'ops'],
-        'dashboard_user' => ['user', 'pegawai', 'pns', 'anggota']
+        'dashboard_operator' => ['operator', 'petugas', 'staff', 'ops', 'pimpinan'],
+        'dashboard_user' => ['user', 'pegawai', 'pns', 'anggota', 'driver', 'sopir']
     ];
 
     // Exact match first
@@ -747,7 +747,7 @@ function require_operator() {
 function require_user() {
     require_login();
     $role = get_current_role();
-    if (!in_array($role, ['admin', 'operator', 'user'])) {
+    if (!in_array($role, ['admin', 'operator', 'pimpinan', 'user', 'driver'], true)) {
         header('Location: index.php?page=403');
         exit;
     }
@@ -773,15 +773,71 @@ function require_role($required_role) {
     }
     
     // Check specific role requirements
-    if ($required_role === 'user' && !in_array($current_role, ['admin', 'operator', 'user'])) {
+    if ($required_role === 'user' && !in_array($current_role, ['admin', 'operator', 'pimpinan', 'user', 'driver'], true)) {
         header('Location: index.php?page=403');
         exit;
-    } elseif ($required_role === 'operator' && !in_array($current_role, ['admin', 'operator'])) {
+    } elseif ($required_role === 'operator' && !in_array($current_role, ['admin', 'operator', 'pimpinan'], true)) {
         header('Location: index.php?page=403');
         exit;
     } elseif ($required_role !== $current_role && $current_role !== 'admin') {
         header('Location: index.php?page=403');
         exit;
+    }
+}
+
+if (!function_exists('insert_notification')) {
+    function insert_notification($mysqli, $user_id, $message, $title = null, $type = 'info', $category = 'system') {
+        $uid = (int)$user_id;
+        if ($uid <= 0) {
+            return false;
+        }
+
+        if (db_table_exists('notifikasi_advanced')) {
+            $table = 'notifikasi_advanced';
+        } elseif (db_table_exists('notifikasi')) {
+            $table = 'notifikasi';
+        } else {
+            return false;
+        }
+
+        $cols = db_table_columns($table);
+        $msg = $mysqli->real_escape_string((string)$message);
+        $ttl = $title !== null ? $mysqli->real_escape_string((string)$title) : '';
+        $typ = $mysqli->real_escape_string((string)$type);
+        $cat = $mysqli->real_escape_string((string)$category);
+
+        if ($table === 'notifikasi_advanced') {
+            if (in_array('judul', $cols, true) && in_array('pesan', $cols, true)) {
+                $sql = "INSERT INTO notifikasi_advanced (user_id, judul, pesan, jenis, created_at) VALUES ({$uid}, '{$ttl}', '{$msg}', '{$cat}', NOW())";
+                return (bool)$mysqli->query($sql);
+            }
+        }
+
+        if (in_array('message', $cols, true)) {
+            $fields = ['user_id', 'message', 'created_at'];
+            $values = ["{$uid}", "'{$msg}'", 'NOW()'];
+            if (in_array('title', $cols, true)) {
+                $fields[] = 'title';
+                $values[] = "'{$ttl}'";
+            }
+            if (in_array('type', $cols, true)) {
+                $fields[] = 'type';
+                $values[] = "'{$typ}'";
+            }
+            if (in_array('category', $cols, true)) {
+                $fields[] = 'category';
+                $values[] = "'{$cat}'";
+            }
+            $sql = 'INSERT INTO notifikasi (' . implode(', ', $fields) . ') VALUES (' . implode(', ', $values) . ')';
+            return (bool)$mysqli->query($sql);
+        }
+
+        if (in_array('pesan', $cols, true)) {
+            $sql = "INSERT INTO notifikasi (user_id, pesan, created_at) VALUES ({$uid}, '{$msg}', NOW())";
+            return (bool)$mysqli->query($sql);
+        }
+
+        return false;
     }
 }
 

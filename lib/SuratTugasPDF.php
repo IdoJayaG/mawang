@@ -5,22 +5,7 @@ class SuratTugasPDF extends TCPDF {
     
     // Page header
     public function Header() {
-        // Set font
-        $this->SetFont('helvetica', 'B', 14);
-        
-        // Title
-        $this->Cell(0, 10, 'TENTARA NASIONAL INDONESIA', 0, 1, 'C');
-        $this->SetFont('helvetica', 'B', 12);
-        $this->Cell(0, 8, 'PUSAT INFORMASI DAN PENGOLAHAN DATA', 0, 1, 'C');
-        $this->SetFont('helvetica', '', 10);
-        $this->Cell(0, 6, 'Jalan Medan Merdeka Barat No. 13-14, Jakarta Pusat 10110', 0, 1, 'C');
-        
-        // Line break
-        $this->Ln(5);
-        
-        // Line
-        $this->Line(20, $this->GetY(), 190, $this->GetY());
-        $this->Ln(10);
+        // Intentionally empty: header is rendered in document body for Nota Dinas layout.
     }
     
     // Page footer
@@ -36,15 +21,6 @@ class SuratTugasPDF extends TCPDF {
     public function generateSuratTugas($surat_data) {
         // Add a page
         $this->AddPage();
-        
-        // Set font
-        $this->SetFont('helvetica', 'B', 14);
-        
-        // Title
-        $this->Cell(0, 10, 'SURAT TUGAS', 0, 1, 'C');
-        $this->SetFont('helvetica', '', 10);
-        $this->Cell(0, 6, 'Nomor: ' . $surat_data['nomor_surat'], 0, 1, 'C');
-        $this->Ln(10);
         
         // Set font for content
         $this->SetFont('helvetica', '', 11);
@@ -62,33 +38,23 @@ class SuratTugasPDF extends TCPDF {
         $bulan = $bulan_indo[(int)date('n', $ts_surat)];
         $tahun = date('Y', $ts_surat);
         
-    // Content: two-column top area (left: klasifikasi/lampiran/perihal, right: Kepada)
+    $nama_unit = strtoupper(trim((string)($surat_data['nama_unit'] ?? 'BIRO UMUM SETJEN KEMHAN')));
+    $nama_bagian = strtoupper(trim((string)($surat_data['nama_bagian'] ?? 'BAGIAN PENGAMANAN')));
+    $jenis_naskah = strtoupper(trim((string)($surat_data['jenis_naskah'] ?? 'NOTA DINAS')));
+    $surat_dari = trim((string)($surat_data['surat_dari'] ?? '-'));
+
+    // Content
     $html = '';
 
-    // Top columns
-    $html .= '<table style="width:100%; font-size:11pt;">';
-    $html .= '<tr>';
-    // left column: klasifikasi/lampiran/perihal
-    $html .= '<td style="width:58%; vertical-align:top;">';
-    $html .= '<table style="width:100%; font-size:11pt;">';
-    $html .= '<tr><td style="width:120px; vertical-align:top;">Klasifikasi</td><td style="width:10px; vertical-align:top;">:</td><td>' . htmlspecialchars($surat_data['klasifikasi'] ?? '') . '</td></tr>';
-    $html .= '<tr><td style="vertical-align:top;">Lampiran</td><td style="vertical-align:top;">:</td><td>' . htmlspecialchars($surat_data['lampiran'] ?? '') . '</td></tr>';
-    $html .= '<tr><td style="vertical-align:top;">Perihal</td><td style="vertical-align:top;">:</td><td>' . htmlspecialchars($surat_data['perihal'] ?? '') . '</td></tr>';
+    $html .= '<div style="text-align:center; font-size:12pt; font-weight:bold;">' . htmlspecialchars($nama_unit) . '</div>';
+    $html .= '<div style="text-align:center; font-size:12pt; font-weight:bold;">' . htmlspecialchars($nama_bagian) . '</div>';
+    $html .= '<div style="text-align:center; font-size:13pt; font-weight:bold; margin-top:10px;">' . htmlspecialchars($jenis_naskah) . '</div>';
+    $html .= '<table style="width:100%; font-size:11pt; margin-top:14px;">';
+    $html .= '<tr><td style="width:70px;">NOMOR</td><td style="width:10px;">:</td><td>' . htmlspecialchars($surat_data['nomor_surat'] ?? '-') . '</td></tr>';
+    $html .= '<tr><td>Kepada</td><td>:</td><td>Yth. ' . htmlspecialchars($surat_data['kepada_jabatan'] ?? '-') . '</td></tr>';
+    $html .= '<tr><td>Dari</td><td>:</td><td>' . htmlspecialchars($surat_dari) . '</td></tr>';
+    $html .= '<tr><td>Hal</td><td>:</td><td>' . htmlspecialchars($surat_data['perihal'] ?? '-') . '</td></tr>';
     $html .= '</table>';
-    $html .= '</td>';
-
-    // right column: Kepada block
-    $html .= '<td style="width:36%; vertical-align:top;">';
-    $html .= '<div style="font-size:11pt;"><strong>Kepada</strong></div>';
-    $html .= '<div style="margin-top:6px;">Yth.</div>';
-    $html .= '<div style="margin-top:6px;">' . htmlspecialchars($surat_data['kepada_jabatan'] ?? '') . '</div>';
-    $html .= '<div>di</div>';
-    $html .= '<div>' . htmlspecialchars($surat_data['kepada_tempat'] ?? '') . '</div>';
-    $html .= '</td>';
-
-    $html .= '</tr>';
-    $html .= '</table>';
-
     $html .= '<br>';
 
     // Begin main numbered content
@@ -119,26 +85,25 @@ class SuratTugasPDF extends TCPDF {
 
         // Additional fixed paragraphs
         $html .= '<p style="text-align: justify; line-height: 1.4;">';
-        $html .= '2. &nbsp;&nbsp;' . htmlspecialchars($surat_data['keperluan']) .
-                 ', yang akan dilaksanakan pada:';
-        $html .= '</p>';
+        $html .= '2. &nbsp;&nbsp;Sehubungan dasar di atas, dengan hormat diajukan permohonan dukungan sebagai berikut:</p>';
+        $html .= '<div style="margin-left:18px; line-height:1.4;">' . nl2br(htmlspecialchars((string)($surat_data['keperluan'] ?? '-'))) . '</div>';
 
-        $html .= '<table style="width: 100%; margin-left: 30px; font-size: 11pt;">';
-    // Hari/Tanggal in Indonesian
-    $ts_berangkat = strtotime($surat_data['tanggal_berangkat']);
-    $hari = $hari_indo[date('l', $ts_berangkat)] ?? date('l', $ts_berangkat);
-    $tgl_ber = date('j', $ts_berangkat) . ' ' . $bulan_indo[(int)date('n', $ts_berangkat)] . ' ' . date('Y', $ts_berangkat);
-    $html .= '<tr><td style="width: 100px;">Hari/Tanggal</td><td style="width: 10px;">:</td><td>' . $hari . ', ' . $tgl_ber . '</td></tr>';
-        $html .= '<tr><td>Tempat</td><td>:</td><td>' . htmlspecialchars($surat_data['berangkat_dari']) . '</td></tr>';
-        $html .= '<tr><td>Waktu</td><td>:</td><td>' . htmlspecialchars($surat_data['waktu_berangkat']) . '</td></tr>';
+        $html .= '<table style="width: 100%; margin-left: 18px; font-size: 11pt; margin-top:8px;">';
+        $ts_berangkat = strtotime($surat_data['tanggal_berangkat'] ?? '');
+        $tgl_ber = $ts_berangkat ? (date('j', $ts_berangkat) . ' ' . ($bulan_indo[(int)date('n', $ts_berangkat)] ?? '') . ' ' . date('Y', $ts_berangkat)) : '-';
+        $tgl_kembali = !empty($surat_data['tanggal_kembali']) ? date('j', strtotime($surat_data['tanggal_kembali'])) . ' ' . ($bulan_indo[(int)date('n', strtotime($surat_data['tanggal_kembali']))] ?? '') . ' ' . date('Y', strtotime($surat_data['tanggal_kembali'])) : '';
+        $periode = $tgl_ber . ($tgl_kembali !== '' ? (' s.d. ' . $tgl_kembali) : '');
+        $html .= '<tr><td style="width: 120px;">Periode</td><td style="width: 10px;">:</td><td>' . htmlspecialchars($periode) . '</td></tr>';
+        $html .= '<tr><td>Waktu</td><td>:</td><td>' . htmlspecialchars((string)($surat_data['waktu_berangkat'] ?? '-')) . '</td></tr>';
+        $html .= '<tr><td>Tujuan</td><td>:</td><td>' . htmlspecialchars((string)($surat_data['tujuan'] ?? '-')) . '</td></tr>';
         $html .= '</table>';
 
-        $html .= '<p>3. &nbsp;&nbsp;Demikian mohon dimaklumi.</p>';
+        $html .= '<p>3. &nbsp;&nbsp;Demikian mohon menjadikan periksa.</p>';
         $html .= '<br><br>';
 
         $html .= '<table style="width: 100%; font-size: 11pt;">';
         $html .= '<tr><td style="width: 50%;">&nbsp;</td><td style="text-align: center;">';
-        $html .= 'Jakarta, ' . $tanggal . ' ' . $bulan . ' ' . $tahun . '<br>' . htmlspecialchars($surat_data['pejabat_ttd_jabatan']) . '<br>' . htmlspecialchars($surat_data['pejabat_ttd_sebagai']) . '<br><br><br><br><strong>' . htmlspecialchars($surat_data['pejabat_ttd']) . '</strong>';
+        $html .= 'Jakarta, ' . $tanggal . ' ' . $bulan . ' ' . $tahun . '<br>' . htmlspecialchars((string)($surat_data['pejabat_ttd_jabatan'] ?? ('Plh. Kepala ' . ($surat_data['nama_bagian'] ?? 'Bagian Pengamanan')))) . '<br>' . htmlspecialchars((string)($surat_data['pejabat_ttd_sebagai'] ?? '')) . '<br><br><br><br><strong>' . htmlspecialchars((string)($surat_data['pejabat_ttd'] ?? '')) . '</strong>';
         $html .= '</td></tr></table>';
 
         $html .= '<br><br>';

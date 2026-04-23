@@ -80,6 +80,15 @@ if ($_POST) {
         } elseif (strtotime($tanggal_selesai) <= strtotime($tanggal_mulai)) {
             $msg = '<div class="alert alert-danger">Tanggal selesai harus setelah tanggal mulai!</div>';
         } else {
+            // Kebijakan peminjaman: hanya kendaraan jenis Bus.
+            $busChk = $mysqli->query("SELECT jenis FROM kendaraan WHERE id = " . (int)$kendaraan_id);
+            $busRow = $busChk ? $busChk->fetch_assoc() : null;
+            $jenisKendaraan = strtolower(trim((string)($busRow['jenis'] ?? '')));
+            if ($jenisKendaraan !== 'bus') {
+                $msg = '<div class="alert alert-danger">Pengajuan peminjaman hanya diperbolehkan untuk kendaraan jenis Bus.</div>';
+            }
+
+            if (empty($msg)) {
             // Check if vehicle is available
             $check_stmt = $mysqli->prepare("\n                SELECT COUNT(*) as count FROM peminjaman_kendaraan \n                WHERE kendaraan_id = ? \n                AND status IN ('Approved', 'Ongoing', 'approved', 'ongoing') \n                AND ((tanggal_mulai <= ? AND tanggal_selesai >= ?) \n                     OR (tanggal_mulai <= ? AND tanggal_selesai >= ?)\n                     OR (tanggal_mulai >= ? AND tanggal_selesai <= ?))\n            ");
             $check_stmt->bind_param('issssss', $kendaraan_id, $tanggal_mulai, $tanggal_mulai, $tanggal_selesai, $tanggal_selesai, $tanggal_mulai, $tanggal_selesai);
@@ -233,6 +242,7 @@ if ($_POST) {
                 }
                 }
             }
+            }
         }
     }
 }
@@ -243,6 +253,7 @@ $vehicles_query = "
            CASE WHEN k.status_peminjaman = 'Tersedia' AND k.status_kendaraan = 'Operasional' 
                 THEN 1 ELSE 0 END as available
     FROM kendaraan k
+    WHERE LOWER(COALESCE(k.jenis, '')) = 'bus'
     ORDER BY available DESC, COALESCE(k.no_reg, k.no_polisi)
 ";
 $vehicles = $mysqli->query($vehicles_query)->fetch_all(MYSQLI_ASSOC);

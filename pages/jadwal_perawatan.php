@@ -13,7 +13,8 @@ if ($current_role === 'guest') {
     exit;
 }
 
-$can_crud = can_operate(); // operator dan admin
+$can_crud = can_admin(); // hanya admin yang mengatur perawatan
+$can_notify_driver = in_array($current_role, ['admin', 'pimpinan'], true);
 $can_view = is_logged_in();
 
 $action = $_GET['action'] ?? 'list';
@@ -25,6 +26,72 @@ if ($_POST) {
     if (!validate_csrf_token($_POST['csrf_token'] ?? '')) {
         $msg = '<div class="alert alert-danger">Token keamanan tidak valid!</div>';
     } else {
+        if (($action === 'notify_driver_routine' || ($_POST['action'] ?? '') === 'notify_driver_routine') && $can_notify_driver) {
+            $jadwal_for_notify = (int)($_POST['jadwal_id'] ?? 0);
+            $interval_month = max(1, (int)($_POST['interval_bulan'] ?? 3));
+
+            if ($jadwal_for_notify <= 0) {
+                $msg = '<div class="alert alert-danger">Jadwal perawatan tidak valid.</div>';
+                goto end_post;
+            }
+
+            $stmt_j = $mysqli->prepare("SELECT jp.id, jp.kendaraan_id, jp.jenis_perawatan, jp.tanggal_perawatan, k.no_polisi, k.no_reg, k.merk, k.tipe FROM jadwal_perawatan jp LEFT JOIN kendaraan k ON jp.kendaraan_id = k.id WHERE jp.id = ? LIMIT 1");
+            if (!$stmt_j) {
+                $msg = '<div class="alert alert-danger">Gagal menyiapkan data jadwal.</div>';
+                goto end_post;
+            }
+
+            $stmt_j->bind_param('i', $jadwal_for_notify);
+            $stmt_j->execute();
+            $jadwal_row = $stmt_j->get_result()->fetch_assoc();
+            $stmt_j->close();
+
+            if (!$jadwal_row) {
+                $msg = '<div class="alert alert-danger">Data jadwal perawatan tidak ditemukan.</div>';
+                goto end_post;
+            }
+
+            $driver_ids = [];
+            $stmt_dr = $mysqli->prepare("SELECT DISTINCT pengguna_id FROM surat_tugas WHERE kendaraan_id = ? AND status IN ('Disetujui','Dalam Perjalanan') AND pengguna_id IS NOT NULL");
+            if ($stmt_dr) {
+                $stmt_dr->bind_param('i', $jadwal_row['kendaraan_id']);
+                $stmt_dr->execute();
+                $res_dr = $stmt_dr->get_result();
+                while ($r = $res_dr->fetch_assoc()) {
+                    $uid = (int)($r['pengguna_id'] ?? 0);
+                    if ($uid > 0) {
+                        $driver_ids[$uid] = true;
+                    }
+                }
+                $stmt_dr->close();
+            }
+
+            $next_date = $jadwal_row['tanggal_perawatan'];
+            if (!empty($next_date)) {
+                $next_date = date('d/m/Y', strtotime('+' . $interval_month . ' months', strtotime($next_date)));
+            } else {
+                $next_date = '-';
+            }
+
+            $kendaraan_label = (!empty($jadwal_row['no_reg']) ? $jadwal_row['no_reg'] : $jadwal_row['no_polisi']) . ' - ' . trim(($jadwal_row['merk'] ?? '') . ' ' . ($jadwal_row['tipe'] ?? ''));
+            $notif_msg = 'Pemberitahuan pimpinan: Perawatan rutin 3 bulanan untuk kendaraan ' . $kendaraan_label . ' (' . ($jadwal_row['jenis_perawatan'] ?? 'Perawatan Berkala') . ') dijadwalkan. Estimasi jadwal berikutnya: ' . $next_date . '.';
+
+            $sent = 0;
+            foreach (array_keys($driver_ids) as $uid) {
+                if (insert_notification($mysqli, (int)$uid, $notif_msg, 'Pemberitahuan Perawatan Rutin', 'info', 'maintenance')) {
+                    $sent++;
+                }
+            }
+
+            if ($sent > 0) {
+                $msg = '<div class="alert alert-success">Notifikasi perawatan rutin berhasil dikirim ke ' . $sent . ' driver.</div>';
+            } else {
+                $msg = '<div class="alert alert-warning">Tidak ada driver aktif yang terkait kendaraan ini untuk dikirimi notifikasi.</div>';
+            }
+
+            goto end_post;
+        }
+
         if ($action === 'add' && $can_crud) {
             $kendaraan_id = (int)($_POST['kendaraan_id'] ?? 0);
             // validate kendaraan selection
@@ -370,7 +437,7 @@ if (!empty($_SESSION['swal'])): ?>
                                     <th>Estimasi Biaya</th>
                                     <th>Status</th>
                                     <th>Prioritas</th>
-                                    <?php if ($can_crud): ?>
+                                    <?php if ($can_crud || $can_notify_driver): ?>
                                         <th>Aksi</th>
                                     <?php endif; ?>
                                 </tr>

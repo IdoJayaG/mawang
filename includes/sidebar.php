@@ -28,7 +28,7 @@
         ?>
         
         <!-- Menu untuk semua pengunjung (termasuk guest) -->
-        <?php if ($current_role === 'user'): ?>
+        <?php if (in_array($current_role, ['user', 'driver'], true)): ?>
             <li><a href="index.php?page=home" class="<?= (!isset($_GET['page']) || $_GET['page'] == 'home') ? 'active' : '' ?>">
                 <i class="fas fa-home"></i><span>Beranda</span>
             </a></li>
@@ -47,8 +47,8 @@
                 <i class="fas fa-sign-in-alt"></i><span>Login</span>
             </a></li>
             
-        <?php elseif ($current_role === 'user'): ?>
-            <!-- Menu untuk User -->
+        <?php elseif (in_array($current_role, ['user', 'driver'], true)): ?>
+            <!-- Menu untuk User/Driver -->
              <li><a href="index.php?page=dashboard_user" class="<?= ($current_page == 'dashboard_user') ? 'active' : '' ?>">
                 <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
             </a></li> 
@@ -87,6 +87,27 @@
             <li><a href="index.php?page=profil" class="<?= ($current_page == 'profil') ? 'active' : '' ?>">
                 <i class="fas fa-user"></i><span>Profil Saya</span>
             </a></li>
+            <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">
+                <i class="fas fa-file-signature"></i><span>Pengajuan Surat Tugas</span>
+            </a></li>
+            <li><a class="btn-logout" href="logout.php">
+                <i class="fas fa-sign-out-alt"></i><span>Logout</span>
+            </a></li>
+
+        <?php elseif ($current_role === 'pimpinan'): ?>
+            <!-- Menu untuk Pimpinan -->
+            <li><a href="index.php?page=dashboard_operator" class="<?= ($current_page == 'dashboard_operator') ? 'active' : '' ?>">
+                <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
+            </a></li>
+            <li><a href="index.php?page=jadwal_perawatan" class="<?= ($current_page == 'jadwal_perawatan') ? 'active' : '' ?>">
+                <i class="fas fa-calendar-alt"></i><span>Jadwal Perawatan</span>
+            </a></li>
+            <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">
+                <i class="fas fa-file-signature"></i><span>Surat Tugas</span>
+            </a></li>
+            <li><a href="index.php?page=profil" class="<?= ($current_page == 'profil') ? 'active' : '' ?>">
+                <i class="fas fa-user"></i><span>Profil</span>
+            </a></li>
             <li><a class="btn-logout" href="logout.php">
                 <i class="fas fa-sign-out-alt"></i><span>Logout</span>
             </a></li>
@@ -107,6 +128,7 @@
                 <ul class="submenu">
                     <li><a href="index.php?page=kendaraan" class="<?= ($current_page == 'kendaraan') ? 'active' : '' ?>">Data Kendaraan</a></li>
                     <li><a href="index.php?page=log_bahan_bakar" class="<?= ($current_page == 'log_bahan_bakar') ? 'active' : '' ?>">Log BBM</a></li>
+                    <li><a href="index.php?page=map_kendaraan" class="<?= ($current_page == 'map_kendaraan') ? 'active' : '' ?>">Peta Kendaraan</a></li>
                 </ul>
             </li>
             
@@ -150,13 +172,14 @@
                 <ul class="submenu">
             <li><a href="index.php?page=kendaraan" class="<?= ($current_page == 'kendaraan') ? 'active' : '' ?>">Data Kendaraan</a></li>
             <li><a href="index.php?page=pengguna_kendaraan" class="<?= ($current_page == 'pengguna_kendaraan') ? 'active' : '' ?>">Pengguna Kendaraan</a></li>
+            <li><a href="index.php?page=map_kendaraan" class="<?= ($current_page == 'map_kendaraan') ? 'active' : '' ?>">Peta Kendaraan</a></li>
                 </ul>
             </li>
             
 
             <!-- peminjaman -->
              
-            <!-- <li class="has-submenu <?= in_array($current_page, ['persetujuan_peminjaman', 'monitoring_peminjaman']) ? 'active' : '' ?>">
+            <li class="has-submenu <?= in_array($current_page, ['persetujuan_peminjaman', 'monitoring_peminjaman']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-clipboard-check"></i><span>Peminjaman</span>
                     <i class="fas fa-chevron-down submenu-arrow"></i>
@@ -165,7 +188,7 @@
                     <li><a href="index.php?page=persetujuan_peminjaman" class="<?= ($current_page == 'persetujuan_peminjaman') ? 'active' : '' ?>">Persetujuan Peminjaman</a></li>
                     <li><a href="index.php?page=monitoring_peminjaman" class="<?= ($current_page == 'monitoring_peminjaman') ? 'active' : '' ?>">Monitoring Peminjaman</a></li>
                 </ul>
-            </li> -->
+            </li> 
             
             <li class="has-submenu <?= in_array($current_page, ['riwayat_pemakaian', 'riwayat_perawatan', 'riwayat_perbaikan']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
@@ -173,10 +196,10 @@
                     <i class="fas fa-chevron-down submenu-arrow"></i>
                 </a>
                 <ul class="submenu">
-                    <!-- <li><a href="index.php?page=riwayat_pemakaian" class="<?= ($current_page == 'riwayat_pemakaian') ? 'active' : '' ?>">Riwayat Pemakaian</a></li> -->
+                    <li><a href="index.php?page=riwayat_pemakaian" class="<?= ($current_page == 'riwayat_pemakaian') ? 'active' : '' ?>">Riwayat Pemakaian</a></li>
                     <li><a href="index.php?page=riwayat_perawatan" class="<?= ($current_page == 'riwayat_perawatan') ? 'active' : '' ?>">Riwayat Perawatan</a></li>
                     <li><a href="index.php?page=riwayat_perbaikan" class="<?= ($current_page == 'riwayat_perbaikan') ? 'active' : '' ?>">Riwayat Perbaikan</a></li>
-                    <!-- <li><a href="index.php?page=log_bahan_bakar" class="<?= ($current_page == 'log_bahan_bakar') ? 'active' : '' ?>">Log BBM</a></li> -->
+                    <li><a href="index.php?page=log_bahan_bakar" class="<?= ($current_page == 'log_bahan_bakar') ? 'active' : '' ?>">Log BBM</a></li>
                 </ul>
             </li>
             
@@ -186,21 +209,18 @@
 
 
 
-            <!-- <li class="has-submenu <?= in_array($current_page, ['dokumen_kendaraan', 'jadwal_perawatan', 'surat_tugas']) ? 'active' : '' ?>">
+             <li class="has-submenu <?= in_array($current_page, ['dokumen_kendaraan','laporan_perjalanan','surat_tugas']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-folder"></i><span>Dokumen</span>
                     <i class="fas fa-chevron-down submenu-arrow"></i>
                 </a>
                 <ul class="submenu">
                     <li><a href="index.php?page=dokumen_kendaraan" class="<?= ($current_page == 'dokumen_kendaraan') ? 'active' : '' ?>">Dokumen Kendaraan</a></li>
+                    <li><a href="index.php?page=laporan_perjalanan" class="<?= ($current_page == 'laporan_perjalanan') ? 'active' : '' ?>">Laporan Perjalanan</a></li>
                     <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">Surat Tugas</a></li>
                 </ul>
-            </li> -->
+            </li>
 
-            
-            <li><a href="index.php?page=laporan_perjalanan" class="<?= ($current_page == 'laporan_perjalanan') ? 'active' : '' ?>">
-                <i class="fas fa-file-alt"></i><span>Laporan Perjalanan</span>
-            </a></li>
             <li class="has-submenu <?= in_array($current_page, ['manajemen_user', 'manajemen_pengguna', 'log_aktivitas']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-users-cog"></i><span>User</span>

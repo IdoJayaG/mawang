@@ -147,8 +147,8 @@ if ($action === 'export_excel') {
 
 // Shared Jabatan enum options for forms and server-side validation
 $JABATAN_ENUM = [
-    'Kapusinfolahta TNI',
-    'Wakapusinfolahta TNI',
+    'Kepala SPBT Kemhan Cawang',
+    'Wakil Kepala SPBT Kemhan Cawang',
     'Kataud',
     'Bidduk TI',
     'Kabidduk TI',
@@ -580,6 +580,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     if ($role_input !== '') {
                                         $role_key = $role_input;
                                         if ($role_key === 'admin') { $role_key = 'administrator'; }
+                                        if ($role_key === 'sopir') { $role_key = 'driver'; }
+                                        if ($role_key === 'leader') { $role_key = 'pimpinan'; }
                                         if (isset($rolesMap[$role_key])) { $role_id = $rolesMap[$role_key]; }
                                         else { $errors[] = 'Baris ' . (intval($i)+2) . ': Role tidak dikenali; menggunakan User.'; }
                                     }

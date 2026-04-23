@@ -10,13 +10,32 @@ if ($current_role === 'guest') {
     exit;
 }
 
-$can_crud = can_operate() || $current_role === 'user';
+$can_crud = can_operate() || in_array($current_role, ['user', 'driver'], true);
 $can_view = is_logged_in();
 
 $action = $_GET['action'] ?? 'list';
 $log_id = $_GET['id'] ?? null;
 $kendaraan_id = $_GET['kendaraan_id'] ?? null;
 $msg = '';
+
+$edit_data = null;
+if ($action === 'edit' && $can_crud && $log_id) {
+    $stmt_edit = $mysqli->prepare("SELECT * FROM log_bahan_bakar WHERE id = ? LIMIT 1");
+    if ($stmt_edit) {
+        $stmt_edit->bind_param('i', $log_id);
+        $stmt_edit->execute();
+        $edit_data = $stmt_edit->get_result()->fetch_assoc();
+        $stmt_edit->close();
+    }
+    if (!$edit_data) {
+        $msg = '<div class="alert alert-danger">Data log BBM tidak ditemukan.</div>';
+        $action = 'list';
+    } elseif (!can_operate() && !can_access_vehicle((int)$edit_data['kendaraan_id'])) {
+        $msg = '<div class="alert alert-danger">Anda tidak memiliki akses untuk mengedit log BBM ini.</div>';
+        $action = 'list';
+        $edit_data = null;
+    }
+}
 
 // Time helpers for window filtering
 $now = date('Y-m-d H:i:s');
@@ -59,6 +78,9 @@ if ($_POST) {
         if ($action === 'add' && $can_crud) {
             try {
                 $kendaraan_id = (int)$_POST['kendaraan_id'];
+                if (!can_operate() && !can_access_vehicle($kendaraan_id)) {
+                    throw new Exception('Anda hanya dapat mengelola BBM untuk kendaraan yang menjadi tanggung jawab Anda.');
+                }
                 $tanggal_isi = $_POST['tanggal_isi'];
                 $jumlah_liter = (float)$_POST['jumlah_liter'];
                 $harga_per_liter = (float)$_POST['harga_per_liter'];
@@ -102,12 +124,42 @@ if ($_POST) {
             } catch (Exception $e) {
                 $msg = '<div class="alert alert-danger">Error: ' . $e->getMessage() . '</div>';
             }
+        } elseif ($action === 'edit' && $can_crud && $log_id) {
+            try {
+                $kendaraan_id = (int)$_POST['kendaraan_id'];
+                if (!can_operate() && !can_access_vehicle($kendaraan_id)) {
+                    throw new Exception('Anda hanya dapat mengelola BBM untuk kendaraan yang menjadi tanggung jawab Anda.');
+                }
+                $tanggal_isi = $_POST['tanggal_isi'];
+                $jumlah_liter = (float)$_POST['jumlah_liter'];
+                $harga_per_liter = (float)$_POST['harga_per_liter'];
+                $km_saat_isi = $_POST['km_saat_isi'] ? (int)$_POST['km_saat_isi'] : null;
+                $spbu = trim($_POST['spbu']);
+                $jenis_bbm = $_POST['jenis_bbm'];
+                $metode_bayar = $_POST['metode_bayar'];
+                $keterangan = trim($_POST['keterangan']);
+                $total_biaya = $jumlah_liter * $harga_per_liter;
+
+                $stmt = $mysqli->prepare("UPDATE log_bahan_bakar SET kendaraan_id=?, tanggal_isi=?, jumlah_liter=?, harga_per_liter=?, biaya=?, km_saat_isi=?, spbu=?, jenis_bahan_bakar=?, metode_bayar=?, keterangan=? WHERE id=?");
+                $stmt->bind_param('isdddissssi', $kendaraan_id, $tanggal_isi, $jumlah_liter, $harga_per_liter, $total_biaya, $km_saat_isi, $spbu, $jenis_bbm, $metode_bayar, $keterangan, $log_id);
+
+                if ($stmt->execute()) {
+                    log_activity("EDIT_BBM_LOG", "Memperbarui log BBM ID $log_id untuk kendaraan ID $kendaraan_id");
+                    header('Location: index.php?page=log_bahan_bakar_detail&kendaraan_id=' . $kendaraan_id);
+                    exit;
+                } else {
+                    $msg = '<div class="alert alert-danger">Error: ' . $stmt->error . '</div>';
+                }
+                $stmt->close();
+            } catch (Exception $e) {
+                $msg = '<div class="alert alert-danger">Error: ' . $e->getMessage() . '</div>';
+            }
         }
     }
 }
 
 // Get vehicle data based on user role
-if ($current_role === 'user') {
+if (in_array($current_role, ['user', 'driver'], true)) {
     // User hanya bisa melihat kendaraan yang ditugaskan via surat_tugas (aktif window) atau dipinjam (aktif window)
     // Optional: juga tampilkan peminjaman_terjadwal (approved window) bila tabel ada
     $subqueries = [];
@@ -158,7 +210,7 @@ $page = isset($_GET['page_num']) ? max(1, intval($_GET['page_num'])) : 1;
 $limit = 10;
 $offset = ($page - 1) * $limit;
 
-if ($current_role === 'user') {
+if (in_array($current_role, ['user', 'driver'], true)) {
     // User hanya melihat kendaraan dari surat_tugas aktif / peminjaman aktif (dan jadwal approved jika ada)
     $subq = [];
     $types_l = '';
@@ -243,7 +295,7 @@ $log_stmt->execute();
 $log_list = $log_stmt->get_result();
 
 // Get total count for pagination (count vehicles shown)
-if ($current_role === 'user') {
+if (in_array($current_role, ['user', 'driver'], true)) {
     // Count distinct vehicles in the same union-filter set
     $subq = [];
     $types_c = '';
@@ -302,12 +354,12 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
 
 <?= $msg ?>
 
-<?php if ($action === 'add' && $can_crud): ?>
+<?php if (($action === 'add' || $action === 'edit') && $can_crud): ?>
     <!-- Form Tambah Log BBM -->
     <div class="form-container">
         <div class="form-card">
             <div class="form-header">
-                <h3><i class="fas fa-plus-circle"></i> Tambah Log Bahan Bakar</h3>
+                <h3><i class="fas fa-plus-circle"></i> <?= $action === 'edit' ? 'Edit' : 'Tambah' ?> Log Bahan Bakar</h3>
                 <a href="?page=log_bahan_bakar" class="btn btn-outline btn-sm">
                     <i class="fas fa-arrow-left" class="btn btn-secondary"></i> Kembali
                 </a>
@@ -324,7 +376,7 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                         <select name="kendaraan_id" id="kendaraan_id" required class="form-control">
                             <option value="">-- Pilih Kendaraan --</option>
                             <?php while ($kendaraan = $kendaraan_list->fetch_assoc()): ?>
-                                <option value="<?= $kendaraan['id'] ?>" <?= ($kendaraan_id == $kendaraan['id']) ? 'selected' : '' ?>>
+                                <option value="<?= $kendaraan['id'] ?>" <?= ((string)($kendaraan_id ?? '') === (string)$kendaraan['id'] || ((int)($edit_data['kendaraan_id'] ?? 0) === (int)$kendaraan['id'])) ? 'selected' : '' ?>>
                                     <?= htmlspecialchars(($kendaraan['no_reg'] ?? '') . ' - ' . $kendaraan['merk'] . ' ' . $kendaraan['tipe']) ?>
                                 </option>
                             <?php endwhile; ?>
@@ -336,7 +388,7 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                             <i class="fas fa-calendar"></i> Tanggal & Waktu Isi <span class="required">*</span>
                         </label>
                         <input type="datetime-local" name="tanggal_isi" id="tanggal_isi" required class="form-control" 
-                               value="<?= date('Y-m-d\TH:i') ?>">
+                               value="<?= htmlspecialchars(isset($edit_data['tanggal_isi']) ? date('Y-m-d\TH:i', strtotime((string)$edit_data['tanggal_isi'])) : date('Y-m-d\TH:i')) ?>">
                     </div>
                 </div>
                 
@@ -346,7 +398,7 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                             <i class="fas fa-gas-pump"></i> Jumlah Liter <span class="required">*</span>
                         </label>
                         <input type="number" name="jumlah_liter" id="jumlah_liter" required class="form-control" 
-                               step="0.01" min="0.01" placeholder="0.00">
+                               step="0.01" min="0.01" placeholder="0.00" value="<?= htmlspecialchars($edit_data['jumlah_liter'] ?? '') ?>">
                     </div>
                     
                     <div class="form-group">
@@ -354,7 +406,7 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                             <i class="fas fa-money-bill"></i> Harga per Liter <span class="required">*</span>
                         </label>
                         <input type="number" name="harga_per_liter" id="harga_per_liter" required class="form-control" 
-                               step="0.01" min="0.01" placeholder="0.00">
+                               step="0.01" min="0.01" placeholder="0.00" value="<?= htmlspecialchars($edit_data['harga_per_liter'] ?? '') ?>">
                     </div>
                 </div>
                 
@@ -364,7 +416,7 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                             <i class="fas fa-tachometer-alt"></i> KM Saat Isi
                         </label>
                         <input type="number" name="km_saat_isi" id="km_saat_isi" class="form-control" 
-                               min="0" placeholder="Odometer saat pengisian">
+                               min="0" placeholder="Odometer saat pengisian" value="<?= htmlspecialchars($edit_data['km_saat_isi'] ?? '') ?>">
                     </div>
                     
                     <div class="form-group">
@@ -372,11 +424,11 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                             <i class="fas fa-oil-can"></i> Jenis BBM
                         </label>
                         <select name="jenis_bbm" id="jenis_bahan_bakar" class="form-control">
-                            <option value="Pertalite">Pertalite</option>
-                            <option value="Pertamax">Pertamax</option>
-                            <option value="Pertamax Turbo">Pertamax Turbo</option>
-                            <option value="Solar">Solar</option>
-                            <option value="Biosolar">Biosolar</option>
+                            <option value="Pertalite" <?= (($edit_data['jenis_bahan_bakar'] ?? '') === 'Pertalite') ? 'selected' : '' ?>>Pertalite</option>
+                            <option value="Pertamax" <?= (($edit_data['jenis_bahan_bakar'] ?? '') === 'Pertamax') ? 'selected' : '' ?>>Pertamax</option>
+                            <option value="Pertamax Turbo" <?= (($edit_data['jenis_bahan_bakar'] ?? '') === 'Pertamax Turbo') ? 'selected' : '' ?>>Pertamax Turbo</option>
+                            <option value="Solar" <?= (($edit_data['jenis_bahan_bakar'] ?? '') === 'Solar') ? 'selected' : '' ?>>Solar</option>
+                            <option value="Biosolar" <?= (($edit_data['jenis_bahan_bakar'] ?? '') === 'Biosolar') ? 'selected' : '' ?>>Biosolar</option>
                         </select>
                     </div>
                 </div>
@@ -387,7 +439,7 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                             <i class="fas fa-map-marker-alt"></i> SPBU
                         </label>
                         <input type="text" name="spbu" id="spbu" class="form-control" 
-                               placeholder="Nama/lokasi SPBU">
+                               placeholder="Nama/lokasi SPBU" value="<?= htmlspecialchars($edit_data['spbu'] ?? '') ?>">
                     </div>
                     
                     <div class="form-group">
@@ -395,9 +447,9 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                             <i class="fas fa-credit-card"></i> Metode Bayar
                         </label>
                         <select name="metode_bayar" id="metode_bayar" class="form-control">
-                            <option value="Tunai">Tunai</option>
-                            <option value="Kartu">Kartu</option>
-                            <option value="Transfer">Transfer</option>
+                            <option value="Tunai" <?= (($edit_data['metode_bayar'] ?? '') === 'Tunai') ? 'selected' : '' ?>>Tunai</option>
+                            <option value="Kartu" <?= (($edit_data['metode_bayar'] ?? '') === 'Kartu') ? 'selected' : '' ?>>Kartu</option>
+                            <option value="Transfer" <?= (($edit_data['metode_bayar'] ?? '') === 'Transfer') ? 'selected' : '' ?>>Transfer</option>
                         </select>
                     </div>
                 </div>
@@ -409,12 +461,12 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                         <i class="fas fa-sticky-note"></i> Keterangan
                     </label>
                     <textarea name="keterangan" id="keterangan" class="form-control" rows="3" 
-                              placeholder="Keterangan tambahan (opsional)"></textarea>
+                              placeholder="Keterangan tambahan (opsional)"><?= htmlspecialchars($edit_data['keterangan'] ?? '') ?></textarea>
                 </div>
                 
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-save"></i> Simpan Log BBM
+                        <i class="fas fa-save"></i> <?= $action === 'edit' ? 'Perbarui' : 'Simpan' ?> Log BBM
                     </button>
                     <a href="?page=log_bahan_bakar" class="btn btn-outline">
                         <i class="fas fa-times"></i> Batal

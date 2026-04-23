@@ -69,6 +69,13 @@ if ($_POST && isset($_POST['action'])) {
             $tanggal_mulai = $_POST['tanggal_mulai'];
 
             if ($kendaraan_id && $keperluan && $tujuan && $estimasi_durasi && $justifikasi && $tanggal_mulai) {
+                // Kebijakan peminjaman: hanya kendaraan jenis Bus.
+                $busChk = $mysqli->query("SELECT jenis FROM kendaraan WHERE id = " . (int)$kendaraan_id);
+                $busRow = $busChk ? $busChk->fetch_assoc() : null;
+                $jenisKendaraan = strtolower(trim((string)($busRow['jenis'] ?? '')));
+                if ($jenisKendaraan !== 'bus') {
+                    $msg = '<div class="alert alert-danger">Pengajuan pinjam pakai hanya diperbolehkan untuk kendaraan jenis Bus.</div>';
+                } else {
                 // Insert pinjam pakai
                 $stmt = $mysqli->prepare("INSERT INTO pinjam_pakai (pemohon_id, kendaraan_id, keperluan, tujuan, estimasi_durasi, justifikasi, tanggal_mulai) VALUES (?, ?, ?, ?, ?, ?, ?)");
                 if ($stmt) {
@@ -97,6 +104,7 @@ if ($_POST && isset($_POST['action'])) {
                 } else {
                     $msg = '<div class="alert alert-danger">Gagal menyiapkan query pengajuan: ' . htmlspecialchars($mysqli->error) . '</div>';
                 }
+                }
             } else {
                 $msg = '<div class="alert alert-danger">Harap lengkapi semua field yang diperlukan.</div>';
             }
@@ -108,12 +116,12 @@ if ($_POST && isset($_POST['action'])) {
 $cols_info = $mysqli->query("SHOW COLUMNS FROM kendaraan")->fetch_all(MYSQLI_ASSOC);
 $cols_names = array_column($cols_info, 'Field');
 if (in_array('status', $cols_names)) {
-    $vehicles = $mysqli->query("SELECT * FROM kendaraan WHERE status = 'Tersedia' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
+    $vehicles = $mysqli->query("SELECT * FROM kendaraan WHERE status = 'Tersedia' AND LOWER(COALESCE(jenis,'')) = 'bus' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
 } elseif (in_array('status_peminjaman', $cols_names)) {
-    $vehicles = $mysqli->query("SELECT * FROM kendaraan WHERE status_peminjaman = 'Tersedia' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
+    $vehicles = $mysqli->query("SELECT * FROM kendaraan WHERE status_peminjaman = 'Tersedia' AND LOWER(COALESCE(jenis,'')) = 'bus' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
 } else {
     // fallback: no availability column detected, return all vehicles
-    $vehicles = $mysqli->query("SELECT * FROM kendaraan ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
+    $vehicles = $mysqli->query("SELECT * FROM kendaraan WHERE LOWER(COALESCE(jenis,'')) = 'bus' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
 }
 
 // Get user's pinjam pakai (guard if table missing)

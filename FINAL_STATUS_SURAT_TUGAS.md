@@ -13,8 +13,8 @@ Berdasarkan gambar surat TNI yang diberikan, telah diimplementasikan:
 
 #### Header Resmi TNI
 ```
-MARKAS BESAR TENTARA NASIONAL INDONESIA
-PUSAT INFORMASI DAN PENGOLAHAN DATA
+KEMENTERIAN PERTAHANAN REPUBLIK INDONESIA
+SPBT KEMHAN CAWANG
 Jalan Medan Merdeka Barat No. 13-14, Jakarta Pusat 10110
 ```
 
@@ -33,13 +33,13 @@ Jalan Medan Merdeka Barat No. 13-14, Jakarta Pusat 10110
 4. **Penutup**: "Demikian mohon dimaklumi"
 
 #### Tanda Tangan Resmi
-- Format: "a.n Kepala Pusinfolahta TNI"
+- Format: "a.n Kepala SPBT Kemhan Cawang"
 - Jabatan: "Waka," 
 - Nama & Pangkat: S. Ginting, S.Kom., MMSI., M.Tr.Hankam
 - NRP: Kolonel Laut (E) NRP 13475/P
 
 #### Tembusan Standard TNI
-1. Kapusinfolahta TNI
+1. Kepala SPBT Kemhan Cawang
 2. Asops Denma Mabes TNI
 3. Dansetang Denma Mabes TNI  
 4. Dansakdok Denma Mabes TNI

@@ -44,7 +44,7 @@ if ($action === 'export_excel') {
             $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
             $sheet->setTitle('Perbaikan');
-            // Service header like: SERVICE BUS AL MATSUS PUSINFOLAHTA TNI
+            // Service header like: SERVICE KENDARAAN SPBT KEMHAN CAWANG
             $sheet->mergeCells('A1:E1');
             $sheet->setCellValue('A1','SERVICE KENDARAAN - '.strtoupper((string)($rp['no_reg'] ?? $rp['no_polisi'] ?? '')));
             $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);

@@ -14,8 +14,8 @@ $jabatan = isset($_GET['jabatan']) ? trim((string)$_GET['jabatan']) : '';
 
 // Ordered enum (keep in sync with kendaraan.php & pengguna.jabatan)
 $JABATAN_ENUM = [
-    'Kapusinfolahta TNI',
-    'Wakapusinfolahta TNI',
+    'Kepala SPBT Kemhan Cawang',
+    'Wakil Kepala SPBT Kemhan Cawang',
     'Kataud',
     'Bidduk TI',
     'Kabidduk TI',

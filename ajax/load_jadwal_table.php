@@ -2,7 +2,8 @@
 require_once dirname(__DIR__) . '/includes/auth.php';
 
 $current_role = get_current_role();
-$can_crud = can_operate();
+$can_crud = can_admin();
+$can_notify_driver = in_array($current_role, ['admin', 'pimpinan'], true);
 
 $query = "SELECT j.*, k.no_polisi, k.no_reg, k.merk, k.tipe 
          FROM jadwal_perawatan j 
@@ -139,13 +140,14 @@ if ($result && $result->num_rows > 0):
         }
         ?>
     </td>
-    <?php if ($can_crud): ?>
+    <?php if ($can_crud || $can_notify_driver): ?>
     <td>
         <div class="btn-group" role="group">
+            <a href="?page=jadwal_perawatan&action=view&id=<?= $row['id'] ?>" class="btn btn-sm btn-outline-info" title="Detail">
+                <i class="fas fa-eye"></i>
+            </a>
+
             <?php if ($can_crud): ?>
-                <a href="?page=jadwal_perawatan&action=view&id=<?= $row['id'] ?>" class="btn btn-sm btn-outline-info" title="Detail">
-                    <i class="fas fa-eye"></i>
-                </a>
                 <a href="?page=jadwal_perawatan&action=edit&id=<?= $row['id'] ?>" class="btn btn-sm btn-outline-primary" title="Edit">
                     <i class="fas fa-edit"></i>
                 </a>
@@ -155,10 +157,18 @@ if ($result && $result->num_rows > 0):
                     <i class="fas fa-trash"></i>
                 </a>
 
-            <?php else: ?>
-                <span class="btn btn-secondary btn-sm disabled" title="Tidak ada aksi">
-                    <i class="fas fa-lock"></i>
-                </span>
+            <?php endif; ?>
+
+            <?php if ($can_notify_driver): ?>
+                <form method="POST" action="?page=jadwal_perawatan" style="display:inline-block; margin:0;">
+                    <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
+                    <input type="hidden" name="action" value="notify_driver_routine">
+                    <input type="hidden" name="jadwal_id" value="<?= (int)$row['id'] ?>">
+                    <input type="hidden" name="interval_bulan" value="3">
+                    <button type="submit" class="btn btn-sm btn-outline-warning" title="Notifikasi Driver 3 Bulanan">
+                        <i class="fas fa-bell"></i>
+                    </button>
+                </form>
             <?php endif; ?>
         </div>
     </td>
@@ -169,7 +179,7 @@ if ($result && $result->num_rows > 0):
 else: 
 ?>
 <tr>
-    <td colspan="<?= $can_crud ? '9' : '8' ?>" class="text-center text-muted">
+    <td colspan="<?= ($can_crud || $can_notify_driver) ? '9' : '8' ?>" class="text-center text-muted">
         Belum ada jadwal perawatan
     </td>
 </tr>

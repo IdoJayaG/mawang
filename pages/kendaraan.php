@@ -21,8 +21,8 @@ $msg = '';
 
 // Ordered enum for Penanggung Jawab (as requested)
 $PENANGGUNG_ENUM = [
-    'Kapusinfolahta TNI',
-    'Wakapusinfolahta TNI',
+    'Kepala SPBT Kemhan Cawang',
+    'Wakil Kepala SPBT Kemhan Cawang',
     'Kataud',
     'Bidduk TI',
     'Kabidduk TI',
@@ -50,6 +50,7 @@ $PENANGGUNG_ENUM = [
 
 // Check if DB has optional pengguna assignment column
 $HAS_PENGGUNA_ID = function_exists('db_table_columns') && in_array('pengguna_id', db_table_columns('kendaraan') ?: [], true);
+$HAS_LOCATOR = function_exists('db_table_columns') && in_array('locator', db_table_columns('kendaraan') ?: [], true);
 
 // Handle Excel export early to avoid any prior output
 if ($action === 'export_excel') {
@@ -129,8 +130,8 @@ if ($action === 'export_excel') {
             // Header Institution
             $sheet->mergeCells('A1:E1');
             $sheet->mergeCells('A2:E2');
-            $sheet->setCellValue('A1','MARKAS BESAR TENTARA NASIONAL INDONESIA');
-            $sheet->setCellValue('A2','PUSAT INFORMASI DAN PENGOLAHAN DATA');
+            $sheet->setCellValue('A1','KEMENTERIAN PERTAHANAN REPUBLIK INDONESIA');
+            $sheet->setCellValue('A2','SPBT KEMHAN CAWANG');
             $sheet->getStyle('A1:A2')->getFont()->setBold(true);
             $sheet->getStyle('A1:A2')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT);
             $sheet->getStyle('A2')->getBorders()->getBottom()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
@@ -243,8 +244,8 @@ if ($action === 'export_excel') {
             // Baris institusi
             $sheet->mergeCells('A1:F1');
             $sheet->mergeCells('A2:F2');
-            $sheet->setCellValue('A1','MARKAS BESAR TENTARA NASIONAL INDONESIA');
-            $sheet->setCellValue('A2','PUSAT INFORMASI DAN PENGOLAHAN DATA');
+            $sheet->setCellValue('A1','KEMENTERIAN PERTAHANAN REPUBLIK INDONESIA');
+            $sheet->setCellValue('A2','SPBT KEMHAN CAWANG');
             $sheet->getStyle('A1:A2')->getFont()->setBold(true);
             $sheet->getStyle('A1:A2')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT);
             $sheet->getStyle('A1:A2')->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
@@ -252,7 +253,7 @@ if ($action === 'export_excel') {
 
             // Informasi kanan (kolom G-J)
             $sheet->setCellValue('G1','DAFTAR');   $sheet->setCellValue('H1',':'); $sheet->mergeCells('I1:J1'); $sheet->setCellValue('I1','KEKUATAN AL MAT');
-            $sheet->setCellValue('G2','SATKER');   $sheet->setCellValue('H2',':'); $sheet->mergeCells('I2:J2'); $sheet->setCellValue('I2','PUSINFOLAHTA TNI');
+            $sheet->setCellValue('G2','SATKER');   $sheet->setCellValue('H2',':'); $sheet->mergeCells('I2:J2'); $sheet->setCellValue('I2','SPBT KEMHAN CAWANG');
             $sheet->setCellValue('G3','BAHAN BAKAR'); $sheet->setCellValue('H3',':'); $sheet->mergeCells('I3:J3'); $sheet->setCellValue('I3', strtoupper($fuelLabel));
             $sheet->setCellValue('G4','BULAN');    $sheet->setCellValue('H4',':'); $sheet->mergeCells('I4:J4'); $sheet->setCellValue('I4',$bulanLabel);
             $sheet->getStyle('G1:G4')->getFont()->setBold(true);
@@ -261,7 +262,7 @@ if ($action === 'export_excel') {
             $sheet->mergeCells('A6:J6');
             $sheet->mergeCells('A7:J7');
             $sheet->setCellValue('A6','DAFTAR KEKUATAN AL MAT');
-            $sheet->setCellValue('A7','SATKER : PUSINFOLAHTA TNI');
+            $sheet->setCellValue('A7','SATKER : SPBT KEMHAN CAWANG');
             $sheet->getStyle('A6:A7')->getFont()->setBold(true);
             $sheet->getStyle('A6:A7')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
             $sheet->getStyle('A6:A7')->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
@@ -399,7 +400,7 @@ if ($action === 'export_excel') {
             $sheet->mergeCells('G'.$sigStart.':J'.$sigStart);      $sheet->setCellValue('G'.$sigStart, 'Jakarta, '.$bulanHuman);
             $sheet->mergeCells('A'.($sigStart+1).':C'.($sigStart+1)); $sheet->setCellValue('A'.($sigStart+1), 'Komandan Sathanpal Denma Mabes TNI,');
             $sheet->mergeCells('D'.($sigStart+1).':F'.($sigStart+1)); $sheet->setCellValue('D'.($sigStart+1), 'a.n. Komandan Denma Mabes TNI');
-            $sheet->mergeCells('G'.($sigStart+1).':J'.($sigStart+1)); $sheet->setCellValue('G'.($sigStart+1), 'a.n. Kepala Pusinfolahta TNI');
+            $sheet->mergeCells('G'.($sigStart+1).':J'.($sigStart+1)); $sheet->setCellValue('G'.($sigStart+1), 'a.n. Kepala SPBT Kemhan Cawang');
             $sheet->mergeCells('D'.($sigStart+2).':F'.($sigStart+2)); $sheet->setCellValue('D'.($sigStart+2), 'Asmin,');
             $sheet->mergeCells('G'.($sigStart+2).':J'.($sigStart+2)); $sheet->setCellValue('G'.($sigStart+2), 'Kataud,');
             // Space for signatures (approx 5 rows)
@@ -458,6 +459,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $status_kendaraan = trim($_POST['status_kendaraan'] ?? 'Operasional');
             $satker = trim($_POST['satker'] ?? '');
             $penanggung_jawab = trim($_POST['penanggung_jawab'] ?? '');
+            $locator = trim($_POST['locator'] ?? '');
             $pengguna_id = null;
             if (isset($_POST['pengguna_id']) && $_POST['pengguna_id'] !== '' && ctype_digit((string)$_POST['pengguna_id'])) {
                 $pengguna_id = (int)$_POST['pengguna_id'];
@@ -487,28 +489,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-        if ($no_reg !== '' && $merk !== '' && $satker !== '' && $penanggung_jawab !== '' && empty($msg)) {
+        if ($no_reg !== '' && $merk !== '' && $satker !== '' && $penanggung_jawab !== '' && (!$HAS_LOCATOR || $locator !== '') && empty($msg)) {
                 if ($HAS_PENGGUNA_ID) {
                     if ($pengguna_id === null) {
-                        $sql = "INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, jenis, bahan_bakar, kondisi, status_kendaraan, satker, penanggung_jawab, pengguna_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NOW())";
+                        $sql = "INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, jenis, bahan_bakar, kondisi, status_kendaraan, satker, penanggung_jawab, locator, pengguna_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NOW())";
                         $stmt = $mysqli->prepare($sql);
                         if ($stmt) {
-                            // 14 params: 6s + i (tahun) + 7s
-                            $stmt->bind_param('ssssssisssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab);
+                            // 15 params: 6s + i (tahun) + 8s
+                            $stmt->bind_param('ssssssissssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator);
                         }
                     } else {
-                        $sql = "INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, jenis, bahan_bakar, kondisi, status_kendaraan, satker, penanggung_jawab, pengguna_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
+                        $sql = "INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, jenis, bahan_bakar, kondisi, status_kendaraan, satker, penanggung_jawab, locator, pengguna_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
                         $stmt = $mysqli->prepare($sql);
                         if ($stmt) {
-                            // 15 params: 6s + i (tahun) + 7s + i (pengguna_id)
-                            $stmt->bind_param('ssssssisssssssi', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $pengguna_id);
+                            // 16 params: 6s + i (tahun) + 8s + i (pengguna_id)
+                            $stmt->bind_param('ssssssissssssssi', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator, $pengguna_id);
                         }
                     }
                 } else {
-                    $stmt = $mysqli->prepare("INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, jenis, bahan_bakar, kondisi, status_kendaraan, satker, penanggung_jawab, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                    $stmt = $mysqli->prepare("INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, jenis, bahan_bakar, kondisi, status_kendaraan, satker, penanggung_jawab, locator, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
                     if ($stmt) {
-                        // 14 params: 6s + i (tahun) + 7s
-                        $stmt->bind_param('ssssssisssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab);
+                        // 15 params: 6s + i (tahun) + 8s
+                        $stmt->bind_param('ssssssissssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator);
                     }
                 }
                 if ($stmt) {
@@ -529,7 +531,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $err = strtolower((string)$stmt->error);
                                 if (strpos($err, 'no_reg') !== false) { $dupField = 'No. Reg'; }
                                 elseif (strpos($err, 'no_polisi') !== false) { $dupField = 'No. Polisi'; }
-                                $dupVal = htmlspecialchars($no_reg ?: $no_polisi);
+                                elseif (strpos($err, 'locator') !== false) { $dupField = 'Locator'; }
+                                $dupVal = htmlspecialchars($dupField === 'Locator' ? $locator : ($no_reg ?: $no_polisi));
                                 $msg = '<script>Swal.fire({icon:"error", title:"Duplikat Data", text:"' . $dupField . ' ' . $dupVal . ' sudah terdaftar. Gunakan nomor lain.", confirmButtonText:"OK"});</script>';
                                 $action = 'add';
                             } else {
@@ -555,7 +558,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $msg = '<div class="alert alert-danger">Gagal menyiapkan query.</div>';
                 }
             } else {
-        $msg = $msg ?: '<div class="alert alert-danger">No. Reg, merk, satker, dan penanggung jawab harus diisi!</div>';
+        $msg = $msg ?: '<div class="alert alert-danger">No. Reg, merk, satker, penanggung jawab, dan locator harus diisi!</div>';
             }
         } elseif ($action === 'edit' && $can_crud && $id) {
             $no_reg = trim($_POST['no_reg'] ?? '');
@@ -573,6 +576,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $status_kendaraan = trim($_POST['status_kendaraan'] ?? 'Operasional');
             $satker = trim($_POST['satker'] ?? '');
             $penanggung_jawab = trim($_POST['penanggung_jawab'] ?? '');
+            $locator = trim($_POST['locator'] ?? '');
             $pengguna_id = null;
             if (isset($_POST['pengguna_id']) && $_POST['pengguna_id'] !== '' && ctype_digit((string)$_POST['pengguna_id'])) {
                 $pengguna_id = (int)$_POST['pengguna_id'];
@@ -601,26 +605,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-        if ($no_reg !== '' && $merk !== '' && $satker !== '' && $penanggung_jawab !== '' && empty($msg)) {
+        if ($no_reg !== '' && $merk !== '' && $satker !== '' && $penanggung_jawab !== '' && (!$HAS_LOCATOR || $locator !== '') && empty($msg)) {
                 if ($HAS_PENGGUNA_ID) {
                     if ($pengguna_id === null) {
-                        $sql = "UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, jenis=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, penanggung_jawab=?, pengguna_id=NULL, updated_at=NOW() WHERE id=?";
+                        $sql = "UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, jenis=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, penanggung_jawab=?, locator=?, pengguna_id=NULL, updated_at=NOW() WHERE id=?";
                         $stmt = $mysqli->prepare($sql);
                         if ($stmt) {
-                            $stmt->bind_param('ssssssisssssssi', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $id);
+                            $stmt->bind_param('ssssssissssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator, $id);
                         }
                     } else {
-                        $sql = "UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, jenis=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, penanggung_jawab=?, pengguna_id=?, updated_at=NOW() WHERE id=?";
+                        $sql = "UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, jenis=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, penanggung_jawab=?, locator=?, pengguna_id=?, updated_at=NOW() WHERE id=?";
                         $stmt = $mysqli->prepare($sql);
                         if ($stmt) {
-                            // 16 params: 6s + i (tahun) + 7s + i (pengguna_id) + i (id)
-                            $stmt->bind_param('ssssssisssssssii', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $pengguna_id, $id);
+                            // 17 params: 6s + i (tahun) + 8s + i (pengguna_id) + i (id)
+                            $stmt->bind_param('ssssssissssssssii', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator, $pengguna_id, $id);
                         }
                     }
                 } else {
-                    $stmt = $mysqli->prepare("UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, jenis=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, penanggung_jawab=?, updated_at=NOW() WHERE id=?");
+                    $stmt = $mysqli->prepare("UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, jenis=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, penanggung_jawab=?, locator=?, updated_at=NOW() WHERE id=?");
                     if ($stmt) {
-                        $stmt->bind_param('ssssssisssssssi', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $id);
+                        $stmt->bind_param('ssssssissssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator, $id);
                     }
                 }
                     if ($stmt) {
@@ -639,7 +643,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     $err = strtolower((string)$stmt->error);
                                     if (strpos($err, 'no_reg') !== false) { $dupField = 'No. Reg'; }
                                     elseif (strpos($err, 'no_polisi') !== false) { $dupField = 'No. Polisi'; }
-                                    $dupVal = htmlspecialchars($no_reg ?: $no_polisi);
+                                    $dupVal = htmlspecialchars($dupField === 'Locator' ? $locator : ($no_reg ?: $no_polisi));
                                     $msg = '<script>Swal.fire({icon:"error", title:"Duplikat Data", text:"' . $dupField . ' ' . $dupVal . ' sudah terdaftar. Gunakan nomor lain.", confirmButtonText:"OK"});</script>';
                                     $action = 'edit';
                                 } else {
@@ -664,7 +668,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $msg = '<div class="alert alert-danger">Gagal menyiapkan query.</div>';
                     }
             } else {
-    $msg = $msg ?: '<div class="alert alert-danger">No. Reg, merk, satker, dan penanggung jawab harus diisi!</div>';
+            $msg = $msg ?: '<div class="alert alert-danger">No. Reg, merk, satker, penanggung jawab, dan locator harus diisi!</div>';
             }
         } elseif ($action === 'import_excel' && $can_crud) {
             if (isset($_FILES['excel_file']) && ($_FILES['excel_file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
@@ -966,6 +970,13 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                 </div>
                 <div class="form-row">
                     <div class="form-group">
+                        <label for="locator">Locator Traccar *</label>
+                        <input type="text" id="locator" name="locator" class="form-control" placeholder="UID perangkat Traccar" required>
+                        <small class="form-text text-muted">Isi dengan locator atau uniqueId dari perangkat Traccar.</small>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
                         <label for="pengguna_id">Pengguna (otomatis sesuai penanggung jawab)</label>
                         <select id="pengguna_id" name="pengguna_id" class="form-control" disabled>
                             <option value="">-- Pilih penanggung jawab dahulu --</option>
@@ -1110,6 +1121,13 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                                 <option value="<?= htmlspecialchars($pj) ?>" <?= ($edit_data['penanggung_jawab'] ?? '') === $pj ? 'selected' : '' ?>><?= htmlspecialchars($pj) ?></option>
                             <?php endforeach; ?>
                         </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="locator">Locator Traccar *</label>
+                        <input type="text" id="locator" name="locator" class="form-control" value="<?= htmlspecialchars($edit_data['locator'] ?? '') ?>" placeholder="UID perangkat Traccar" required>
+                        <small class="form-text text-muted">Isi dengan locator atau uniqueId dari perangkat Traccar.</small>
                     </div>
                 </div>
                 <div class="form-row">

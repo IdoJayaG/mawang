@@ -36,6 +36,15 @@ if ($_POST) {
         } elseif (strtotime($tanggal_selesai) <= strtotime($tanggal_mulai)) {
             $msg = '<div class="alert alert-danger">Tanggal selesai harus setelah tanggal mulai!</div>';
         } else {
+            // Kebijakan peminjaman: hanya kendaraan jenis Bus.
+            $busChk = $mysqli->query("SELECT jenis FROM kendaraan WHERE id = " . (int)$kendaraan_id);
+            $busRow = $busChk ? $busChk->fetch_assoc() : null;
+            $jenisKendaraan = strtolower(trim((string)($busRow['jenis'] ?? '')));
+            if ($jenisKendaraan !== 'bus') {
+                $msg = '<div class="alert alert-danger">Pengajuan hanya diperbolehkan untuk kendaraan jenis Bus.</div>';
+            }
+
+            if (empty($msg)) {
             // Check conflicts using jadwal_kendaraan if available, otherwise try peminjaman_kendaraan
             $conflicts = 0;
             if (table_exists($mysqli, 'jadwal_kendaraan')) {
@@ -153,6 +162,7 @@ if ($_POST) {
                     }
                 }
             }
+            }
         }
     }
 }
@@ -161,11 +171,11 @@ if ($_POST) {
 $cols_info = $mysqli->query("SHOW COLUMNS FROM kendaraan")->fetch_all(MYSQLI_ASSOC);
 $cols_names = array_column($cols_info, 'Field');
 if (in_array('status', $cols_names)) {
-    $vehicles = $mysqli->query("SELECT * FROM kendaraan WHERE status = 'Tersedia' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
+    $vehicles = $mysqli->query("SELECT * FROM kendaraan WHERE status = 'Tersedia' AND LOWER(COALESCE(jenis,'')) = 'bus' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
 } elseif (in_array('status_peminjaman', $cols_names)) {
-    $vehicles = $mysqli->query("SELECT * FROM kendaraan WHERE status_peminjaman = 'Tersedia' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
+    $vehicles = $mysqli->query("SELECT * FROM kendaraan WHERE status_peminjaman = 'Tersedia' AND LOWER(COALESCE(jenis,'')) = 'bus' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
 } else {
-    $vehicles = $mysqli->query("SELECT * FROM kendaraan ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
+    $vehicles = $mysqli->query("SELECT * FROM kendaraan WHERE LOWER(COALESCE(jenis,'')) = 'bus' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
 }
 
 // Get user's peminjaman from the same table used by the main form (peminjaman_kendaraan)

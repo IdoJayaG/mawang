@@ -12,6 +12,42 @@ if ($current_role === 'guest') {
 
 $can_crud = can_operate(); // operator dan admin
 $can_view = is_logged_in();
+$is_user = in_array($current_role, ['user', 'driver'], true);
+$can_submit = in_array($current_role, ['admin', 'operator', 'pimpinan', 'user', 'driver'], true);
+
+function can_access_surat_tugas($conn, $role, $userId, $suratId) {
+    if (in_array($role, ['admin', 'operator'], true)) {
+        return true;
+    }
+    if (!in_array($role, ['user', 'driver'], true) || empty($userId) || empty($suratId)) {
+        return false;
+    }
+
+    $has_created_by = false;
+    $col_check = $conn->query("SHOW COLUMNS FROM surat_tugas LIKE 'created_by'");
+    if ($col_check && $col_check->num_rows > 0) {
+        $has_created_by = true;
+    }
+
+    $sql = $has_created_by
+        ? "SELECT COUNT(*) as total FROM surat_tugas WHERE id = ? AND (pengguna_id = ? OR created_by = ?)"
+        : "SELECT COUNT(*) as total FROM surat_tugas WHERE id = ? AND pengguna_id = ?";
+
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        return false;
+    }
+    if ($has_created_by) {
+        $stmt->bind_param('iii', $suratId, $userId, $userId);
+    } else {
+        $stmt->bind_param('ii', $suratId, $userId);
+    }
+    $stmt->execute();
+    $res = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    return ((int)($res['total'] ?? 0)) > 0;
+}
 
 // Check if surat_tugas table exists, create if not
 $table_check = $conn->query("SHOW TABLES LIKE 'surat_tugas'");
@@ -23,15 +59,19 @@ if ($table_check->num_rows == 0) {
         `klasifikasi` varchar(20) DEFAULT 'Biasa',
         `lampiran` varchar(100) DEFAULT '-',
         `perihal` varchar(255) DEFAULT 'Permohonan peminjaman kendaraan dinas bus dan tenaga medis',
+        `nama_unit` varchar(150) DEFAULT 'BIRO UMUM SETJEN KEMHAN',
+        `nama_bagian` varchar(150) DEFAULT 'BAGIAN PENGAMANAN',
+        `jenis_naskah` varchar(100) DEFAULT 'NOTA DINAS',
+        `surat_dari` varchar(150) DEFAULT 'Kabag Pam Roum Setjen Kemhan',
         `kepada_jabatan` varchar(100) DEFAULT 'Dandenma Mabes TNI',
         `kepada_tempat` varchar(50) DEFAULT 'Jakarta',
         `dasar_a` text DEFAULT 'Peraturan Panglima TNI Nomor 24 Tahun 2014 tentang Pengesahan Validasi Organisasi FKT dan;',
-        `dasar_b` text DEFAULT 'Surat Perintah Kapusinfolahta TNI Nomor Sprin/97/XI/2023 tanggal 20 Oktober 2023 tentang Fungsi Pengadaan HUT ke-17 Pusinfolahta TNI dan;',
-        `berangkat_dari` varchar(100) DEFAULT 'Pusinfolahta TNI',
+        `dasar_b` text DEFAULT 'Surat Perintah Kepala SPBT Kemhan Cawang Nomor Sprin/97/XI/2023 tanggal 20 Oktober 2023 tentang fungsi dukungan SPBT Kemhan Cawang dan;',
+        `berangkat_dari` varchar(100) DEFAULT 'SPBT Kemhan Cawang',
         `waktu_berangkat` varchar(50) DEFAULT 'Pukul 05.00 WIB s.d selesai',
-        `pejabat_ttd_jabatan` varchar(100) DEFAULT 'a.n Kepala Pusinfolahta TNI',
+        `pejabat_ttd_jabatan` varchar(100) DEFAULT 'a.n Kepala SPBT Kemhan Cawang',
         `pejabat_ttd_sebagai` varchar(50) DEFAULT 'Waka,',
-        `tembusan_1` varchar(100) DEFAULT 'Kapusinfolahta TNI',
+        `tembusan_1` varchar(100) DEFAULT 'Kepala SPBT Kemhan Cawang',
         `tembusan_2` varchar(100) DEFAULT 'Asops Denma Mabes TNI',
         `tembusan_3` varchar(100) DEFAULT 'Dansetang Denma Mabes TNI',
         `tembusan_4` varchar(100) DEFAULT 'Dansakdok Denma Mabes TNI',
@@ -66,6 +106,29 @@ if ($table_check->num_rows == 0) {
     }
 }
 
+// Ensure new nota-dinas related columns exist for old installations
+function ensure_surat_tugas_column($conn, $columnName, $definitionSql) {
+    $safe = $conn->real_escape_string($columnName);
+    $check = $conn->query("SHOW COLUMNS FROM surat_tugas LIKE '{$safe}'");
+    if ($check && $check->num_rows > 0) {
+        return;
+    }
+    $conn->query("ALTER TABLE surat_tugas ADD COLUMN {$definitionSql}");
+}
+
+if ($conn->query("SHOW TABLES LIKE 'surat_tugas'") && $conn->query("SHOW TABLES LIKE 'surat_tugas'")->num_rows > 0) {
+    ensure_surat_tugas_column($conn, 'nama_unit', "nama_unit VARCHAR(150) DEFAULT 'BIRO UMUM SETJEN KEMHAN' AFTER perihal");
+    ensure_surat_tugas_column($conn, 'nama_bagian', "nama_bagian VARCHAR(150) DEFAULT 'BAGIAN PENGAMANAN' AFTER nama_unit");
+    ensure_surat_tugas_column($conn, 'jenis_naskah', "jenis_naskah VARCHAR(100) DEFAULT 'NOTA DINAS' AFTER nama_bagian");
+    ensure_surat_tugas_column($conn, 'surat_dari', "surat_dari VARCHAR(150) DEFAULT 'Kabag Pam Roum Setjen Kemhan' AFTER jenis_naskah");
+}
+
+$has_created_by_col = false;
+$created_by_col_check = $conn->query("SHOW COLUMNS FROM surat_tugas LIKE 'created_by'");
+if ($created_by_col_check && $created_by_col_check->num_rows > 0) {
+    $has_created_by_col = true;
+}
+
 $action = $_GET['action'] ?? 'list';
 $surat_id = $_GET['id'] ?? null;
 $msg = '';
@@ -73,6 +136,30 @@ $msg = '';
 // Handle URL parameters for messages
 if (isset($_GET['msg']) && $_GET['msg'] === 'success' && isset($_GET['text'])) {
     $msg = '<div class="alert alert-success">' . htmlspecialchars($_GET['text']) . '</div>';
+}
+
+if ($action === 'add' && !$can_submit) {
+    $msg = '<div class="alert alert-danger">Anda tidak memiliki akses untuk mengajukan surat tugas.</div>';
+    $action = 'list';
+    $surat_id = null;
+}
+
+if ($action === 'edit' && !$can_crud) {
+    $msg = '<div class="alert alert-danger">Anda tidak memiliki akses untuk mengubah surat tugas.</div>';
+    $action = 'list';
+    $surat_id = null;
+}
+
+if ($action === 'delete' && !$can_crud) {
+    $msg = '<div class="alert alert-danger">Anda tidak memiliki akses untuk menghapus surat tugas.</div>';
+    $action = 'list';
+    $surat_id = null;
+}
+
+if (in_array($action, ['view', 'download_pdf'], true) && $surat_id && !can_access_surat_tugas($conn, $current_role, (int)$current_user_id, (int)$surat_id)) {
+    $msg = '<div class="alert alert-danger">Anda tidak memiliki akses ke surat tugas ini.</div>';
+    $action = 'list';
+    $surat_id = null;
 }
 
 // Function to generate unique nomor surat
@@ -242,7 +329,7 @@ if ($_POST) {
                 $stmt_del->close();
             }
         }
-        if ($action === 'add' && $can_crud) {
+        if ($action === 'add' && $can_submit) {
             // Auto-generate nomor surat if empty
             $nomor_surat = trim($_POST['nomor_surat']);
             if (empty($nomor_surat)) {
@@ -276,6 +363,10 @@ if ($_POST) {
                     }
                 }
                 $perihal = trim($_POST['perihal']);
+                $nama_unit = trim($_POST['nama_unit'] ?? 'BIRO UMUM SETJEN KEMHAN');
+                $nama_bagian = trim($_POST['nama_bagian'] ?? 'BAGIAN PENGAMANAN');
+                $jenis_naskah = trim($_POST['jenis_naskah'] ?? 'NOTA DINAS');
+                $surat_dari = trim($_POST['surat_dari'] ?? 'Kabag Pam Roum Setjen Kemhan');
                 $kepada_jabatan = trim($_POST['kepada_jabatan']);
                 $kepada_tempat = trim($_POST['kepada_tempat']);
                 $dasar_a = trim($_POST['dasar_a']);
@@ -289,7 +380,7 @@ if ($_POST) {
                 $tembusan_3 = trim($_POST['tembusan_3']);
                 $tembusan_4 = trim($_POST['tembusan_4']);
                 $kendaraan_id = (int)$_POST['kendaraan_id'];
-                $pengguna_id = (int)$_POST['pengguna_id'];
+                $pengguna_id = $is_user ? (int)$current_user_id : (int)$_POST['pengguna_id'];
                 $tujuan = trim($_POST['tujuan']);
                 $keperluan = trim($_POST['keperluan']);
                 $tanggal_berangkat = $_POST['tanggal_berangkat'];
@@ -297,6 +388,19 @@ if ($_POST) {
                 $estimasi_km = $_POST['estimasi_km'] ? (int)$_POST['estimasi_km'] : null;
                 $estimasi_bbm = $_POST['estimasi_bbm'] ? (float)$_POST['estimasi_bbm'] : null;
                 $pejabat_ttd = trim($_POST['pejabat_ttd']);
+
+                // Kebijakan: peminjaman via surat tugas hanya untuk kendaraan jenis Bus.
+                $stmt_bus = $conn->prepare("SELECT jenis FROM kendaraan WHERE id = ? LIMIT 1");
+                if ($stmt_bus) {
+                    $stmt_bus->bind_param('i', $kendaraan_id);
+                    $stmt_bus->execute();
+                    $bus_row = $stmt_bus->get_result()->fetch_assoc();
+                    $stmt_bus->close();
+                    $jenis_kendaraan = strtolower(trim((string)($bus_row['jenis'] ?? '')));
+                    if ($jenis_kendaraan !== 'bus') {
+                        $msg = '<div class="alert alert-danger">Hanya kendaraan jenis Bus yang dapat diajukan pada surat tugas.</div>';
+                    }
+                }
                 
                 // Validate tanggal_berangkat not less than today
                 $today = date('Y-m-d');
@@ -317,12 +421,10 @@ if ($_POST) {
                 } elseif (!check_user_availability($conn, $pengguna_id, $tanggal_berangkat, $tanggal_kembali)) {
                     $msg = '<div class="alert alert-danger">Pengguna tidak tersedia pada tanggal tersebut! Sudah ada penugasan lain.</div>';
                 } else {
-                    $stmt = $conn->prepare("INSERT INTO surat_tugas (nomor_surat, tanggal_surat, klasifikasi, lampiran, perihal, kepada_jabatan, kepada_tempat, dasar_a, dasar_b, berangkat_dari, waktu_berangkat, pejabat_ttd_jabatan, pejabat_ttd_sebagai, tembusan_1, tembusan_2, tembusan_3, tembusan_4, kendaraan_id, pengguna_id, tujuan, keperluan, tanggal_berangkat, tanggal_kembali, estimasi_km, estimasi_bbm, pejabat_ttd, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                    // types: 1-17 strings, 18 kendaraan_id int, 19 pengguna_id int, 20-23 strings (tujuan, keperluan, tanggal_berangkat, tanggal_kembali),
-                    // 24 estimasi_km int, 25 estimasi_bbm double, 26 pejabat_ttd string, 27 created_by int
-                    $types = str_repeat('s', 17) . 'ii' . str_repeat('s', 4) . 'idsi';
+                    $stmt = $conn->prepare("INSERT INTO surat_tugas (nomor_surat, tanggal_surat, klasifikasi, lampiran, perihal, nama_unit, nama_bagian, jenis_naskah, surat_dari, kepada_jabatan, kepada_tempat, dasar_a, dasar_b, berangkat_dari, waktu_berangkat, pejabat_ttd_jabatan, pejabat_ttd_sebagai, tembusan_1, tembusan_2, tembusan_3, tembusan_4, kendaraan_id, pengguna_id, tujuan, keperluan, tanggal_berangkat, tanggal_kembali, estimasi_km, estimasi_bbm, pejabat_ttd, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $types = str_repeat('s', 21) . 'ii' . str_repeat('s', 4) . 'idsi';
                     $params = array(
-                        $nomor_surat, $tanggal_surat, $klasifikasi, $lampiran, $perihal, $kepada_jabatan, $kepada_tempat, $dasar_a, $dasar_b, $berangkat_dari, $waktu_berangkat, $pejabat_ttd_jabatan, $pejabat_ttd_sebagai, $tembusan_1, $tembusan_2, $tembusan_3, $tembusan_4, $kendaraan_id, $pengguna_id, $tujuan, $keperluan, $tanggal_berangkat, $tanggal_kembali, $estimasi_km, $estimasi_bbm, $pejabat_ttd, $current_user_id
+                        $nomor_surat, $tanggal_surat, $klasifikasi, $lampiran, $perihal, $nama_unit, $nama_bagian, $jenis_naskah, $surat_dari, $kepada_jabatan, $kepada_tempat, $dasar_a, $dasar_b, $berangkat_dari, $waktu_berangkat, $pejabat_ttd_jabatan, $pejabat_ttd_sebagai, $tembusan_1, $tembusan_2, $tembusan_3, $tembusan_4, $kendaraan_id, $pengguna_id, $tujuan, $keperluan, $tanggal_berangkat, $tanggal_kembali, $estimasi_km, $estimasi_bbm, $pejabat_ttd, $current_user_id
                     );
                     // Bind parameters by reference using call_user_func_array
                     $bind_names = array();
@@ -452,6 +554,10 @@ if ($_POST) {
                 }
             }
             $perihal = trim($_POST['perihal']);
+            $nama_unit = trim($_POST['nama_unit'] ?? 'BIRO UMUM SETJEN KEMHAN');
+            $nama_bagian = trim($_POST['nama_bagian'] ?? 'BAGIAN PENGAMANAN');
+            $jenis_naskah = trim($_POST['jenis_naskah'] ?? 'NOTA DINAS');
+            $surat_dari = trim($_POST['surat_dari'] ?? 'Kabag Pam Roum Setjen Kemhan');
             $kepada_jabatan = trim($_POST['kepada_jabatan']);
             $kepada_tempat = trim($_POST['kepada_tempat']);
             $dasar_a = trim($_POST['dasar_a']);
@@ -478,6 +584,19 @@ if ($_POST) {
             $bbm_terpakai = $_POST['bbm_terpakai'] ? (float)$_POST['bbm_terpakai'] : null;
             $laporan_perjalanan = trim($_POST['laporan_perjalanan']);
             $pejabat_ttd = trim($_POST['pejabat_ttd']);
+
+            // Kebijakan: peminjaman via surat tugas hanya untuk kendaraan jenis Bus.
+            $stmt_bus = $conn->prepare("SELECT jenis FROM kendaraan WHERE id = ? LIMIT 1");
+            if ($stmt_bus) {
+                $stmt_bus->bind_param('i', $kendaraan_id);
+                $stmt_bus->execute();
+                $bus_row = $stmt_bus->get_result()->fetch_assoc();
+                $stmt_bus->close();
+                $jenis_kendaraan = strtolower(trim((string)($bus_row['jenis'] ?? '')));
+                if ($jenis_kendaraan !== 'bus') {
+                    $msg = '<div class="alert alert-danger">Hanya kendaraan jenis Bus yang dapat diajukan pada surat tugas.</div>';
+                }
+            }
             // Fetch previous surat fields so we only validate availability when relevant fields change
             $prev_kendaraan_id = null;
             $prev_pengguna_id = null;
@@ -509,6 +628,15 @@ if ($_POST) {
             if ($duplicate_check['count'] > 0) {
                 $msg = '<div class="alert alert-danger">Nomor surat sudah digunakan oleh surat tugas lain!</div>';
             } else {
+                // Persetujuan surat tugas hanya dapat dilakukan admin.
+                if (empty($msg)) {
+                    $status_changed = ($status !== $prev_status);
+                    $status_target = strtolower(trim((string)$status));
+                    if ($status_changed && $status_target === 'disetujui' && $current_role !== 'admin') {
+                        $msg = '<div class="alert alert-danger">Status Disetujui hanya dapat ditetapkan oleh admin.</div>';
+                    }
+                }
+
                 // Enforce tanggal_berangkat not earlier than today, but only if tanggal_berangkat was changed
                 $today = date('Y-m-d');
                 if ($tanggal_berangkat < $today && $tanggal_berangkat !== $prev_tanggal_berangkat) {
@@ -530,13 +658,12 @@ if ($_POST) {
                         $msg = '<div class="alert alert-danger">Pengguna tidak tersedia pada tanggal tersebut! Sudah ada penugasan lain.</div>';
                     }
                 }
-                $stmt = $conn->prepare("UPDATE surat_tugas SET nomor_surat=?, tanggal_surat=?, klasifikasi=?, lampiran=?, perihal=?, kepada_jabatan=?, kepada_tempat=?, dasar_a=?, dasar_b=?, berangkat_dari=?, waktu_berangkat=?, pejabat_ttd_jabatan=?, pejabat_ttd_sebagai=?, tembusan_1=?, tembusan_2=?, tembusan_3=?, tembusan_4=?, kendaraan_id=?, pengguna_id=?, tujuan=?, keperluan=?, tanggal_berangkat=?, tanggal_kembali=?, estimasi_km=?, estimasi_bbm=?, status=?, km_berangkat=?, km_kembali=?, bbm_terpakai=?, laporan_perjalanan=?, pejabat_ttd=?, updated_by=? WHERE id=?");
-                    // Build dynamic types and params for UPDATE to avoid manual mismatch errors
-                    $types_upd = str_repeat('s', 17) . 'ii' . str_repeat('s', 4) . 'ids' . 'ii' . 'd' . 'ss' . 'ii';
+                $stmt = $conn->prepare("UPDATE surat_tugas SET nomor_surat=?, tanggal_surat=?, klasifikasi=?, lampiran=?, perihal=?, nama_unit=?, nama_bagian=?, jenis_naskah=?, surat_dari=?, kepada_jabatan=?, kepada_tempat=?, dasar_a=?, dasar_b=?, berangkat_dari=?, waktu_berangkat=?, pejabat_ttd_jabatan=?, pejabat_ttd_sebagai=?, tembusan_1=?, tembusan_2=?, tembusan_3=?, tembusan_4=?, kendaraan_id=?, pengguna_id=?, tujuan=?, keperluan=?, tanggal_berangkat=?, tanggal_kembali=?, estimasi_km=?, estimasi_bbm=?, status=?, km_berangkat=?, km_kembali=?, bbm_terpakai=?, laporan_perjalanan=?, pejabat_ttd=?, updated_by=? WHERE id=?");
+                    $types_upd = str_repeat('s', 21) . 'ii' . str_repeat('s', 4) . 'ids' . 'ii' . 'd' . 'ss' . 'ii';
                     // Above constructed expecting: 17s, kendaraan_id i, pengguna_id i, 4s (tujuan-ke...kembali), estimasi_km i, estimasi_bbm d, status s,
                     // km_berangkat i, km_kembali i, bbm_terpakai d, laporan_perjalanan s, pejabat_ttd s, updated_by i, id i
                     $params_upd = array(
-                        $nomor_surat, $tanggal_surat, $klasifikasi, $lampiran, $perihal, $kepada_jabatan, $kepada_tempat, $dasar_a, $dasar_b, $berangkat_dari, $waktu_berangkat, $pejabat_ttd_jabatan, $pejabat_ttd_sebagai, $tembusan_1, $tembusan_2, $tembusan_3, $tembusan_4, $kendaraan_id, $pengguna_id, $tujuan, $keperluan, $tanggal_berangkat, $tanggal_kembali, $estimasi_km, $estimasi_bbm, $status, $km_berangkat, $km_kembali, $bbm_terpakai, $laporan_perjalanan, $pejabat_ttd, $current_user_id, $surat_id
+                        $nomor_surat, $tanggal_surat, $klasifikasi, $lampiran, $perihal, $nama_unit, $nama_bagian, $jenis_naskah, $surat_dari, $kepada_jabatan, $kepada_tempat, $dasar_a, $dasar_b, $berangkat_dari, $waktu_berangkat, $pejabat_ttd_jabatan, $pejabat_ttd_sebagai, $tembusan_1, $tembusan_2, $tembusan_3, $tembusan_4, $kendaraan_id, $pengguna_id, $tujuan, $keperluan, $tanggal_berangkat, $tanggal_kembali, $estimasi_km, $estimasi_bbm, $status, $km_berangkat, $km_kembali, $bbm_terpakai, $laporan_perjalanan, $pejabat_ttd, $current_user_id, $surat_id
                     );
                     $bind_names_upd = array();
                     $bind_names_upd[] = & $types_upd;
@@ -546,6 +673,13 @@ if ($_POST) {
                     call_user_func_array(array($stmt, 'bind_param'), $bind_names_upd);
                 
                 if ($stmt->execute()) {
+                    $prev_status_l = strtolower(trim((string)$prev_status));
+                    $new_status_l = strtolower(trim((string)$status));
+                    if ($new_status_l === 'disetujui' && $prev_status_l !== 'disetujui') {
+                        $notifMsg = 'Surat tugas ' . ($nomor_surat ?: '-') . ' sudah disetujui admin. Silakan cek detail surat tugas Anda.';
+                        insert_notification($conn, (int)$pengguna_id, $notifMsg, 'Surat Tugas Disetujui', 'success', 'document');
+                    }
+
                     // If the surat was cancelled, mark the associated vehicle as available/operational.
                     if ($status === 'Dibatalkan') {
                         // Prefer freeing the previous kendaraan attached to this surat. If not available, fall back to posted kendaraan_id.
@@ -720,7 +854,7 @@ if ($action === 'delete' && $can_crud && $surat_id) {
 
 // Get surat data for edit
 $surat_data = null;
-if ($action === 'edit' && $surat_id) {
+if ($action === 'edit' && $surat_id && $can_crud) {
     $stmt = $conn->prepare("SELECT * FROM surat_tugas WHERE id = ?");
     $stmt->bind_param('i', $surat_id);
     $stmt->execute();
@@ -731,14 +865,18 @@ if ($action === 'edit' && $surat_id) {
 
 // Get vehicles and users for dropdown
 $vehicles = [];
-$vehicles_query = "SELECT id, no_polisi, no_reg, merk, tipe FROM kendaraan ORDER BY COALESCE(no_reg, no_polisi)";
+$vehicles_query = "SELECT id, no_polisi, no_reg, merk, tipe FROM kendaraan WHERE LOWER(COALESCE(jenis, '')) = 'bus' ORDER BY COALESCE(no_reg, no_polisi)";
 $vehicles_result = $conn->query($vehicles_query);
 if ($vehicles_result) {
     $vehicles = $vehicles_result->fetch_all(MYSQLI_ASSOC);
 }
 
 $users = [];
-$users_query = "SELECT p.id, p.nama_lengkap, p.pangkat, p.nrp_nip FROM pengguna p WHERE p.status_aktif = 'Aktif' ORDER BY p.nama_lengkap";
+$users_query = "SELECT p.id, p.nama_lengkap, p.pangkat, p.nrp_nip FROM pengguna p WHERE p.status_aktif = 'Aktif'";
+if ($is_user && $current_user_id) {
+    $users_query .= " AND p.id = " . (int)$current_user_id;
+}
+$users_query .= " ORDER BY p.nama_lengkap";
 $users_result = $conn->query($users_query);
 if ($users_result) {
     $users = $users_result->fetch_all(MYSQLI_ASSOC);
@@ -751,7 +889,7 @@ if ($users_result) {
             <p class="mb-0">Kelola surat tugas kendaraan dinas</p>
             </div>
             <div class="header-actions">
-        <?php if ($can_crud): ?>
+        <?php if ($can_submit): ?>
             <a href="?page=surat_tugas&action=add" class="btn btn-primary">
                 <i class="fas fa-plus me-2"></i>Buat Surat Tugas
             </a>
@@ -799,6 +937,14 @@ if ($users_result) {
 
                     // Build WHERE clause for filtering
                     $where_clauses = [];
+                    if ($is_user && $current_user_id) {
+                        $uid = (int)$current_user_id;
+                        if ($has_created_by_col) {
+                            $where_clauses[] = "(s.created_by = {$uid} OR s.pengguna_id = {$uid})";
+                        } else {
+                            $where_clauses[] = "s.pengguna_id = {$uid}";
+                        }
+                    }
                     if ($status_filter !== 'all') {
                         $sf = $conn->real_escape_string($status_filter);
                         $where_clauses[] = "s.status = '" . $sf . "'";
@@ -845,7 +991,7 @@ if ($users_result) {
                                     <th class="sortable" data-type="text">Tujuan <span class="sort-indicator"></span></th>
                                     <th class="sortable" data-type="date">Tanggal Berangkat <span class="sort-indicator"></span></th>
                                     <th class="sortable" data-type="text">Status <span class="sort-indicator"></span></th>
-                                    <?php if ($can_crud): ?>
+                                    <?php if ($can_view): ?>
                                         <th class="text-center">Aksi</th>
                                     <?php endif; ?>
                                 </tr>
@@ -874,7 +1020,10 @@ if ($users_result) {
                                 ?>
                                 <tr data-status="<?= htmlspecialchars($row['status']) ?>">
                                     <td>
-                                        <input type="checkbox" class="select_row" data-id="<?= (int)$row['id'] ?>" aria-label="Pilih baris"> <?= $no++ ?>
+                                        <?php if ($can_crud): ?>
+                                            <input type="checkbox" class="select_row" data-id="<?= (int)$row['id'] ?>" aria-label="Pilih baris">
+                                        <?php endif; ?>
+                                        <?= $no++ ?>
                                     </td>
                                     <td>
                                         <strong><?= htmlspecialchars($row['nomor_surat']) ?></strong><br>
@@ -899,13 +1048,14 @@ if ($users_result) {
                                     <td>
                                         <span class="badge bg-<?= $status_class ?> text-white"><?= htmlspecialchars($row['status']) ?></span>
                                     </td>
-                                    <?php if ($can_crud): ?>
+                                    <?php if ($can_view): ?>
                                     <td class="text-center">
                                         <div class="btn-group" role="group">
                                             <a href="?page=surat_tugas&action=view&id=<?= $row['id'] ?>" 
                                                class="btn btn-sm btn-outline-info" title="Lihat Detail">
                                                 <i class="fas fa-eye"></i>
                                             </a>
+                                            <?php if ($can_crud): ?>
                                             <a href="?page=surat_tugas&action=edit&id=<?= $row['id'] ?>" 
                                                class="btn btn-sm btn-outline-primary" title="Edit">
                                                 <i class="fas fa-edit"></i>
@@ -915,6 +1065,7 @@ if ($users_result) {
                                                onclick="return confirm('Yakin ingin menghapus surat tugas ini?')">
                                                 <i class="fas fa-trash"></i>
                                             </a>
+                                            <?php endif; ?>
                                         </div>
                                     </td>
                                     <?php endif; ?>
@@ -924,7 +1075,7 @@ if ($users_result) {
                                 else: 
                                 ?>
                                 <tr>
-                                    <td colspan="<?= $can_crud ? '8' : '7' ?>" class="text-center text-muted py-4">
+                                    <td colspan="<?= $can_view ? '8' : '7' ?>" class="text-center text-muted py-4">
                                         <i class="fas fa-file-signature fa-3x mb-3 text-muted"></i><br>
                                         Belum ada data surat tugas
                                     </td>
@@ -1057,105 +1208,94 @@ if ($users_result) {
                         <div class="card-body" id="printArea">
                             <!-- Header Surat -->
                             <div class="text-center mb-4">
-                                <h3 class="mb-1">TENTARA NASIONAL INDONESIA</h3>
-                                <h4 class="mb-1">PUSAT INFORMASI PENGOLAH DATA</h4>
-                                <p class="mb-0">Jl. Medan Merdeka Barat No. 13-14, Jakarta Pusat 10110</p>
-                                <hr class="border-dark" style="height: 2px;">
+                                <h3 class="mb-1"><?= htmlspecialchars(strtoupper($surat['nama_unit'] ?? 'BIRO UMUM SETJEN KEMHAN')) ?></h3>
+                                <h4 class="mb-1"><?= htmlspecialchars(strtoupper($surat['nama_bagian'] ?? 'BAGIAN PENGAMANAN')) ?></h4>
+                                <h4 class="mt-3 mb-1"><?= htmlspecialchars(strtoupper($surat['jenis_naskah'] ?? 'NOTA DINAS')) ?></h4>
                             </div>
 
                             <!-- Judul Surat -->
-                            <div class="text-center mb-4">
-                                <h4 class="text-decoration-underline">SURAT TUGAS</h4>
-                                <p class="mb-0">Nomor: <?= htmlspecialchars($surat['nomor_surat']) ?></p>
+                            <div class="mb-4">
+                                <table style="width:100%;">
+                                    <tr>
+                                        <td style="width:90px;">Nomor</td>
+                                        <td style="width:20px;">:</td>
+                                        <td><?= htmlspecialchars($surat['nomor_surat']) ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Kepada</td>
+                                        <td>:</td>
+                                        <td>Yth. <?= htmlspecialchars($surat['kepada_jabatan']) ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Dari</td>
+                                        <td>:</td>
+                                        <td><?= htmlspecialchars($surat['surat_dari'] ?? '-') ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Hal</td>
+                                        <td>:</td>
+                                        <td><?= htmlspecialchars($surat['perihal']) ?></td>
+                                    </tr>
+                                </table>
                             </div>
 
                             <!-- Isi Surat -->
                             <div class="mb-4">
-                                <p>Yang bertanda tangan di bawah ini:</p>
-                                <table class="mb-3" style="width: 100%;">
-                                    <tr>
-                                        <td style="width: 150px;">Nama</td>
-                                        <td style="width: 20px;">:</td>
-                                        <td><?= htmlspecialchars($surat['pejabat_ttd'] ?: 'LAKSDA TNI ARIANTYO CONDROWIBOWO') ?></td>
-                                    </tr>
-                                    <tr>
-                                        <td>Jabatan</td>
-                                        <td>:</td>
-                                        <td>Kepala Pusat Informasi Pengolah Data TNI</td>
-                                    </tr>
-                                </table>
+                                <p><strong>1. Dasar:</strong></p>
+                                <ol type="a" class="mb-3">
+                                    <?php
+                                    $dasar_items_preview = [];
+                                    foreach ([$surat['dasar_a'] ?? '', $surat['dasar_b'] ?? ''] as $dsrc) {
+                                        foreach (preg_split('/\r?\n|;/', (string)$dsrc) as $part) {
+                                            $part = trim($part);
+                                            if ($part !== '') {
+                                                $dasar_items_preview[] = $part;
+                                            }
+                                        }
+                                    }
+                                    if (empty($dasar_items_preview)) {
+                                        $dasar_items_preview[] = '-';
+                                    }
+                                    foreach ($dasar_items_preview as $di):
+                                    ?>
+                                        <li><?= htmlspecialchars($di) ?></li>
+                                    <?php endforeach; ?>
+                                </ol>
 
-                                <p>Memberikan tugas kepada:</p>
-                                <table class="mb-3" style="width: 100%;">
-                                    <tr>
-                                        <td style="width: 150px;">Nama</td>
-                                        <td style="width: 20px;">:</td>
-                                        <td><?= htmlspecialchars(($surat['pangkat'] ? $surat['pangkat'] . ' ' : '') . $surat['nama_lengkap']) ?></td>
-                                    </tr>
-                                    <tr>
-                                        <td>NRP/NIP</td>
-                                        <td>:</td>
-                                        <td><?= htmlspecialchars($surat['nrp_nip'] ?: '-') ?></td>
-                                    </tr>
-                                    <tr>
-                                        <td>Kesatuan</td>
-                                        <td>:</td>
-                                        <td><?= htmlspecialchars($surat['nama_kesatuan'] ?: 'Pusinfolahta TNI') ?></td>
-                                    </tr>
-                                </table>
+                                <p><strong>2.</strong> Sehubungan dasar di atas, dengan hormat diajukan permohonan dukungan sebagai berikut:</p>
+                                <div style="padding-left:20px;"><?= nl2br(htmlspecialchars($surat['keperluan'])) ?></div>
 
-                                <p><strong>Untuk melaksanakan perjalanan dinas dengan ketentuan sebagai berikut:</strong></p>
-                                <table class="mb-3" style="width: 100%;">
-                                    <tr>
-                                        <td style="width: 150px;">Tujuan</td>
-                                        <td style="width: 20px;">:</td>
-                                        <td><?= htmlspecialchars($surat['tujuan']) ?></td>
-                                    </tr>
-                                    <tr>
-                                        <td>Keperluan</td>
-                                        <td>:</td>
-                                        <td><?= htmlspecialchars($surat['keperluan']) ?></td>
-                                    </tr>
-                                    <tr>
-                                        <td>Tanggal Berangkat</td>
-                                        <td>:</td>
-                                        <td><?= date('d F Y', strtotime($surat['tanggal_berangkat'])) ?></td>
-                                    </tr>
-                                    <?php if ($surat['tanggal_kembali']): ?>
-                                    <tr>
-                                        <td>Tanggal Kembali</td>
-                                        <td>:</td>
-                                        <td><?= date('d F Y', strtotime($surat['tanggal_kembali'])) ?></td>
-                                    </tr>
-                                    <?php endif; ?>
-                                    <tr>
-                                        <td>Kendaraan</td>
-                                        <td>:</td>
-                                        <td>
-                                            <?php 
-                                                $primary = ($surat['no_reg'] ?? '') !== '' ? $surat['no_reg'] : ($surat['no_polisi'] ?? '-');
-                                                $nopol = !empty($surat['no_polisi']) ? ' (Nopol: ' . $surat['no_polisi'] . ')' : '';
-                                                echo htmlspecialchars($primary . $nopol . ' (' . $surat['merk'] . ' ' . $surat['tipe'] . ')');
-                                            ?>
-                                        </td>
-                                    </tr>
-                                    <?php if ($surat['estimasi_km']): ?>
-                                    <tr>
-                                        <td>Estimasi KM</td>
-                                        <td>:</td>
-                                        <td><?= number_format($surat['estimasi_km']) ?> KM</td>
-                                    </tr>
-                                    <?php endif; ?>
-                                    <?php if ($surat['estimasi_bbm']): ?>
-                                    <tr>
-                                        <td>Estimasi BBM</td>
-                                        <td>:</td>
-                                        <td><?= number_format($surat['estimasi_bbm'], 2) ?> Liter</td>
-                                    </tr>
-                                    <?php endif; ?>
-                                </table>
+                                <div class="mt-3">
+                                    <table style="width:100%;">
+                                        <tr>
+                                            <td style="width:180px;">Tujuan</td>
+                                            <td style="width:20px;">:</td>
+                                            <td><?= htmlspecialchars($surat['tujuan']) ?></td>
+                                        </tr>
+                                        <tr>
+                                            <td>Tanggal Pelaksanaan</td>
+                                            <td>:</td>
+                                            <td>
+                                                <?= date('d F Y', strtotime($surat['tanggal_berangkat'])) ?>
+                                                <?php if (!empty($surat['tanggal_kembali'])): ?>
+                                                    s.d. <?= date('d F Y', strtotime($surat['tanggal_kembali'])) ?>
+                                                <?php endif; ?>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td>Waktu</td>
+                                            <td>:</td>
+                                            <td><?= htmlspecialchars($surat['waktu_berangkat']) ?></td>
+                                        </tr>
+                                        <tr>
+                                            <td>Kendaraan</td>
+                                            <td>:</td>
+                                            <td><?= htmlspecialchars((($surat['no_reg'] ?? '') !== '' ? $surat['no_reg'] : ($surat['no_polisi'] ?? '-')) . ' - ' . ($surat['merk'] ?? '') . ' ' . ($surat['tipe'] ?? '')) ?></td>
+                                        </tr>
+                                    </table>
+                                </div>
 
-                                <p>Demikian surat tugas ini dibuat untuk dilaksanakan dengan penuh tanggung jawab.</p>
+                                <p class="mt-3"><strong>3.</strong> Demikian mohon menjadikan periksa.</p>
                             </div>
 
                             <!-- Status dan Laporan -->
@@ -1213,7 +1353,8 @@ if ($users_result) {
                                 <div class="col-md-6"></div>
                                 <div class="col-md-6 text-center">
                                     <p class="mb-1">Jakarta, <?= date('d F Y', strtotime($surat['tanggal_surat'])) ?></p>
-                                    <p class="mb-1">Kepala Pusat Informasi Pengolah Data TNI</p>
+                                    <p class="mb-1"><?= htmlspecialchars($surat['pejabat_ttd_jabatan'] ?? ('Plh. Kepala ' . ($surat['nama_bagian'] ?? 'Bagian Pengamanan'))) ?></p>
+                                    <p class="mb-1"><?= htmlspecialchars($surat['pejabat_ttd_sebagai'] ?? '') ?></p>
                                     <div style="height: 80px;"></div>
                                     <p class="mb-0"><strong><?= htmlspecialchars($surat['pejabat_ttd'] ?: 'LAKSDA TNI ARIANTYO CONDROWIBOWO') ?></strong></p>
                                 </div>
@@ -1303,7 +1444,7 @@ if ($users_result) {
             }
             ?>
 
-        <?php elseif ($action === 'add' || $action === 'edit'): ?>
+        <?php elseif (($action === 'add' && $can_submit) || ($action === 'edit' && $can_crud)): ?>
             <!-- Add/Edit Form -->
             <div class="card">
                 <div class="card-header">
@@ -1340,6 +1481,27 @@ if ($users_result) {
                                 </div>
 
                                 <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="nama_unit">Unit/Kop Atas *</label>
+                                            <input type="text" name="nama_unit" id="nama_unit"
+                                                   class="form-control" required
+                                                   value="<?= htmlspecialchars($surat_data['nama_unit'] ?? 'BIRO UMUM SETJEN KEMHAN') ?>"
+                                                   placeholder="Contoh: BIRO UMUM SETJEN KEMHAN">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="nama_bagian">Bagian *</label>
+                                            <input type="text" name="nama_bagian" id="nama_bagian"
+                                                   class="form-control" required
+                                                   value="<?= htmlspecialchars($surat_data['nama_bagian'] ?? 'BAGIAN PENGAMANAN') ?>"
+                                                   placeholder="Contoh: BAGIAN PENGAMANAN">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
                                     <div class="col-md-4">
                                         <div class="form-group">
                                             <label for="klasifikasi">Klasifikasi</label>
@@ -1364,6 +1526,15 @@ if ($users_result) {
                                     </div>
                                     <div class="col-md-4">
                                         <div class="form-group">
+                                            <label for="jenis_naskah">Jenis Naskah *</label>
+                                            <input type="text" name="jenis_naskah" id="jenis_naskah"
+                                                   class="form-control" required
+                                                   value="<?= htmlspecialchars($surat_data['jenis_naskah'] ?? 'NOTA DINAS') ?>"
+                                                   placeholder="Contoh: NOTA DINAS">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
                                             <label for="perihal">Perihal *</label>
                           <input type="text" name="perihal" id="perihal" 
                               class="form-control" required
@@ -1381,6 +1552,15 @@ if ($users_result) {
                                                    class="form-control" required
                                                    value="<?= htmlspecialchars($surat_data['kepada_jabatan'] ?? 'Dandenma Mabes TNI') ?>"
                                                    placeholder="Contoh: Dandenma Mabes TNI">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="surat_dari">Dari *</label>
+                                            <input type="text" name="surat_dari" id="surat_dari"
+                                                   class="form-control" required
+                                                   value="<?= htmlspecialchars($surat_data['surat_dari'] ?? 'Kabag Pam Roum Setjen Kemhan') ?>"
+                                                   placeholder="Contoh: Kabag Pam Roum Setjen Kemhan">
                                         </div>
                                     </div>
                                     <div class="col-md-6">
@@ -1429,7 +1609,7 @@ if ($users_result) {
                                         <?php endforeach; ?>
                                     <?php else: ?>
                                         <li class="list-group-item d-flex align-items-center">
-                                            <input type="text" class="form-control me-2 dasar-item" value="Peraturan Panglima TNI Nomor 24 Tahun 2014 tentang Pengesahan Validasi Organisasi FKT dan;">
+                                            <input type="text" class="form-control me-2 dasar-item" value="Peraturan Sekretaris Jenderal Kemhan Nomor 4 Tahun 2026 tentang Pengamanan di Lingkungan Kemhan.">
                                             <button type="button" class="btn btn-sm btn-danger remove-dasar">&times;</button>
                                         </li>
                                     <?php endif; ?>
@@ -1467,15 +1647,18 @@ if ($users_result) {
                                     <div class="col-md-6">
                                         <div class="form-group">
                                             <label for="pengguna_id">Pengguna *</label>
-                                            <select name="pengguna_id" id="pengguna_id" class="form-control" required>
+                                            <select name="pengguna_id" id="pengguna_id" class="form-control" required <?= $is_user ? 'disabled' : '' ?>>
                                                 <option value="">Pilih Pengguna</option>
                                                 <?php foreach ($users as $user): ?>
                                                     <option value="<?= $user['id'] ?>" 
-                                                            <?= (isset($surat_data) && $surat_data['pengguna_id'] == $user['id']) ? 'selected' : '' ?>>
+                                                            <?= ((isset($surat_data) && $surat_data['pengguna_id'] == $user['id']) || (!isset($surat_data) && $is_user && (int)$current_user_id === (int)$user['id'])) ? 'selected' : '' ?>>
                                                         <?= htmlspecialchars(($user['pangkat'] ? $user['pangkat'] . ' ' : '') . $user['nama_lengkap'] . ' (' . $user['nrp_nip'] . ')') ?>
                                                     </option>
                                                 <?php endforeach; ?>
                                             </select>
+                                            <?php if ($is_user): ?>
+                                                <input type="hidden" name="pengguna_id" value="<?= (int)$current_user_id ?>">
+                                            <?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
@@ -1495,8 +1678,8 @@ if ($users_result) {
                                             <label for="berangkat_dari">Berangkat Dari *</label>
                                             <input type="text" name="berangkat_dari" id="berangkat_dari" 
                                                    class="form-control" required
-                                                   value="<?= htmlspecialchars($surat_data['berangkat_dari'] ?? 'Pusinfolahta TNI') ?>"
-                                                   placeholder="Contoh: Pusinfolahta TNI">
+                                                   value="<?= htmlspecialchars($surat_data['berangkat_dari'] ?? 'SPBT Kemhan Cawang') ?>"
+                                                   placeholder="Contoh: SPBT Kemhan Cawang">
                                         </div>
                                     </div>
                                 </div>
@@ -1570,8 +1753,8 @@ if ($users_result) {
                                             <label for="pejabat_ttd_jabatan">Jabatan (a.n) *</label>
                                             <input type="text" name="pejabat_ttd_jabatan" id="pejabat_ttd_jabatan" 
                                                    class="form-control" required
-                                                   value="<?= htmlspecialchars($surat_data['pejabat_ttd_jabatan'] ?? 'a.n Kepala Pusinfolahta TNI') ?>"
-                                                   placeholder="Contoh: a.n Kepala Pusinfolahta TNI">
+                                                   value="<?= htmlspecialchars($surat_data['pejabat_ttd_jabatan'] ?? 'a.n Kepala SPBT Kemhan Cawang') ?>"
+                                                   placeholder="Contoh: a.n Kepala SPBT Kemhan Cawang">
                                         </div>
                                     </div>
                                     <div class="col-md-4">
@@ -1611,7 +1794,7 @@ if ($users_result) {
                                     }
                                 }
                                 if (empty($tembusan_items)) {
-                                    $tembusan_items = ['Kapusinfolahta TNI', 'Asops Denma Mabes TNI', 'Dansetang Denma Mabes TNI', 'Dansakdok Denma Mabes TNI'];
+                                    $tembusan_items = ['Kepala SPBT Kemhan Cawang', 'Asops Denma Mabes TNI', 'Dansetang Denma Mabes TNI', 'Dansakdok Denma Mabes TNI'];
                                 }
                                 ?>
 
