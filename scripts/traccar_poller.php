@@ -10,7 +10,7 @@ require_once __DIR__ . '/../config/db.php';
 $TRACCAR_API_BASE = getenv('TRACCAR_API_BASE') ?: 'http://localhost:8082/api'; // root API path
 $TRACCAR_USER = getenv('TRACCAR_USER') ?: 'admin@gmail.com';
 $TRACCAR_PASS = getenv('TRACCAR_PASS') ?: 'admin';
-$TRACCAR_API_BASE_ALTERNATES = getenv('TRACCAR_API_BASE_ALTERNATES') ?: 'http://10.239.171.72:8082/api,http://192.168.1.109:8082/api';
+$TRACCAR_API_BASE_ALTERNATES = getenv('TRACCAR_API_BASE_ALTERNATES') ?: 'http://10.239.171.72:8082/api,http://192.168.1.105:8082/api';
 
 fwrite(STDOUT, "Traccar poller config: API_BASE={$TRACCAR_API_BASE}, USER={$TRACCAR_USER}\n");
 
@@ -88,6 +88,7 @@ function upsertPosition($mysqli, $item) {
       (device_id, device_uid, device_name, latitude, longitude, speed, course, accuracy, device_time, extra)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
+                device_id = VALUES(device_id),
         device_uid = VALUES(device_uid),
         device_name = VALUES(device_name),
         latitude = VALUES(latitude),

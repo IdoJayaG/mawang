@@ -38,8 +38,10 @@ if (empty($page)) {
             $page = 'dashboard_admin';
             break;
         case 'operator':
-        case 'pimpinan':
             $page = 'dashboard_operator';
+            break;
+        case 'pimpinan':
+            $page = 'dashboard_pimpinan';
             break;
         case 'user':
         case 'driver':

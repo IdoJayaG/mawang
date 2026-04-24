@@ -47,13 +47,56 @@
                 <i class="fas fa-sign-in-alt"></i><span>Login</span>
             </a></li>
             
-        <?php elseif (in_array($current_role, ['user', 'driver'], true)): ?>
-            <!-- Menu untuk User/Driver -->
-             <li><a href="index.php?page=dashboard_user" class="<?= ($current_page == 'dashboard_user') ? 'active' : '' ?>">
+        <?php elseif ($current_role === 'driver'): ?>
+            <!-- Menu untuk Driver (akses setara operator, data tetap dibatasi kendaraan driver) -->
+            <li><a href="index.php?page=dashboard_user" class="<?= ($current_page == 'dashboard_user') ? 'active' : '' ?>">
                 <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
-            </a></li> 
-            
-            
+            </a></li>
+            <li class="has-submenu <?= in_array($current_page, ['kendaraan', 'log_bahan_bakar', 'map_kendaraan']) ? 'active' : '' ?>">
+                <a href="javascript:void(0)" class="submenu-toggle">
+                    <i class="fas fa-car"></i><span>Kendaraan</span>
+                    <i class="fas fa-chevron-down submenu-arrow"></i>
+                </a>
+                <ul class="submenu">
+                    <li><a href="index.php?page=kendaraan" class="<?= ($current_page == 'kendaraan') ? 'active' : '' ?>">Data Kendaraan</a></li>
+                    <li><a href="index.php?page=log_bahan_bakar" class="<?= ($current_page == 'log_bahan_bakar') ? 'active' : '' ?>">Log BBM</a></li>
+                    <li><a href="index.php?page=map_kendaraan" class="<?= ($current_page == 'map_kendaraan') ? 'active' : '' ?>">Peta Kendaraan</a></li>
+                </ul>
+            </li>
+            <li class="has-submenu <?= in_array($current_page, ['jadwal_perawatan', 'riwayat_perawatan', 'riwayat_perbaikan']) ? 'active' : '' ?>">
+                <a href="javascript:void(0)" class="submenu-toggle">
+                    <i class="fas fa-tools"></i><span>Perawatan</span>
+                    <i class="fas fa-chevron-down submenu-arrow"></i>
+                </a>
+                <ul class="submenu">
+                    <li><a href="index.php?page=jadwal_perawatan" class="<?= ($current_page == 'jadwal_perawatan') ? 'active' : '' ?>">Jadwal Perawatan</a></li>
+                    <li><a href="index.php?page=riwayat_perawatan" class="<?= ($current_page == 'riwayat_perawatan') ? 'active' : '' ?>">Riwayat Perawatan</a></li>
+                    <li><a href="index.php?page=riwayat_perbaikan" class="<?= ($current_page == 'riwayat_perbaikan') ? 'active' : '' ?>">Riwayat Perbaikan</a></li>
+                </ul>
+            </li>
+            <li class="has-submenu <?= in_array($current_page, ['dokumen_kendaraan', 'surat_tugas']) ? 'active' : '' ?>">
+                <a href="javascript:void(0)" class="submenu-toggle">
+                    <i class="fas fa-file-alt"></i><span>Dokumen</span>
+                    <i class="fas fa-chevron-down submenu-arrow"></i>
+                </a>
+                <ul class="submenu">
+                    <li><a href="index.php?page=dokumen_kendaraan" class="<?= ($current_page == 'dokumen_kendaraan') ? 'active' : '' ?>">Dokumen Kendaraan</a></li>
+                    <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">Surat Tugas</a></li>
+                </ul>
+            </li>
+            <li><a href="index.php?page=profil" class="<?= ($current_page == 'profil') ? 'active' : '' ?>">
+                <i class="fas fa-user"></i><span>Profil</span>
+            </a></li>
+            <li><a class="btn-logout" href="logout.php">
+                <i class="fas fa-sign-out-alt"></i><span>Logout</span>
+            </a></li>
+
+        <?php elseif ($current_role === 'user'): ?>
+            <!-- Menu untuk User -->
+            <li><a href="index.php?page=dashboard_user" class="<?= ($current_page == 'dashboard_user') ? 'active' : '' ?>">
+                <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
+            </a></li>
+
             <li class="has-submenu <?= in_array($current_page, ['kendaraan_saya', 'list_kendaraan', 'log_bahan_bakar']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-car"></i><span>Kendaraan</span>
@@ -65,25 +108,7 @@
                     <li><a href="index.php?page=log_bahan_bakar" class="<?= ($current_page == 'log_bahan_bakar') ? 'active' : '' ?>">Log BBM</a></li>
                 </ul>
             </li>
-<!--             
-            <li><a href="index.php?page=riwayat_kendaraan" class="<?= ($current_page == 'riwayat_kendaraan') ? 'active' : '' ?>">Riwayat Kendaraan</a></li>
-            <li><a href="index.php?page=riwayat_peminjaman" class="<?= ($current_page == 'riwayat_peminjaman') ? 'active' : '' ?>">Riwayat Peminjaman</a></li>
 
-            <li class="has-submenu <?= in_array($current_page, ['list_kendaraan', 'peminjaman_terjadwal']) ? 'active' : '' ?>">
-                <a href="javascript:void(0)" class="submenu-toggle">
-                    <i class="fas fa-calendar-alt"></i><span>Peminjaman</span>
-                    <i class="fas fa-chevron-down submenu-arrow"></i>
-                </a>
-                <ul class="submenu">
-                    <li><a href="index.php?page=peminjaman_terjadwal" class="<?= ($current_page == 'peminjaman_terjadwal') ? 'active' : '' ?>">Peminjaman Terjadwal</a></li>
-                </ul>
-            </li>
-            
-            <li><a href="index.php?page=surat_tugas_user" class="<?= ($current_page == 'surat_tugas_user') ? 'active' : '' ?>">
-                <i class="fas fa-file-signature"></i><span>Surat Tugas</span>   
-            </a></li>
-             -->
-            
             <li><a href="index.php?page=profil" class="<?= ($current_page == 'profil') ? 'active' : '' ?>">
                 <i class="fas fa-user"></i><span>Profil Saya</span>
             </a></li>
@@ -96,8 +121,11 @@
 
         <?php elseif ($current_role === 'pimpinan'): ?>
             <!-- Menu untuk Pimpinan -->
-            <li><a href="index.php?page=dashboard_operator" class="<?= ($current_page == 'dashboard_operator') ? 'active' : '' ?>">
+            <li><a href="index.php?page=dashboard_pimpinan" class="<?= ($current_page == 'dashboard_pimpinan') ? 'active' : '' ?>">
                 <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
+            </a></li>
+            <li><a href="index.php?page=persetujuan_peminjaman" class="<?= ($current_page == 'persetujuan_peminjaman') ? 'active' : '' ?>">
+                <i class="fas fa-clipboard-check"></i><span>Persetujuan Peminjaman</span>
             </a></li>
             <li><a href="index.php?page=jadwal_perawatan" class="<?= ($current_page == 'jadwal_perawatan') ? 'active' : '' ?>">
                 <i class="fas fa-calendar-alt"></i><span>Jadwal Perawatan</span>
@@ -163,7 +191,10 @@
             </a></li>
             
         <?php elseif ($current_role === 'admin'): ?>
-            <!-- Menu untuk Admin (Dashboard link dihapus sesuai permintaan) -->
+            <li><a href="index.php?page=dashboard_admin" class="<?= ($current_page == 'dashboard_admin') ? 'active' : '' ?>">
+                <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
+            </a></li>
+
     <li class="has-submenu <?= in_array($current_page, ['kendaraan', 'pengguna_kendaraan']) ? 'active' : (($current_page=='dashboard_admin'||$current_page=='') ? '' : '') ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-car"></i><span>Kendaraan</span>

@@ -1,11 +1,18 @@
 <?php
 require_once 'includes/auth.php';
-require_admin(); // Only admins can approve peminjaman
+require_role(['admin', 'pimpinan']);
 
 $current_user_id = get_current_user_id();
+$current_role = get_current_role();
 $action = $_GET['action'] ?? 'list';
 $peminjaman_id = $_GET['id'] ?? null;
 $msg = '';
+
+function log_peminjaman_role_activity($role, $message) {
+    if (in_array($role, ['pimpinan', 'driver', 'user'], true) && function_exists('log_user_activity')) {
+        log_user_activity('[' . strtoupper($role) . '] ' . $message);
+    }
+}
 
 // Helper: check table/columns existence and safe notification/vehicle status helpers
 function table_exists($mysqli, $table) {
@@ -24,38 +31,6 @@ function get_table_columns($mysqli, $table) {
         }
     }
     return $cols;
-}
-
-function insert_notification($mysqli, $user_id, $message, $title = null) {
-    // Prefer advanced notifications table when available
-    if (table_exists($mysqli, 'notifikasi_advanced')) {
-        $table = 'notifikasi_advanced';
-    } elseif (table_exists($mysqli, 'notifikasi')) {
-        $table = 'notifikasi';
-    } else {
-        return false; // no notifications table present
-    }
-
-    $cols = get_table_columns($mysqli, $table);
-    $msg_esc = $mysqli->real_escape_string($message);
-    $title_esc = $title !== null ? $mysqli->real_escape_string($title) : null;
-
-    // common variants
-    if (in_array('message', $cols) && in_array('title', $cols)) {
-        $title_sql = $title_esc !== null ? "'{$title_esc}'" : "''";
-        return $mysqli->query("INSERT INTO {$table} (user_id, message, title, created_at) VALUES ({$user_id}, '{$msg_esc}', {$title_sql}, NOW())");
-    }
-
-    if (in_array('pesan', $cols)) {
-        return $mysqli->query("INSERT INTO {$table} (user_id, pesan) VALUES ({$user_id}, '{$msg_esc}')");
-    }
-
-    // fallback: try inserting into message column if exists
-    if (in_array('message', $cols)) {
-        return $mysqli->query("INSERT INTO {$table} (user_id, message) VALUES ({$user_id}, '{$msg_esc}')");
-    }
-
-    return false;
 }
 
 function vehicle_status_column($mysqli) {
@@ -77,9 +52,18 @@ foreach (['approved_by','approval_by','approver_id','approved_by_id','approver']
     if (in_array($c, $peminjaman_cols)) { $approver_col = $c; break; }
 }
 $has_approved_at = in_array('approved_at', $peminjaman_cols);
+$has_surat_tugas_id = in_array('surat_tugas_id', $peminjaman_cols, true);
 
-// Handle approval/rejection
-if ($_POST && in_array($action, ['approve', 'reject'])) {
+// Ensure optional linkage columns exist to support surat_tugas -> peminjaman -> surat_tugas flow.
+if (!$has_surat_tugas_id) {
+    @$mysqli->query("ALTER TABLE peminjaman_kendaraan ADD COLUMN surat_tugas_id INT NULL AFTER kendaraan_id");
+    @$mysqli->query("ALTER TABLE peminjaman_kendaraan ADD INDEX idx_pk_surat_tugas_id (surat_tugas_id)");
+    $peminjaman_cols = get_table_columns($mysqli, 'peminjaman_kendaraan');
+    $has_surat_tugas_id = in_array('surat_tugas_id', $peminjaman_cols, true);
+}
+
+// Handle approval/rejection/edit
+if ($_POST && in_array($action, ['approve', 'reject', 'edit'])) {
     if (!validate_csrf_token($_POST['csrf_token'] ?? '')) {
         $msg = '<div class="alert alert-danger">Token keamanan tidak valid!</div>';
     } else {
@@ -185,6 +169,41 @@ if ($_POST && in_array($action, ['approve', 'reject'])) {
                             $val = $mysqli->real_escape_string('Dipinjam');
                             $mysqli->query("UPDATE kendaraan SET `{$vcol}` = '{$val}' WHERE id = {$vid}");
                         }
+
+                        // If this approval originated from surat_tugas flow, finalize surat_tugas for driver visibility.
+                        $surat_tugas_id = (int)($peminjaman['surat_tugas_id'] ?? 0);
+                        if ($surat_tugas_id > 0 && table_exists($mysqli, 'surat_tugas')) {
+                            $st_cols = get_table_columns($mysqli, 'surat_tugas');
+                            $set_parts = ["status = 'Disetujui'", "updated_at = NOW()"];
+                            $types_st = '';
+                            $vals_st = [];
+                            if (in_array('approval_pimpinan_status', $st_cols, true)) {
+                                $set_parts[] = "approval_pimpinan_status = 'Approved'";
+                            }
+                            if (in_array('approval_pimpinan_at', $st_cols, true)) {
+                                $set_parts[] = "approval_pimpinan_at = NOW()";
+                            }
+                            if (in_array('approval_pimpinan_by', $st_cols, true)) {
+                                $set_parts[] = "approval_pimpinan_by = ?";
+                                $types_st .= 'i';
+                                $vals_st[] = $current_user_id;
+                            }
+                            if (in_array('updated_by', $st_cols, true)) {
+                                $set_parts[] = "updated_by = ?";
+                                $types_st .= 'i';
+                                $vals_st[] = $current_user_id;
+                            }
+
+                            $sql_st = "UPDATE surat_tugas SET " . implode(', ', $set_parts) . " WHERE id = ?";
+                            $types_st .= 'i';
+                            $vals_st[] = $surat_tugas_id;
+                            $st_upd = $mysqli->prepare($sql_st);
+                            if ($st_upd) {
+                                $st_upd->bind_param($types_st, ...$vals_st);
+                                $st_upd->execute();
+                                $st_upd->close();
+                            }
+                        }
                         
                         // Create notification for user
                         // Create notification for user (defensive)
@@ -197,6 +216,7 @@ if ($_POST && in_array($action, ['approve', 'reject'])) {
                         
                         $msg = '<div class="alert alert-success">Pengajuan peminjaman berhasil disetujui!</div>';
                         log_user_activity("Menyetujui peminjaman kendaraan ID: {$peminjaman['kendaraan_id']} untuk user ID: {$peminjaman['peminjam_id']}");
+                        log_peminjaman_role_activity($current_role, "Menyetujui peminjaman ID: {$peminjaman_id}");
                     } else {
                         $msg = '<div class="alert alert-danger">Error: ' . $stmt->error . '</div>';
                     }
@@ -275,6 +295,41 @@ if ($_POST && in_array($action, ['approve', 'reject'])) {
                         }
                     }
 
+                    // If this rejection originated from surat_tugas flow, mark surat_tugas waiting flow as rejected.
+                    if (!empty($has_surat_tugas_id)) {
+                        $qst = $mysqli->prepare("SELECT surat_tugas_id FROM peminjaman_kendaraan WHERE id = ? LIMIT 1");
+                        if ($qst) {
+                            $qst->bind_param('i', $peminjaman_id);
+                            $qst->execute();
+                            $r = $qst->get_result()->fetch_assoc();
+                            $qst->close();
+                            $surat_tugas_id = (int)($r['surat_tugas_id'] ?? 0);
+                            if ($surat_tugas_id > 0 && table_exists($mysqli, 'surat_tugas')) {
+                                $st_cols = get_table_columns($mysqli, 'surat_tugas');
+                                $set_parts = ["updated_at = NOW()"];
+                                $types_st = '';
+                                $vals_st = [];
+                                if (in_array('approval_pimpinan_status', $st_cols, true)) {
+                                    $set_parts[] = "approval_pimpinan_status = 'Rejected'";
+                                }
+                                if (in_array('updated_by', $st_cols, true)) {
+                                    $set_parts[] = "updated_by = ?";
+                                    $types_st .= 'i';
+                                    $vals_st[] = $current_user_id;
+                                }
+                                $sql_st = "UPDATE surat_tugas SET " . implode(', ', $set_parts) . " WHERE id = ?";
+                                $types_st .= 'i';
+                                $vals_st[] = $surat_tugas_id;
+                                $st_upd = $mysqli->prepare($sql_st);
+                                if ($st_upd) {
+                                    $st_upd->bind_param($types_st, ...$vals_st);
+                                    $st_upd->execute();
+                                    $st_upd->close();
+                                }
+                            }
+                        }
+                    }
+
                     // Create notification for user (defensive)
                     $user_id = (int)($peminjaman_info['borrower_id'] ?? 0);
                     if ($user_id) {
@@ -285,10 +340,59 @@ if ($_POST && in_array($action, ['approve', 'reject'])) {
 
                     $msg = '<div class="alert alert-success">Pengajuan peminjaman berhasil ditolak!</div>';
                     log_user_activity("Menolak peminjaman kendaraan ID: $peminjaman_id dengan alasan: $rejected_reason");
+                    log_peminjaman_role_activity($current_role, "Menolak peminjaman ID: {$peminjaman_id}");
                 } else {
                     $msg = '<div class="alert alert-danger">Gagal menolak pengajuan. Mungkin status sudah berubah.</div>';
                 }
                 $stmt->close();
+            }
+        } elseif ($action === 'edit') {
+            $keperluan = trim((string)($_POST['keperluan'] ?? ''));
+            $tujuan = trim((string)($_POST['tujuan'] ?? ''));
+            $tanggal_mulai = trim((string)($_POST['tanggal_mulai'] ?? ''));
+            $tanggal_selesai = trim((string)($_POST['tanggal_selesai'] ?? ''));
+
+            if ($keperluan === '' || $tujuan === '' || $tanggal_mulai === '' || $tanggal_selesai === '') {
+                $msg = '<div class="alert alert-danger">Keperluan, tujuan, tanggal mulai, dan tanggal selesai wajib diisi.</div>';
+            } elseif (strtotime($tanggal_selesai) <= strtotime($tanggal_mulai)) {
+                $msg = '<div class="alert alert-danger">Tanggal selesai harus lebih besar dari tanggal mulai.</div>';
+            } else {
+                // Edit only pending requests to keep approval history consistent.
+                $cek = $mysqli->prepare("SELECT id FROM peminjaman_kendaraan WHERE id = ? AND status = 'Pending' LIMIT 1");
+                $cek->bind_param('i', $peminjaman_id);
+                $cek->execute();
+                $ok_data = $cek->get_result()->fetch_assoc();
+                $cek->close();
+
+                if (!$ok_data) {
+                    $msg = '<div class="alert alert-danger">Data tidak ditemukan atau status bukan Pending.</div>';
+                } else {
+                    $cols_now = get_table_columns($mysqli, 'peminjaman_kendaraan');
+                    $has_updated_by = in_array('updated_by', $cols_now, true);
+
+                    $sql = "UPDATE peminjaman_kendaraan SET keperluan = ?, tujuan = ?, tanggal_mulai = ?, tanggal_selesai = ?";
+                    if ($has_updated_by) {
+                        $sql .= ", updated_by = ?";
+                    }
+                    $sql .= ", updated_at = NOW() WHERE id = ? AND status = 'Pending'";
+
+                    $stmt = $mysqli->prepare($sql);
+                    if ($has_updated_by) {
+                        $stmt->bind_param('ssssii', $keperluan, $tujuan, $tanggal_mulai, $tanggal_selesai, $current_user_id, $peminjaman_id);
+                    } else {
+                        $stmt->bind_param('ssssi', $keperluan, $tujuan, $tanggal_mulai, $tanggal_selesai, $peminjaman_id);
+                    }
+
+                    if ($stmt->execute() && $stmt->affected_rows >= 0) {
+                        $msg = '<div class="alert alert-success">Data pengajuan peminjaman berhasil diperbarui.</div>';
+                        log_user_activity("Mengubah detail pengajuan peminjaman ID: {$peminjaman_id}");
+                        log_peminjaman_role_activity($current_role, "Mengubah detail peminjaman ID: {$peminjaman_id}");
+                        $action = 'list';
+                    } else {
+                        $msg = '<div class="alert alert-danger">Gagal memperbarui data: ' . $stmt->error . '</div>';
+                    }
+                    $stmt->close();
+                }
             }
         }
         
@@ -319,6 +423,15 @@ if ($status_filter) {
     $where_conditions[] = "p.status = ?";
     $params[] = $status_filter;
     $param_types .= 's';
+}
+
+// Pimpinan only approves flow from surat_tugas linkage.
+if ($current_role === 'pimpinan') {
+    if (!empty($has_surat_tugas_id)) {
+        $where_conditions[] = "p.surat_tugas_id IS NOT NULL";
+    } else {
+        $where_conditions[] = "1 = 0";
+    }
 }
 
 $where_sql = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
@@ -396,7 +509,7 @@ $total_pages = ceil($total_records / $limit);
 
 // Get detail data for approval/rejection
 $detail_data = null;
-if (in_array($action, ['approve', 'reject']) && $peminjaman_id) {
+if (in_array($action, ['approve', 'reject', 'edit']) && $peminjaman_id) {
     $stmt = $mysqli->prepare("
     SELECT p.*, k.no_reg, k.no_polisi, k.merk, k.tipe, k.jenis, k.warna,
                pemohon.nama_lengkap as pemohon_name, pemohon.nrp_nip as pemohon_nip, pemohon.no_hp as pemohon_hp,
@@ -446,7 +559,48 @@ function getStatusBadge($status) {
 
 <?= $msg ?>
 
-<?php if (in_array($action, ['approve', 'reject']) && $detail_data): ?>
+<?php if ($action === 'edit' && $detail_data): ?>
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-edit"></i> Edit Pengajuan Peminjaman</h3>
+        </div>
+        <div class="card-body">
+            <form method="post">
+                <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
+                <input type="hidden" name="peminjaman_id" value="<?= (int)$detail_data['id'] ?>">
+
+                <div class="detail-grid">
+                    <div class="form-group">
+                        <label for="keperluan">Keperluan *</label>
+                        <textarea id="keperluan" name="keperluan" class="form-control" rows="3" required><?= htmlspecialchars((string)($detail_data['keperluan'] ?? '')) ?></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="tujuan">Tujuan *</label>
+                        <input id="tujuan" name="tujuan" class="form-control" required value="<?= htmlspecialchars((string)($detail_data['tujuan'] ?? '')) ?>">
+                    </div>
+                    <div class="form-group">
+                        <label for="tanggal_mulai">Tanggal Mulai *</label>
+                        <input id="tanggal_mulai" name="tanggal_mulai" type="datetime-local" class="form-control" required value="<?= !empty($detail_data['tanggal_mulai']) ? date('Y-m-d\\TH:i', strtotime($detail_data['tanggal_mulai'])) : '' ?>">
+                    </div>
+                    <div class="form-group">
+                        <label for="tanggal_selesai">Tanggal Selesai *</label>
+                        <input id="tanggal_selesai" name="tanggal_selesai" type="datetime-local" class="form-control" required value="<?= !empty($detail_data['tanggal_selesai']) ? date('Y-m-d\\TH:i', strtotime($detail_data['tanggal_selesai'])) : '' ?>">
+                    </div>
+                </div>
+
+                <div class="form-actions mt-3">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Simpan Perubahan
+                    </button>
+                    <a href="index.php?page=persetujuan_peminjaman" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Kembali
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+<?php elseif (in_array($action, ['approve', 'reject']) && $detail_data): ?>
     <div class="card">
         <div class="card-header">
             <h3>
@@ -700,6 +854,10 @@ function getStatusBadge($status) {
                                     <td>
                                         <div class="action-buttons">
                                             <?php if ($peminjaman['status'] === 'Pending'): ?>
+                                                <a href="index.php?page=persetujuan_peminjaman&action=edit&id=<?= $peminjaman['id'] ?>" 
+                                                   class="btn btn-primary btn-sm" title="Edit Pengajuan">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
                                                 <a href="index.php?page=persetujuan_peminjaman&action=approve&id=<?= $peminjaman['id'] ?>" 
                                                    class="btn btn-success btn-sm" title="Setujui">
                                                     <i class="fas fa-check"></i>

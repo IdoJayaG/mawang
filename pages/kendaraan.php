@@ -52,6 +52,208 @@ $PENANGGUNG_ENUM = [
 $HAS_PENGGUNA_ID = function_exists('db_table_columns') && in_array('pengguna_id', db_table_columns('kendaraan') ?: [], true);
 $HAS_LOCATOR = function_exists('db_table_columns') && in_array('locator', db_table_columns('kendaraan') ?: [], true);
 
+if (!function_exists('traccar_fetch_json_kendaraan')) {
+    function traccar_fetch_json_kendaraan($url, $user, $pass) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_USERPWD, $user . ':' . $pass);
+        curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Accept: application/json']);
+
+        $raw = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+
+        if ($raw === false) {
+            return ['ok' => false, 'code' => $code, 'error' => $err ?: 'curl_error'];
+        }
+
+        $json = json_decode($raw, true);
+        if (!is_array($json)) {
+            return ['ok' => false, 'code' => $code, 'error' => 'invalid_json'];
+        }
+
+        return ['ok' => true, 'code' => $code, 'data' => $json];
+    }
+}
+
+if (!function_exists('traccar_sync_last_position_by_locator')) {
+    function traccar_sync_last_position_by_locator(mysqli $mysqli, $locator) {
+        $locator = trim((string)$locator);
+        if ($locator === '') {
+            return ['ok' => false, 'message' => 'locator kosong'];
+        }
+
+        $primaryBase = rtrim((string)(getenv('TRACCAR_API_BASE') ?: 'http://localhost:8082/api'), '/');
+        $altBasesRaw = (string)(getenv('TRACCAR_API_BASE_ALTERNATES') ?: 'http://127.0.0.1:8082/api,http://192.168.1.109:8082/api');
+        $bases = [$primaryBase];
+        foreach (explode(',', $altBasesRaw) as $b) {
+            $b = trim($b);
+            if ($b !== '') {
+                $bases[] = rtrim($b, '/');
+            }
+        }
+        $bases = array_values(array_unique($bases));
+
+        $envUser = trim((string)(getenv('TRACCAR_USER') ?: ''));
+        $envPass = trim((string)(getenv('TRACCAR_PASS') ?: ''));
+        $credentials = [];
+        if ($envUser !== '' && $envPass !== '') {
+            $credentials[] = [$envUser, $envPass];
+        }
+        $credentials[] = ['admin@example.com', 'admin'];
+        $credentials[] = ['admin@gmail.com', 'admin'];
+
+        $deviceId = null;
+        $deviceUid = null;
+        $deviceName = null;
+        $lastError = 'device_not_found';
+
+        foreach ($bases as $base) {
+            foreach ($credentials as $cred) {
+                $user = $cred[0];
+                $pass = $cred[1];
+
+                $devicesRes = traccar_fetch_json_kendaraan($base . '/devices', $user, $pass);
+                if (!$devicesRes['ok']) {
+                    $lastError = $devicesRes['error'] ?? 'fetch_devices_failed';
+                    continue;
+                }
+
+                foreach ($devicesRes['data'] as $device) {
+                    $id = isset($device['id']) ? (int)$device['id'] : 0;
+                    $uid = trim((string)($device['uniqueId'] ?? ''));
+                    $name = trim((string)($device['name'] ?? ''));
+                    if ($id <= 0) {
+                        continue;
+                    }
+
+                    if (
+                        strcasecmp($locator, (string)$id) === 0
+                        || ($uid !== '' && strcasecmp($locator, $uid) === 0)
+                        || ($name !== '' && strcasecmp($locator, $name) === 0)
+                    ) {
+                        $deviceId = $id;
+                        $deviceUid = $uid !== '' ? $uid : null;
+                        $deviceName = $name !== '' ? $name : null;
+                        break;
+                    }
+                }
+
+                if ($deviceId === null || $deviceId <= 0) {
+                    $lastError = 'locator_not_found_in_devices';
+                    continue;
+                }
+
+                $posCandidates = [];
+                $posRes = traccar_fetch_json_kendaraan($base . '/positions?deviceId=' . rawurlencode((string)$deviceId), $user, $pass);
+                if ($posRes['ok']) {
+                    $posCandidates = $posRes['data'];
+                } else {
+                    $fallbackRes = traccar_fetch_json_kendaraan($base . '/positions', $user, $pass);
+                    if ($fallbackRes['ok']) {
+                        foreach ($fallbackRes['data'] as $item) {
+                            $did = isset($item['deviceId']) ? (int)$item['deviceId'] : (isset($item['id']) ? (int)$item['id'] : 0);
+                            if ($did === $deviceId) {
+                                $posCandidates[] = $item;
+                            }
+                        }
+                    } else {
+                        $lastError = $fallbackRes['error'] ?? 'fetch_positions_failed';
+                    }
+                }
+
+                if (!is_array($posCandidates) || empty($posCandidates)) {
+                    $lastError = 'no_position_for_device';
+                    continue;
+                }
+
+                usort($posCandidates, function ($a, $b) {
+                    $ta = strtotime($a['deviceTime'] ?? ($a['serverTime'] ?? '1970-01-01 00:00:00'));
+                    $tb = strtotime($b['deviceTime'] ?? ($b['serverTime'] ?? '1970-01-01 00:00:00'));
+                    return $tb <=> $ta;
+                });
+                $latest = $posCandidates[0];
+
+                $lat = isset($latest['latitude']) ? (float)$latest['latitude'] : null;
+                $lon = isset($latest['longitude']) ? (float)$latest['longitude'] : null;
+                if (!is_numeric($lat) || !is_numeric($lon)) {
+                    $lastError = 'invalid_position_payload';
+                    continue;
+                }
+
+                $speed = isset($latest['speed']) ? (float)$latest['speed'] : null;
+                $course = isset($latest['course']) ? (float)$latest['course'] : null;
+                $accuracy = isset($latest['accuracy']) ? (float)$latest['accuracy'] : null;
+                $deviceTimeRaw = $latest['deviceTime'] ?? ($latest['positionTime'] ?? null);
+                $deviceTime = $deviceTimeRaw ? date('Y-m-d H:i:s', strtotime((string)$deviceTimeRaw)) : null;
+                $extraJson = json_encode($latest, JSON_UNESCAPED_UNICODE);
+
+                $upsert = $mysqli->prepare("INSERT INTO traccar_positions_last
+                    (device_id, device_uid, device_name, latitude, longitude, speed, course, accuracy, device_time, extra)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        device_id = VALUES(device_id),
+                        device_uid = VALUES(device_uid),
+                        device_name = VALUES(device_name),
+                        latitude = VALUES(latitude),
+                        longitude = VALUES(longitude),
+                        speed = VALUES(speed),
+                        course = VALUES(course),
+                        accuracy = VALUES(accuracy),
+                        device_time = VALUES(device_time),
+                        extra = VALUES(extra),
+                        updated_at = CURRENT_TIMESTAMP");
+
+                if (!$upsert) {
+                    return ['ok' => false, 'message' => 'prepare_upsert_failed: ' . $mysqli->error];
+                }
+
+                $deviceUidParam = $deviceUid !== null ? $deviceUid : null;
+                $deviceNameParam = $deviceName !== null ? $deviceName : null;
+                $deviceTimeParam = $deviceTime !== null ? $deviceTime : null;
+                $speedParam = $speed !== null ? $speed : null;
+                $courseParam = $course !== null ? $course : null;
+                $accuracyParam = $accuracy !== null ? $accuracy : null;
+
+                $upsert->bind_param(
+                    'issdddddss',
+                    $deviceId,
+                    $deviceUidParam,
+                    $deviceNameParam,
+                    $lat,
+                    $lon,
+                    $speedParam,
+                    $courseParam,
+                    $accuracyParam,
+                    $deviceTimeParam,
+                    $extraJson
+                );
+
+                $ok = $upsert->execute();
+                $upsert->close();
+
+                if ($ok) {
+                    return [
+                        'ok' => true,
+                        'message' => 'synced',
+                        'device_id' => $deviceId,
+                        'device_uid' => $deviceUid,
+                        'device_name' => $deviceName,
+                    ];
+                }
+
+                return ['ok' => false, 'message' => 'execute_upsert_failed: ' . $mysqli->error];
+            }
+        }
+
+        return ['ok' => false, 'message' => $lastError];
+    }
+}
+
 // Handle Excel export early to avoid any prior output
 if ($action === 'export_excel') {
     if (!$can_crud) {
@@ -521,6 +723,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if (!save_vehicle_photo((int)$newId, $_FILES['foto'] ?? null, $uploadErr) && $uploadErr) {
                                 $msg .= '<div class="alert alert-warning">Foto tidak tersimpan: ' . htmlspecialchars($uploadErr) . '</div>';
                             }
+
+                            if ($HAS_LOCATOR && $locator !== '') {
+                                $syncResult = traccar_sync_last_position_by_locator($mysqli, $locator);
+                                if (!$syncResult['ok']) {
+                                    $msg .= '<div class="alert alert-warning">Kendaraan tersimpan, tetapi sinkronisasi posisi Traccar belum berhasil: ' . htmlspecialchars((string)($syncResult['message'] ?? 'unknown_error')) . '</div>';
+                                }
+                            }
+
                             log_activity('CREATE_VEHICLE', "Menambah kendaraan: $no_reg - $merk");
                             $msg = '<div class="alert alert-success">Kendaraan berhasil ditambahkan!</div>' . $msg;
                             $action = '';
@@ -561,6 +771,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = $msg ?: '<div class="alert alert-danger">No. Reg, merk, satker, penanggung jawab, dan locator harus diisi!</div>';
             }
         } elseif ($action === 'edit' && $can_crud && $id) {
+            $old_locator = '';
+            if ($HAS_LOCATOR) {
+                $stmtOld = $mysqli->prepare("SELECT locator FROM kendaraan WHERE id = ? LIMIT 1");
+                if ($stmtOld) {
+                    $stmtOld->bind_param('i', $id);
+                    $stmtOld->execute();
+                    $oldRow = $stmtOld->get_result()->fetch_assoc();
+                    $stmtOld->close();
+                    $old_locator = trim((string)($oldRow['locator'] ?? ''));
+                }
+            }
+
             $no_reg = trim($_POST['no_reg'] ?? '');
             $no_polisi = trim($_POST['no_polisi'] ?? '');
             if ($no_polisi === '') { $no_polisi = $no_reg; }
@@ -634,6 +856,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 if (!save_vehicle_photo($id, $_FILES['foto'] ?? null, $uploadErr) && $uploadErr) {
                                     $msg .= '<div class="alert alert-warning">Foto tidak tersimpan: ' . htmlspecialchars($uploadErr) . '</div>';
                                 }
+
+                                if ($HAS_LOCATOR && $locator !== '' && $locator !== $old_locator) {
+                                    $syncResult = traccar_sync_last_position_by_locator($mysqli, $locator);
+                                    if (!$syncResult['ok']) {
+                                        $msg .= '<div class="alert alert-warning">Locator tersimpan, tetapi sinkronisasi posisi Traccar belum berhasil: ' . htmlspecialchars((string)($syncResult['message'] ?? 'unknown_error')) . '</div>';
+                                    }
+                                }
+
                                 log_activity('UPDATE_VEHICLE', "Mengupdate kendaraan: $no_reg - $merk");
                                 $msg = '<div class="alert alert-success">Kendaraan berhasil diupdate!</div>' . $msg;
                                 $action = '';

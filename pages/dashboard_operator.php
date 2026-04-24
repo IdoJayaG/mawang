@@ -1,6 +1,16 @@
 <?php
-if (!is_logged_in() || get_current_role() !== 'operator') {
+if (!is_logged_in()) {
     header('Location: login.php');
+    exit();
+}
+
+$role = get_current_role();
+if ($role === 'driver') {
+    header('Location: index.php?page=dashboard_user');
+    exit();
+}
+if (!in_array($role, ['operator', 'pimpinan'], true)) {
+    header('Location: index.php?page=403');
     exit();
 }
 

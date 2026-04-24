@@ -97,7 +97,8 @@ function is_logged_in() {
 function get_current_role() {
     // Prefer canonical role slug stored in session (kode_role). Fall back to role_name if needed.
     if (!empty($_SESSION['role'])) {
-        return $_SESSION['role'];
+        $role = strtolower((string)$_SESSION['role']);
+        return $role;
     }
 
     // Backward compatibility: if role_name exists, derive a slug-like value
@@ -180,7 +181,7 @@ function can_admin() {
 
 // Check if user can perform operator actions
 function can_operate() {
-    return in_array(get_current_role(), ['admin', 'operator', 'pimpinan']);
+    return in_array(get_current_role(), ['admin', 'operator', 'pimpinan'], true);
 }
 
 // Check if user can access specific vehicle
@@ -189,7 +190,7 @@ function can_access_vehicle($vehicle_id) {
     $role = get_current_role();
     $user_id = get_current_user_id();
     
-    // Admin and operator can access all vehicles
+    // Admin and pimpinan can access all vehicles
     if (can_operate()) {
         return true;
     }
@@ -429,7 +430,7 @@ function can_download_documents($vehicle_id) {
     $role = get_current_role();
     $user_id = get_current_user_id();
     
-    // Admin and operator can download all documents
+    // Admin and pimpinan can download all documents
     if (can_operate()) {
         return true;
     }
@@ -747,7 +748,7 @@ function require_operator() {
 function require_user() {
     require_login();
     $role = get_current_role();
-    if (!in_array($role, ['admin', 'operator', 'pimpinan', 'user', 'driver'], true)) {
+    if (!in_array($role, ['admin', 'pimpinan', 'user', 'driver'], true)) {
         header('Location: index.php?page=403');
         exit;
     }
@@ -773,10 +774,10 @@ function require_role($required_role) {
     }
     
     // Check specific role requirements
-    if ($required_role === 'user' && !in_array($current_role, ['admin', 'operator', 'pimpinan', 'user', 'driver'], true)) {
+    if ($required_role === 'user' && !in_array($current_role, ['admin', 'pimpinan', 'user', 'driver'], true)) {
         header('Location: index.php?page=403');
         exit;
-    } elseif ($required_role === 'operator' && !in_array($current_role, ['admin', 'operator', 'pimpinan'], true)) {
+    } elseif ($required_role === 'operator' && !in_array($current_role, ['admin', 'operator', 'pimpinan', 'driver'], true)) {
         header('Location: index.php?page=403');
         exit;
     } elseif ($required_role !== $current_role && $current_role !== 'admin') {

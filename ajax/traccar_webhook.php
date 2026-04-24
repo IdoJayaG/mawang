@@ -65,6 +65,7 @@ $stmt = $mysqli->prepare("INSERT INTO traccar_positions_last
   (device_id, device_uid, device_name, latitude, longitude, speed, course, accuracy, device_time, extra)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON DUPLICATE KEY UPDATE
+        device_id = VALUES(device_id),
     device_uid = VALUES(device_uid),
     device_name = VALUES(device_name),
     latitude = VALUES(latitude),

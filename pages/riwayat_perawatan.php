@@ -6,9 +6,17 @@ $current_role = get_current_role();
 $current_user_id = get_current_user_id();
 
 // Check if user has access
-if (!in_array($current_role, ['admin', 'operator'])) {
+if (!in_array($current_role, ['admin', 'operator', 'driver'], true)) {
     header('Location: pages/403.php');
     exit;
+}
+
+$accessible_vehicle_ids = [];
+if ($current_role === 'driver') {
+    $accessible = get_accessible_vehicles($current_role, $current_user_id);
+    $accessible_vehicle_ids = array_values(array_filter(array_map(static function ($v) {
+        return (int)($v['id'] ?? 0);
+    }, $accessible)));
 }
 
 $action = $_GET['action'] ?? 'list';
@@ -290,6 +298,10 @@ if ($_POST) {
         switch ($action) {
             case 'add':
                 $kendaraan_id = (int)$_POST['kendaraan_id'];
+                if ($current_role === 'driver' && !in_array($kendaraan_id, $accessible_vehicle_ids, true)) {
+                    $msg = '<div class="alert alert-danger">Anda tidak memiliki akses ke kendaraan tersebut.</div>';
+                    break;
+                }
                 $jenis_perawatan = trim($_POST['jenis_perawatan']);
                 $deskripsi = trim($_POST['deskripsi']);
                 // map form field `tanggal_perawatan` to DB column `tanggal_perawatan`
@@ -316,6 +328,20 @@ if ($_POST) {
                 
             case 'update_status':
                 $id = (int)$_POST['id'];
+                if ($current_role === 'driver') {
+                    $guard = $mysqli->prepare("SELECT kendaraan_id FROM jadwal_perawatan WHERE id = ? LIMIT 1");
+                    if ($guard) {
+                        $guard->bind_param('i', $id);
+                        $guard->execute();
+                        $guardRow = $guard->get_result()->fetch_assoc();
+                        $guard->close();
+                        $guardKendaraanId = (int)($guardRow['kendaraan_id'] ?? 0);
+                        if ($guardKendaraanId <= 0 || !in_array($guardKendaraanId, $accessible_vehicle_ids, true)) {
+                            $msg = '<div class="alert alert-danger">Anda tidak memiliki akses ke jadwal perawatan tersebut.</div>';
+                            break;
+                        }
+                    }
+                }
                 $status = $_POST['status'];
                 $tanggal_perawatan = $_POST['tanggal_perawatan'] ?? null;
                 $biaya_aktual = $_POST['biaya_aktual'] ? (float)$_POST['biaya_aktual'] : null;
@@ -386,6 +412,19 @@ if ($filter_kendaraan) {
     $where_jp[] = "jp.kendaraan_id = ?";
     $params_jp[] = (int)$filter_kendaraan;
     $types_jp .= 'i';
+}
+
+if ($current_role === 'driver') {
+    if (!empty($accessible_vehicle_ids)) {
+        $placeholders = implode(',', array_fill(0, count($accessible_vehicle_ids), '?'));
+        $where_jp[] = "jp.kendaraan_id IN ($placeholders)";
+        foreach ($accessible_vehicle_ids as $vid) {
+            $params_jp[] = (int)$vid;
+            $types_jp .= 'i';
+        }
+    } else {
+        $where_jp[] = '1=0';
+    }
 }
 
 if ($filter_tanggal) {
@@ -507,18 +546,35 @@ $count_stmt->close();
 $total_pages = ceil($total_records / $limit);
 
 // Get statistics
-$stats = $mysqli->query("
+$stats_sql = "
     SELECT 
         COUNT(*) as total,
         SUM(CASE WHEN status = 'Terjadwal' THEN 1 ELSE 0 END) as terjadwal,
         SUM(CASE WHEN status = 'Dalam Proses' THEN 1 ELSE 0 END) as proses,
         SUM(CASE WHEN status = 'Selesai' THEN 1 ELSE 0 END) as selesai,
         SUM(CASE WHEN status = 'Terjadwal' AND tanggal_perawatan < CURDATE() THEN 1 ELSE 0 END) as terlambat
-    FROM jadwal_perawatan
-")->fetch_assoc();
+    FROM jadwal_perawatan";
+if ($current_role === 'driver') {
+    if (!empty($accessible_vehicle_ids)) {
+        $stats_sql .= " WHERE kendaraan_id IN (" . implode(',', array_map('intval', $accessible_vehicle_ids)) . ")";
+    } else {
+        $stats_sql .= " WHERE 1=0";
+    }
+}
+$statsResult = $mysqli->query($stats_sql);
+$stats = $statsResult ? $statsResult->fetch_assoc() : ['total'=>0,'terjadwal'=>0,'proses'=>0,'selesai'=>0,'terlambat'=>0];
 
 // Get vehicle list for filters
-$kendaraan_list = $mysqli->query("SELECT id, no_reg, merk, tipe FROM kendaraan ORDER BY no_reg")->fetch_all(MYSQLI_ASSOC);
+$kendaraan_sql = "SELECT id, no_reg, merk, tipe FROM kendaraan";
+if ($current_role === 'driver') {
+    if (!empty($accessible_vehicle_ids)) {
+        $kendaraan_sql .= " WHERE id IN (" . implode(',', array_map('intval', $accessible_vehicle_ids)) . ")";
+    } else {
+        $kendaraan_sql .= " WHERE 1=0";
+    }
+}
+$kendaraan_sql .= " ORDER BY no_reg";
+$kendaraan_list = $mysqli->query($kendaraan_sql)->fetch_all(MYSQLI_ASSOC);
 
 // Get teknisi list for forms (pengguna stores nama_lengkap)
 $teknisi_list = $mysqli->query("SELECT id, nama_lengkap FROM pengguna ORDER BY nama_lengkap")->fetch_all(MYSQLI_ASSOC);

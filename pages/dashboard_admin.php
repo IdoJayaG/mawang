@@ -7,7 +7,7 @@ if (!is_logged_in()) {
 
 // Check admin access
 if (get_current_role() !== 'admin') {
-    header('Location: dashboard_user.php');
+    header('Location: index.php?page=403');
     exit();
 }
 

@@ -49,6 +49,12 @@ function can_access_surat_tugas($conn, $role, $userId, $suratId) {
     return ((int)($res['total'] ?? 0)) > 0;
 }
 
+function log_surat_tugas_role_activity($role, $message) {
+    if (in_array($role, ['pimpinan', 'driver', 'user'], true) && function_exists('log_user_activity')) {
+        log_user_activity('[' . strtoupper($role) . '] ' . $message);
+    }
+}
+
 // Check if surat_tugas table exists, create if not
 $table_check = $conn->query("SHOW TABLES LIKE 'surat_tugas'");
 if ($table_check->num_rows == 0) {
@@ -84,6 +90,9 @@ if ($table_check->num_rows == 0) {
         `estimasi_km` int(11) DEFAULT NULL,
         `estimasi_bbm` decimal(8,2) DEFAULT NULL,
         `status` enum('Draft','Disetujui','Dalam Perjalanan','Selesai','Dibatalkan') NOT NULL DEFAULT 'Draft',
+        `approval_pimpinan_status` enum('Pending','Approved','Rejected') NOT NULL DEFAULT 'Pending',
+        `approval_pimpinan_by` int(11) DEFAULT NULL,
+        `approval_pimpinan_at` datetime DEFAULT NULL,
         `km_berangkat` int(11) DEFAULT NULL,
         `km_kembali` int(11) DEFAULT NULL,
         `bbm_terpakai` decimal(8,2) DEFAULT NULL,
@@ -121,12 +130,21 @@ if ($conn->query("SHOW TABLES LIKE 'surat_tugas'") && $conn->query("SHOW TABLES 
     ensure_surat_tugas_column($conn, 'nama_bagian', "nama_bagian VARCHAR(150) DEFAULT 'BAGIAN PENGAMANAN' AFTER nama_unit");
     ensure_surat_tugas_column($conn, 'jenis_naskah', "jenis_naskah VARCHAR(100) DEFAULT 'NOTA DINAS' AFTER nama_bagian");
     ensure_surat_tugas_column($conn, 'surat_dari', "surat_dari VARCHAR(150) DEFAULT 'Kabag Pam Roum Setjen Kemhan' AFTER jenis_naskah");
+    ensure_surat_tugas_column($conn, 'approval_pimpinan_status', "approval_pimpinan_status ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Pending' AFTER status");
+    ensure_surat_tugas_column($conn, 'approval_pimpinan_by', "approval_pimpinan_by INT NULL AFTER approval_pimpinan_status");
+    ensure_surat_tugas_column($conn, 'approval_pimpinan_at', "approval_pimpinan_at DATETIME NULL AFTER approval_pimpinan_by");
 }
 
 $has_created_by_col = false;
 $created_by_col_check = $conn->query("SHOW COLUMNS FROM surat_tugas LIKE 'created_by'");
 if ($created_by_col_check && $created_by_col_check->num_rows > 0) {
     $has_created_by_col = true;
+}
+
+$has_approval_pimpinan_col = false;
+$approval_pimpinan_col_check = $conn->query("SHOW COLUMNS FROM surat_tugas LIKE 'approval_pimpinan_status'");
+if ($approval_pimpinan_col_check && $approval_pimpinan_col_check->num_rows > 0) {
+    $has_approval_pimpinan_col = true;
 }
 
 $action = $_GET['action'] ?? 'list';
@@ -522,6 +540,7 @@ if ($_POST) {
 
                         $msg = '<div class="alert alert-success">Surat tugas berhasil ditambahkan!</div>';
                         log_user_activity("Menambah surat tugas: $nomor_surat");
+                        log_surat_tugas_role_activity($current_role, "Menambah surat tugas: $nomor_surat");
                         header('Location: ?page=surat_tugas&msg=success&text=' . urlencode('Surat tugas berhasil ditambahkan!'));
                         exit;
                     } else {
@@ -676,7 +695,89 @@ if ($_POST) {
                     $prev_status_l = strtolower(trim((string)$prev_status));
                     $new_status_l = strtolower(trim((string)$status));
                     if ($new_status_l === 'disetujui' && $prev_status_l !== 'disetujui') {
-                        $notifMsg = 'Surat tugas ' . ($nomor_surat ?: '-') . ' sudah disetujui admin. Silakan cek detail surat tugas Anda.';
+                        // Admin approval creates handoff request to pimpinan.
+                        if ($has_approval_pimpinan_col) {
+                            $stp = $conn->prepare("UPDATE surat_tugas SET approval_pimpinan_status = 'Pending', approval_pimpinan_by = NULL, approval_pimpinan_at = NULL, updated_at = NOW() WHERE id = ?");
+                            if ($stp) {
+                                $stp->bind_param('i', $surat_id);
+                                $stp->execute();
+                                $stp->close();
+                            }
+                        }
+
+                        // Ensure peminjaman request exists for pimpinan approval.
+                        $pkColsRes = $conn->query("SHOW COLUMNS FROM peminjaman_kendaraan");
+                        $pkCols = $pkColsRes ? array_column($pkColsRes->fetch_all(MYSQLI_ASSOC), 'Field') : [];
+                        $pkHasSuratId = in_array('surat_tugas_id', $pkCols, true);
+                        if (!$pkHasSuratId) {
+                            @$conn->query("ALTER TABLE peminjaman_kendaraan ADD COLUMN surat_tugas_id INT NULL AFTER kendaraan_id");
+                            @$conn->query("ALTER TABLE peminjaman_kendaraan ADD INDEX idx_pk_surat_tugas_id (surat_tugas_id)");
+                            $pkColsRes2 = $conn->query("SHOW COLUMNS FROM peminjaman_kendaraan");
+                            $pkCols = $pkColsRes2 ? array_column($pkColsRes2->fetch_all(MYSQLI_ASSOC), 'Field') : $pkCols;
+                            $pkHasSuratId = in_array('surat_tugas_id', $pkCols, true);
+                        }
+
+                        $hasPending = false;
+                        if ($pkHasSuratId) {
+                            $chkPk = $conn->prepare("SELECT id FROM peminjaman_kendaraan WHERE surat_tugas_id = ? AND status = 'Pending' LIMIT 1");
+                            if ($chkPk) {
+                                $chkPk->bind_param('i', $surat_id);
+                                $chkPk->execute();
+                                $hasPending = (bool)$chkPk->get_result()->fetch_assoc();
+                                $chkPk->close();
+                            }
+                        }
+
+                        if (!$hasPending) {
+                            $applicant_col = null;
+                            foreach (['peminjam_id','pemohon_id','pengguna_id','user_id'] as $c) {
+                                if (in_array($c, $pkCols, true)) { $applicant_col = $c; break; }
+                            }
+                            $approver_col = null;
+                            foreach (['approved_by','approval_by','approver_id','approved_by_id','approver'] as $c) {
+                                if (in_array($c, $pkCols, true)) { $approver_col = $c; break; }
+                            }
+
+                            $desired = [];
+                            if (in_array('kendaraan_id', $pkCols, true)) $desired['kendaraan_id'] = ['t' => 'i', 'v' => $kendaraan_id];
+                            if ($applicant_col) $desired[$applicant_col] = ['t' => 'i', 'v' => $pengguna_id];
+                            if ($pkHasSuratId) $desired['surat_tugas_id'] = ['t' => 'i', 'v' => $surat_id];
+                            if (in_array('nomor_surat', $pkCols, true)) $desired['nomor_surat'] = ['t' => 's', 'v' => $nomor_surat];
+                            if (in_array('tanggal_mulai', $pkCols, true)) $desired['tanggal_mulai'] = ['t' => 's', 'v' => $tanggal_berangkat];
+                            if (in_array('tanggal_selesai', $pkCols, true)) $desired['tanggal_selesai'] = ['t' => 's', 'v' => ($tanggal_kembali ?: $tanggal_berangkat)];
+                            if (in_array('tujuan', $pkCols, true)) $desired['tujuan'] = ['t' => 's', 'v' => $tujuan];
+                            if (in_array('keperluan', $pkCols, true)) $desired['keperluan'] = ['t' => 's', 'v' => $keperluan];
+                            if (in_array('status', $pkCols, true)) $desired['status'] = ['t' => 's', 'v' => 'Pending'];
+                            if (in_array('catatan_approval', $pkCols, true)) $desired['catatan_approval'] = ['t' => 's', 'v' => 'Permohonan dari Surat Tugas #' . $surat_id . ' menunggu persetujuan pimpinan'];
+                            if ($approver_col) $desired[$approver_col] = ['t' => 'i', 'v' => null];
+
+                            $insCols = [];
+                            $insTypes = '';
+                            $insVals = [];
+                            foreach ($desired as $col => $meta) {
+                                if (in_array($col, $pkCols, true)) {
+                                    $insCols[] = $col;
+                                    $insTypes .= $meta['t'];
+                                    $insVals[] = $meta['v'];
+                                }
+                            }
+
+                            if (!empty($insCols)) {
+                                $ph = array_fill(0, count($insCols), '?');
+                                $sqlPk = "INSERT INTO peminjaman_kendaraan (" . implode(', ', $insCols) . ") VALUES (" . implode(', ', $ph) . ")";
+                                $insPk = $conn->prepare($sqlPk);
+                                if ($insPk) {
+                                    $bindArgs = [];
+                                    $bindArgs[] = & $insTypes;
+                                    for ($i = 0; $i < count($insVals); $i++) { $bindArgs[] = & $insVals[$i]; }
+                                    call_user_func_array([$insPk, 'bind_param'], $bindArgs);
+                                    $insPk->execute();
+                                    $insPk->close();
+                                }
+                            }
+                        }
+
+                        $notifMsg = 'Surat tugas ' . ($nomor_surat ?: '-') . ' sudah diverifikasi admin dan diteruskan sebagai permohonan peminjaman ke pimpinan.';
                         insert_notification($conn, (int)$pengguna_id, $notifMsg, 'Surat Tugas Disetujui', 'success', 'document');
                     }
 
@@ -697,7 +798,19 @@ if ($_POST) {
 
                     // Handle approvals / active assignments: create scheduled loan entries and assignments
                     $status_l = strtolower(trim((string)$status));
-                    if (in_array($status_l, ['disetujui', 'approved', 'approve', 'dalam perjalanan'])) {
+                    $approval_pimpinan_final = true;
+                    if ($has_approval_pimpinan_col && $status_l === 'disetujui') {
+                        $ap = $conn->prepare("SELECT approval_pimpinan_status FROM surat_tugas WHERE id = ? LIMIT 1");
+                        if ($ap) {
+                            $ap->bind_param('i', $surat_id);
+                            $ap->execute();
+                            $aprow = $ap->get_result()->fetch_assoc();
+                            $ap->close();
+                            $approval_pimpinan_final = (strtolower((string)($aprow['approval_pimpinan_status'] ?? '')) === 'approved');
+                        }
+                    }
+
+                    if (in_array($status_l, ['disetujui', 'approved', 'approve', 'dalam perjalanan']) && $approval_pimpinan_final) {
                         // Immediately mark kendaraan as Dipinjam when approved
                         if (!empty($kendaraan_id)) {
                             $upd_k = $conn->prepare("UPDATE kendaraan SET status_peminjaman='Dipinjam' WHERE id = ?");
@@ -827,6 +940,7 @@ if ($_POST) {
 
                     $msg = '<div class="alert alert-success">Surat tugas berhasil diperbarui!</div>';
                     log_user_activity("Memperbarui surat tugas ID: $surat_id");
+                    log_surat_tugas_role_activity($current_role, "Memperbarui surat tugas ID: $surat_id");
                     header('Location: ?page=surat_tugas&msg=success&text=' . urlencode('Surat tugas berhasil diperbarui!'));
                     exit;
                 } else {
@@ -845,6 +959,7 @@ if ($action === 'delete' && $can_crud && $surat_id) {
     if ($stmt->execute()) {
         $msg = '<div class="alert alert-success">Surat tugas berhasil dihapus!</div>';
         log_user_activity("Menghapus surat tugas ID: $surat_id");
+        log_surat_tugas_role_activity($current_role, "Menghapus surat tugas ID: $surat_id");
     } else {
         $msg = '<div class="alert alert-danger">Error: ' . $stmt->error . '</div>';
     }
@@ -944,6 +1059,9 @@ if ($users_result) {
                         } else {
                             $where_clauses[] = "s.pengguna_id = {$uid}";
                         }
+                        if ($has_approval_pimpinan_col) {
+                            $where_clauses[] = "s.approval_pimpinan_status = 'Approved'";
+                        }
                     }
                     if ($status_filter !== 'all') {
                         $sf = $conn->real_escape_string($status_filter);
@@ -991,6 +1109,7 @@ if ($users_result) {
                                     <th class="sortable" data-type="text">Tujuan <span class="sort-indicator"></span></th>
                                     <th class="sortable" data-type="date">Tanggal Berangkat <span class="sort-indicator"></span></th>
                                     <th class="sortable" data-type="text">Status <span class="sort-indicator"></span></th>
+                                    <th class="sortable" data-type="text">Proses Persetujuan <span class="sort-indicator"></span></th>
                                     <?php if ($can_view): ?>
                                         <th class="text-center">Aksi</th>
                                     <?php endif; ?>
@@ -1048,6 +1167,21 @@ if ($users_result) {
                                     <td>
                                         <span class="badge bg-<?= $status_class ?> text-white"><?= htmlspecialchars($row['status']) ?></span>
                                     </td>
+                                    <td>
+                                        <?php
+                                            $approval_raw = strtolower(trim((string)($row['approval_pimpinan_status'] ?? 'pending')));
+                                            $approval_badge = 'secondary';
+                                            $approval_label = 'Menunggu Pimpinan';
+                                            if ($approval_raw === 'approved') {
+                                                $approval_badge = 'success';
+                                                $approval_label = 'Disetujui Pimpinan';
+                                            } elseif ($approval_raw === 'rejected') {
+                                                $approval_badge = 'danger';
+                                                $approval_label = 'Ditolak Pimpinan';
+                                            }
+                                        ?>
+                                        <span class="badge bg-<?= $approval_badge ?> text-white"><?= htmlspecialchars($approval_label) ?></span>
+                                    </td>
                                     <?php if ($can_view): ?>
                                     <td class="text-center">
                                         <div class="btn-group" role="group">
@@ -1075,7 +1209,7 @@ if ($users_result) {
                                 else: 
                                 ?>
                                 <tr>
-                                    <td colspan="<?= $can_view ? '8' : '7' ?>" class="text-center text-muted py-4">
+                                    <td colspan="<?= $can_view ? '9' : '8' ?>" class="text-center text-muted py-4">
                                         <i class="fas fa-file-signature fa-3x mb-3 text-muted"></i><br>
                                         Belum ada data surat tugas
                                     </td>
@@ -1190,6 +1324,7 @@ if ($users_result) {
             if (!$surat) {
                 echo '<div class="alert alert-danger">Surat tugas tidak ditemukan!</div>';
             } else {
+                log_surat_tugas_role_activity($current_role, 'Melihat detail surat tugas: ' . ($surat['nomor_surat'] ?? ('ID ' . (int)$surat_id)));
             ?>
             <div class="row">
                 <div class="col-md-8 offset-md-2">
@@ -1401,6 +1536,7 @@ if ($users_result) {
             if (!$surat) {
                 echo '<div class="alert alert-danger">Surat tugas tidak ditemukan!</div>';
             } else {
+                log_surat_tugas_role_activity($current_role, 'Mengunduh PDF surat tugas: ' . ($surat['nomor_surat'] ?? ('ID ' . (int)$surat_id)));
                 // Create new PDF document
                 $pdf = new SuratTugasPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
                 

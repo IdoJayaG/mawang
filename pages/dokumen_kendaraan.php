@@ -6,9 +6,17 @@ $current_role = get_current_role();
 $current_user_id = get_current_user_id();
 
 // Check access
-if (!in_array($current_role, ['admin', 'operator'])) {
+if (!in_array($current_role, ['admin', 'operator', 'driver'], true)) {
     header('Location: pages/403.php');
     exit;
+}
+
+$accessible_vehicle_ids = [];
+if ($current_role === 'driver') {
+    $accessible = get_accessible_vehicles($current_role, $current_user_id);
+    $accessible_vehicle_ids = array_values(array_filter(array_map(static function ($v) {
+        return (int)($v['id'] ?? 0);
+    }, $accessible)));
 }
 
 $action = $_GET['action'] ?? 'list';
@@ -56,6 +64,10 @@ if ($_POST) {
         switch ($action) {
             case 'add':
                 $kendaraan_id = (int)$_POST['kendaraan_id'];
+                if ($current_role === 'driver' && !in_array($kendaraan_id, $accessible_vehicle_ids, true)) {
+                    $msg = '<div class="alert alert-danger">Anda tidak memiliki akses ke kendaraan tersebut.</div>';
+                    break;
+                }
                 $jenis_dokumen = trim($_POST['jenis_dokumen']);
                 $nomor_dokumen = trim($_POST['nomor_dokumen']);
                 $tanggal_terbit = $_POST['tanggal_terbit'];
@@ -87,6 +99,20 @@ if ($_POST) {
                 
             case 'edit':
                 $id = (int)$_POST['id'];
+                if ($current_role === 'driver') {
+                    $guard = $mysqli->prepare("SELECT kendaraan_id FROM dokumen_kendaraan WHERE id = ? LIMIT 1");
+                    if ($guard) {
+                        $guard->bind_param('i', $id);
+                        $guard->execute();
+                        $guardRow = $guard->get_result()->fetch_assoc();
+                        $guard->close();
+                        $guardKendaraanId = (int)($guardRow['kendaraan_id'] ?? 0);
+                        if ($guardKendaraanId <= 0 || !in_array($guardKendaraanId, $accessible_vehicle_ids, true)) {
+                            $msg = '<div class="alert alert-danger">Anda tidak memiliki akses ke dokumen tersebut.</div>';
+                            break;
+                        }
+                    }
+                }
                 $jenis_dokumen = trim($_POST['jenis_dokumen']);
                 $nomor_dokumen = trim($_POST['nomor_dokumen']);
                 $tanggal_terbit = $_POST['tanggal_terbit'];
@@ -133,6 +159,20 @@ if ($_POST) {
                 
             case 'delete':
                 $id = (int)$_POST['id'];
+                if ($current_role === 'driver') {
+                    $guard = $mysqli->prepare("SELECT kendaraan_id FROM dokumen_kendaraan WHERE id = ? LIMIT 1");
+                    if ($guard) {
+                        $guard->bind_param('i', $id);
+                        $guard->execute();
+                        $guardRow = $guard->get_result()->fetch_assoc();
+                        $guard->close();
+                        $guardKendaraanId = (int)($guardRow['kendaraan_id'] ?? 0);
+                        if ($guardKendaraanId <= 0 || !in_array($guardKendaraanId, $accessible_vehicle_ids, true)) {
+                            $msg = '<div class="alert alert-danger">Anda tidak memiliki akses ke dokumen tersebut.</div>';
+                            break;
+                        }
+                    }
+                }
                 
                 // Get file info before deletion
                 $doc = $mysqli->query("SELECT file_dokumen FROM dokumen_kendaraan WHERE id = $id")->fetch_assoc();
@@ -190,6 +230,19 @@ if ($search) {
     $search_term = "%$search%";
     $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term]);
     $param_types .= 'ssss';
+}
+
+if ($current_role === 'driver') {
+    if (!empty($accessible_vehicle_ids)) {
+        $placeholders = implode(',', array_fill(0, count($accessible_vehicle_ids), '?'));
+        $where_conditions[] = "dk.kendaraan_id IN ($placeholders)";
+        foreach ($accessible_vehicle_ids as $vid) {
+            $params[] = (int)$vid;
+            $param_types .= 'i';
+        }
+    } else {
+        $where_conditions[] = '1=0';
+    }
 }
 
 // Add tab-specific conditions
@@ -269,7 +322,7 @@ $count_stmt->close();
 $total_pages = ceil($total_records / $limit);
 
 // Get statistics
-$stats = $mysqli->query("
+$stats_sql = "
     SELECT 
         COUNT(*) as total,
         SUM(CASE WHEN status = 'Aktif' THEN 1 ELSE 0 END) as aktif,
@@ -277,11 +330,28 @@ $stats = $mysqli->query("
         SUM(CASE WHEN status = 'Dalam Proses' THEN 1 ELSE 0 END) as proses,
         SUM(CASE WHEN tanggal_berlaku < CURDATE() THEN 1 ELSE 0 END) as expired,
         SUM(CASE WHEN tanggal_berlaku BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) as expire_soon
-    FROM dokumen_kendaraan
-")->fetch_assoc();
+    FROM dokumen_kendaraan";
+if ($current_role === 'driver') {
+    if (!empty($accessible_vehicle_ids)) {
+        $stats_sql .= " WHERE kendaraan_id IN (" . implode(',', array_map('intval', $accessible_vehicle_ids)) . ")";
+    } else {
+        $stats_sql .= " WHERE 1=0";
+    }
+}
+$stats = ($mysqli->query($stats_sql) ?: false);
+$stats = $stats ? $stats->fetch_assoc() : ['total'=>0,'aktif'=>0,'kadaluarsa'=>0,'proses'=>0,'expired'=>0,'expire_soon'=>0];
 
 // Get vehicle list for filters and forms
-$kendaraan_list = $mysqli->query("SELECT id, no_polisi, no_reg, merk, tipe FROM kendaraan ORDER BY COALESCE(no_reg, no_polisi)")->fetch_all(MYSQLI_ASSOC);
+$kendaraan_sql = "SELECT id, no_polisi, no_reg, merk, tipe FROM kendaraan";
+if ($current_role === 'driver') {
+    if (!empty($accessible_vehicle_ids)) {
+        $kendaraan_sql .= " WHERE id IN (" . implode(',', array_map('intval', $accessible_vehicle_ids)) . ")";
+    } else {
+        $kendaraan_sql .= " WHERE 1=0";
+    }
+}
+$kendaraan_sql .= " ORDER BY COALESCE(no_reg, no_polisi)";
+$kendaraan_list = $mysqli->query($kendaraan_sql)->fetch_all(MYSQLI_ASSOC);
 
 // Get document types for tabs
 $jenis_dokumen = ['STNK', 'BPKB', 'KIR', 'Pajak', 'Asuransi', 'SIM Driver', 'Lainnya'];

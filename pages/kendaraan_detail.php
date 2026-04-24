@@ -52,7 +52,7 @@ if (!$kendaraan) {
 }
 
 // Check if user has access to this vehicle (schema-aware; no dependency on pengguna_kendaraan)
-if ($current_role === 'USER') {
+if (in_array(strtolower((string)$current_role), ['user', 'driver'], true)) {
     $has_access = false;
     $user_account_id = (int)($_SESSION['user_id'] ?? 0);
     $pengguna_id = 0;

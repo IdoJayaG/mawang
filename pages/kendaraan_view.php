@@ -23,8 +23,8 @@ if ($id <= 0) {
     exit;
 }
 
-// For end users, enforce access; operators/admins can view all
-if (strtolower((string)$current_role) === 'user' && !can_access_vehicle($id)) {
+// For end users and drivers, enforce access; elevated roles can view all
+if (in_array(strtolower((string)$current_role), ['user', 'driver'], true) && !can_access_vehicle($id)) {
     echo '<div class="alert alert-danger">Kendaraan tidak ditemukan atau Anda tidak memiliki akses.</div>';
     exit;
 }

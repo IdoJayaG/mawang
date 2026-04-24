@@ -20,6 +20,11 @@ if (!$vehicle_result || $vehicle_result->num_rows === 0) {
 }
 $vehicle = $vehicle_result->fetch_assoc();
 
+if (in_array(strtolower((string)get_current_role()), ['user', 'driver'], true) && !can_access_vehicle($kendaraan_id)) {
+    header('Location: index.php?page=403');
+    exit;
+}
+
 // Get fuel logs
     $fuel_result = $mysqli->query("
     SELECT lbb.*, COALESCE(u.nama_lengkap, '') as operator_nama

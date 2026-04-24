@@ -106,10 +106,12 @@ if (!function_exists('is_admin')) {
 /**
  * Redirect if not logged in
  */
-function require_login() {
-    if (!is_logged_in()) {
-        header('Location: login.php');
-        exit();
+if (!function_exists('require_login')) {
+    function require_login() {
+        if (!is_logged_in()) {
+            header('Location: login.php');
+            exit();
+        }
     }
 }
 
@@ -245,6 +247,7 @@ if (!function_exists('can_access')) {
 
         $role_hierarchy = [
             'user' => 1,
+            'driver' => 1,
             'operator' => 2,
             'admin' => 3
         ];
@@ -263,7 +266,7 @@ function get_page_title($page) {
     $titles = [
         'dashboard_user' => 'Dashboard User',
         'dashboard_admin' => 'Dashboard Admin',
-        'dashboard_operator' => 'Dashboard Operator',
+        'dashboard_operator' => 'Dashboard Driver',
         'profil' => 'Profil Pengguna',
         'surat_tugas' => 'Surat Tugas',
         'peminjaman' => 'Peminjaman Kendaraan',
@@ -291,7 +294,7 @@ function get_menu_items() {
     $base_items[] = ['url' => 'dashboard_user', 'icon' => 'fas fa-home', 'text' => 'Dashboard'];
     $base_items[] = ['url' => 'profil', 'icon' => 'fas fa-user', 'text' => 'Profil'];
 
-    // Operator and Admin items
+    // Driver and Admin items
     if (is_admin()) {
         $base_items[] = ['url' => 'kendaraan', 'icon' => 'fas fa-car', 'text' => 'Kendaraan'];
         $base_items[] = ['url' => 'peminjaman', 'icon' => 'fas fa-calendar-check', 'text' => 'Peminjaman'];

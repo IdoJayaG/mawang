@@ -3,7 +3,7 @@ require_once 'includes/auth.php';
 require_login();
 
 $current_role = get_current_role();
-if (!in_array($current_role, ['admin','operator'])) {
+if (!in_array($current_role, ['admin','operator','driver'], true)) {
     header('Location: pages/403.php');
     exit;
 }
@@ -24,6 +24,11 @@ $stmt->close();
 if (!$doc) {
     $_SESSION['flash'] = 'Dokumen tidak ditemukan.';
     header('Location: index.php?page=dokumen_kendaraan');
+    exit;
+}
+
+if ($current_role === 'driver' && !can_access_vehicle((int)$doc['kendaraan_id'])) {
+    header('Location: index.php?page=403');
     exit;
 }
 
