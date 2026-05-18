@@ -11,6 +11,8 @@ $(document).ready(function() {
     initTables();
     initNotifications();
     initTooltips();
+    initSearch();
+    initLiveTableSearch();
     
     // Auto-hide alerts after 5 seconds
     setTimeout(function() {
@@ -404,17 +406,93 @@ function debounce(func, wait) {
 
 // Search functionality
 function initSearch() {
-    const searchInput = $('.search-input');
-    if (searchInput.length) {
-        const debouncedSearch = debounce(function(query) {
-            performSearch(query);
+    // Live-submit search forms when user types/selects in search fields
+    const selector = 'input[name="q"], input[name="search"], input.search-input, input[data-live-search], select[data-live-search], input[type="search"], input.live-search';
+    const inputs = $(selector);
+    if (!inputs.length) return;
+
+    const processedForms = new Set();
+    inputs.each(function() {
+        const $el = $(this);
+        const $form = $el.closest('form');
+        if ($form.length === 0) return;
+        const formId = $form.attr('id') || $form.attr('name') || $form.index();
+        if (processedForms.has(formId)) return;
+        // Only auto-submit forms that use GET (or no method specified)
+        const method = ($form.attr('method') || '').toLowerCase();
+        if (method && method !== 'get') return;
+        processedForms.add(formId);
+
+        const submitForm = debounce(function() {
+            try { $form.submit(); } catch (e) { console.error('Live search submit error', e); }
         }, 500);
-        
-        searchInput.on('input', function() {
-            const query = $(this).val().trim();
-            debouncedSearch(query);
+
+        // Attach to all relevant inputs inside the same form
+        $form.find('input:not([type=hidden]):not([type=file]), select, textarea').each(function() {
+            const $fld = $(this);
+            if ($fld.is('input[type=checkbox], input[type=radio]')) {
+                $fld.on('change', submitForm);
+            } else {
+                $fld.on('input change', submitForm);
+            }
         });
-    }
+    });
+}
+
+// Live table search (client-side filtering) - similar to pengguna_kendaraan page
+function initLiveTableSearch() {
+    const selector = 'input.live-table-search, input[data-live-target]';
+    const inputs = $(selector);
+    if (!inputs.length) return;
+
+    inputs.each(function() {
+        const $input = $(this);
+        let $table = null;
+        const target = $input.data('live-target') || $input.attr('data-live-target');
+        if (target) {
+            $table = $(target).first();
+        }
+        if (!$table || $table.length === 0) {
+            // try to find nearest table in same card or container
+            const $card = $input.closest('.card, .container, .table-responsive, .card-body');
+            $table = $card.find('table').first();
+        }
+        if (!$table || $table.length === 0) return;
+
+        const $tbody = $table.find('tbody');
+        if ($tbody.length === 0) return;
+
+        // Prepare rows (exclude placeholder)
+        const $rows = $tbody.find('tr').not('.no-results');
+
+        // Add placeholder no-results row if not present
+        if ($tbody.find('tr.no-results').length === 0) {
+            const colCount = Math.max(1, $table.find('thead th').length || $table.find('tr:first td').length);
+            const $no = $('<tr class="no-results d-none"><td colspan="' + colCount + '" class="text-center text-muted py-3">Tidak ada hasil</td></tr>');
+            $tbody.append($no);
+        }
+
+        const $placeholder = $tbody.find('tr.no-results');
+
+        const doFilter = debounce(function() {
+            const q = String($input.val() || '').toLowerCase().trim();
+            let visible = 0;
+            $rows.each(function() {
+                const $r = $(this);
+                const hay = ($r.text() || '').toLowerCase();
+                const match = (q === '') || (hay.indexOf(q) !== -1);
+                $r.toggleClass('d-none', !match);
+                if (match) visible++;
+            });
+            if (visible === 0) $placeholder.removeClass('d-none'); else $placeholder.addClass('d-none');
+        }, 250);
+
+        // Bind events
+        $input.on('input', doFilter);
+
+        // initial run if input has value
+        if (($input.val() || '').toString().trim() !== '') doFilter();
+    });
 }
 
 // Print functionality

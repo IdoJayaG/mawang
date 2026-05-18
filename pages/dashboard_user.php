@@ -1,13 +1,14 @@
 <?php
 require_once 'includes/auth.php';
 require_login();
-require_role('user');
+require_role(['user','driver']);
 
+// Note: session may store either user_account.id or pengguna.id; normalize below
 $user_id = get_current_user_id();
 
 // Ambil informasi user dari user_account dan pengguna
 // Bangun SELECT dan JOIN secara dinamis berdasarkan kolom/tabel yang tersedia
-$selects = "p.*, ua.username";
+$selects = "p.*, ua.id AS account_id, ua.username";
 $joins = [];
 
 // Helper: cek apakah kolom ada di tabel
@@ -51,6 +52,8 @@ function get_table_columns($mysqli, $table) {
     } catch (mysqli_sql_exception $e) {}
     return $cols;
 }
+
+// build_upcoming_items() is now provided globally in includes/auth.php
 
 // Jika ada kolom kesatuan pada pengguna, ambil matra/korps/kesatuan melalui join berantai
 if (has_column($mysqli, 'pengguna', 'kesatuan_id')) {
@@ -97,18 +100,32 @@ if ($has_satuan_col && $has_satuan_table) {
     $selects .= ", '' as nama_satuan";
 }
 
-$sql = "SELECT " . $selects . " FROM user_account ua JOIN pengguna p ON ua.pengguna_id = p.id ";
-if (!empty($joins)) {
-    $sql .= " " . implode(' ', $joins);
-}
-$sql .= " WHERE ua.id = ?";
 
-$stmt = $mysqli->prepare($sql);
-if ($stmt === false) {
-    // Jika masih gagal, lempar exception untuk debugging (tapi hindari fatal yang tidak tertangani)
-    throw new \mysqli_sql_exception('Gagal menyiapkan query user_info: ' . $mysqli->error);
+$sqlBase = "SELECT " . $selects . " FROM user_account ua JOIN pengguna p ON ua.pengguna_id = p.id ";
+if (!empty($joins)) {
+    $sqlBase .= " " . implode(' ', $joins);
 }
-$stmt->bind_param('i', $user_id);
+
+// Prefer resolving the canonical account id for the session to avoid ambiguous OR matches
+$account_id = get_current_account_id();
+$pengguna_lookup = (int)get_current_user_id();
+
+if (!empty($account_id)) {
+    $sql = $sqlBase . " WHERE ua.id = ? LIMIT 1";
+    $stmt = $mysqli->prepare($sql);
+    if ($stmt === false) {
+        throw new \mysqli_sql_exception('Gagal menyiapkan query user_info (by account): ' . $mysqli->error);
+    }
+    $stmt->bind_param('i', $account_id);
+} else {
+    $sql = $sqlBase . " WHERE ua.pengguna_id = ? LIMIT 1";
+    $stmt = $mysqli->prepare($sql);
+    if ($stmt === false) {
+        throw new \mysqli_sql_exception('Gagal menyiapkan query user_info (by pengguna): ' . $mysqli->error);
+    }
+    $stmt->bind_param('i', $pengguna_lookup);
+}
+
 $stmt->execute();
 $user_info = $stmt->get_result()->fetch_assoc();
 $stmt->close();
@@ -332,6 +349,35 @@ function getStatusBadge($status) {
                 <?php if (!empty($user_nama_kesatuan)): ?>
                     <span class="info-item"><i class="fas fa-building"></i> <?= htmlspecialchars($user_nama_kesatuan) ?></span>
                 <?php endif; ?>
+            </div>
+        </div>
+    </div>
+
+    <?php
+    // Show H-1 reminders for logged-in pengguna (works for both user and driver)
+    $pengguna_id = $user_info['id'] ?? (int)get_current_user_id();
+    $upcoming_items = build_upcoming_items($pengguna_id);
+    ?>
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">Pengingat Besok</h6>
+                </div>
+                <div class="card-body">
+                    <?php if (!empty($upcoming_items)): ?>
+                        <ul class="list-unstyled mb-0">
+                        <?php foreach ($upcoming_items as $it): ?>
+                            <li class="mb-2">
+                                <div class="fw-semibold"><?= htmlspecialchars($it['type']) ?> • <?= htmlspecialchars($it['label']) ?></div>
+                                <div class="small text-muted"><?= date('d/m/Y', strtotime($it['date'])) ?> • <?= htmlspecialchars($it['note']) ?></div>
+                            </li>
+                        <?php endforeach; ?>
+                        </ul>
+                    <?php else: ?>
+                        <div class="text-muted">Tidak ada pengingat untuk besok.</div>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
     </div>

@@ -129,8 +129,10 @@ function h($string) {
  * @param float $amount
  * @return string
  */
-function format_currency($amount) {
-    return 'Rp ' . number_format($amount, 0, ',', '.');
+if (!function_exists('format_currency')) {
+    function format_currency($amount) {
+        return 'Rp ' . number_format($amount, 0, ',', '.');
+    }
 }
 
 /**
@@ -139,9 +141,11 @@ function format_currency($amount) {
  * @param string $format
  * @return string
  */
-function format_date($date, $format = 'd/m/Y') {
-    if (empty($date)) return '-';
-    return date($format, strtotime($date));
+if (!function_exists('format_date')) {
+    function format_date($date, $format = 'd/m/Y') {
+        if (empty($date)) return '-';
+        return date($format, strtotime($date));
+    }
 }
 
 /**
@@ -149,23 +153,25 @@ function format_date($date, $format = 'd/m/Y') {
  * @param string $status
  * @return string
  */
-function get_status_badge($status) {
-    $badges = [
-        'aktif' => 'success',
-        'tidak_aktif' => 'secondary',
-        'maintenance' => 'warning',
-        'perbaikan' => 'danger',
-        'pending' => 'warning',
-        'approved' => 'info',
-        'ongoing' => 'primary',
-        'completed' => 'success',
-        'rejected' => 'danger',
-        'cancelled' => 'secondary',
-        'terjadwal' => 'info',
-        'selesai' => 'success'
-    ];
+if (!function_exists('get_status_badge')) {
+    function get_status_badge($status) {
+        $badges = [
+            'aktif' => 'success',
+            'tidak_aktif' => 'secondary',
+            'maintenance' => 'warning',
+            'perbaikan' => 'danger',
+            'pending' => 'warning',
+            'approved' => 'info',
+            'ongoing' => 'primary',
+            'completed' => 'success',
+            'rejected' => 'danger',
+            'cancelled' => 'secondary',
+            'terjadwal' => 'info',
+            'selesai' => 'success'
+        ];
 
-    return $badges[strtolower($status)] ?? 'secondary';
+        return $badges[strtolower($status)] ?? 'secondary';
+    }
 }
 
 /**

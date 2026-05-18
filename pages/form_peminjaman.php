@@ -42,7 +42,7 @@ if (!empty($_GET['return_to'])) {
 }
 
 // Handle form submission
-if ($_POST) {
+    if ($_POST) {
     if (!validate_csrf_token($_POST['csrf_token'] ?? '')) {
         $msg = '<div class="alert alert-danger">Token keamanan tidak valid!</div>';
     } else {
@@ -61,15 +61,16 @@ if ($_POST) {
             }
         }
         $keperluan = trim($_POST['keperluan']);
-        $tujuan = trim($_POST['tujuan']);
+        // Prefer tujuan_hidden (set by map search) over free-text
+        $tujuan = trim($_POST['tujuan_hidden'] ?? ($_POST['map_search'] ?? ''));
         $tanggal_mulai = $_POST['tanggal_mulai'];
         $tanggal_selesai = $_POST['tanggal_selesai'];
     // Always require a driver name (remove 'sopir_sendiri' option)
     $sopir_sendiri = 0;
     $nama_sopir = isset($_POST['nama_sopir']) ? trim($_POST['nama_sopir']) : null;
         $kontak_darurat = trim($_POST['kontak_darurat']);
-        $estimasi_km = $_POST['estimasi_km'] ? (int)$_POST['estimasi_km'] : null;
-    $estimasi_bbm = isset($_POST['estimasi_bbm']) && $_POST['estimasi_bbm'] !== '' ? (int)$_POST['estimasi_bbm'] : null;
+        $estimasi_km = isset($_POST['estimasi_km']) && $_POST['estimasi_km'] !== '' ? (float)$_POST['estimasi_km'] : null;
+    $estimasi_bbm = isset($_POST['estimasi_bbm']) && $_POST['estimasi_bbm'] !== '' ? (float)$_POST['estimasi_bbm'] : null;
         
         // Validation
                 // Check if vehicle is available
@@ -80,13 +81,7 @@ if ($_POST) {
         } elseif (strtotime($tanggal_selesai) <= strtotime($tanggal_mulai)) {
             $msg = '<div class="alert alert-danger">Tanggal selesai harus setelah tanggal mulai!</div>';
         } else {
-            // Kebijakan peminjaman: hanya kendaraan jenis Bus.
-            $busChk = $mysqli->query("SELECT jenis FROM kendaraan WHERE id = " . (int)$kendaraan_id);
-            $busRow = $busChk ? $busChk->fetch_assoc() : null;
-            $jenisKendaraan = strtolower(trim((string)($busRow['jenis'] ?? '')));
-            if ($jenisKendaraan !== 'bus') {
-                $msg = '<div class="alert alert-danger">Pengajuan peminjaman hanya diperbolehkan untuk kendaraan jenis Bus.</div>';
-            }
+            // No fixed vehicle-type policy here: allow any jenis as long as vehicle is available.
 
             if (empty($msg)) {
             // Check if vehicle is available
@@ -118,16 +113,37 @@ if ($_POST) {
                 if (empty($msg)) {
                     $has_jp_table = $mysqli->query("SHOW TABLES LIKE 'jadwal_perawatan'");
                     if ($has_jp_table && $has_jp_table->num_rows > 0) {
-                        // Treat COALESCE(tanggal_perawatan, jadwal_tanggal) as start; IFNULL(tanggal_selesai, start) as end
-                        $sqlJP = "SELECT COUNT(*) c FROM jadwal_perawatan WHERE kendaraan_id = ? AND COALESCE(tanggal_perawatan, jadwal_tanggal) IS NOT NULL AND (status IS NULL OR status NOT IN ('Selesai','Dibatalkan')) AND ((COALESCE(tanggal_perawatan, jadwal_tanggal) <= ? AND IFNULL(tanggal_selesai, COALESCE(tanggal_perawatan, jadwal_tanggal)) >= ?) OR (COALESCE(tanggal_perawatan, jadwal_tanggal) <= ? AND IFNULL(tanggal_selesai, COALESCE(tanggal_perawatan, jadwal_tanggal)) >= ?) OR (COALESCE(tanggal_perawatan, jadwal_tanggal) >= ? AND IFNULL(tanggal_selesai, COALESCE(tanggal_perawatan, jadwal_tanggal)) <= ?))";
-                        $jp = $mysqli->prepare($sqlJP);
-                        if ($jp) {
-                            $jp->bind_param('issssss', $kendaraan_id, $tanggal_mulai, $tanggal_mulai, $tanggal_selesai, $tanggal_selesai, $tanggal_mulai, $tanggal_selesai);
-                            $jp->execute();
-                            $jc = $jp->get_result()->fetch_assoc();
-                            $jp->close();
-                            if (($jc['c'] ?? 0) > 0) {
-                                $msg = '<div class="alert alert-danger">Kendaraan terjadwal untuk perawatan/perbaikan pada periode tersebut!</div>';
+                        // Discover which date columns exist in this schema and build query accordingly
+                        $cols = [];
+                        if ($resCols = $mysqli->query("SHOW COLUMNS FROM jadwal_perawatan")) {
+                            while ($r = $resCols->fetch_assoc()) { $cols[] = $r['Field']; }
+                            $resCols->free_result();
+                        }
+                        $has_tanggal_perawatan = in_array('tanggal_perawatan', $cols, true);
+                        $has_jadwal_tanggal = in_array('jadwal_tanggal', $cols, true);
+                        $has_tanggal_selesai = in_array('tanggal_selesai', $cols, true);
+
+                        // If neither start column exists, skip maintenance check
+                        if ($has_tanggal_perawatan || $has_jadwal_tanggal) {
+                            if ($has_tanggal_perawatan && $has_jadwal_tanggal) {
+                                $startExpr = "COALESCE(tanggal_perawatan, jadwal_tanggal)";
+                            } elseif ($has_tanggal_perawatan) {
+                                $startExpr = "tanggal_perawatan";
+                            } else {
+                                $startExpr = "jadwal_tanggal";
+                            }
+                            $endExpr = $has_tanggal_selesai ? "IFNULL(tanggal_selesai, {$startExpr})" : $startExpr;
+
+                            $sqlJP = "SELECT COUNT(*) c FROM jadwal_perawatan WHERE kendaraan_id = ? AND {$startExpr} IS NOT NULL AND (status IS NULL OR status NOT IN ('Selesai','Dibatalkan')) AND (({$startExpr} <= ? AND {$endExpr} >= ?) OR ({$startExpr} <= ? AND {$endExpr} >= ?) OR ({$startExpr} >= ? AND {$endExpr} <= ?))";
+                            $jp = $mysqli->prepare($sqlJP);
+                            if ($jp) {
+                                $jp->bind_param('issssss', $kendaraan_id, $tanggal_mulai, $tanggal_mulai, $tanggal_selesai, $tanggal_selesai, $tanggal_mulai, $tanggal_selesai);
+                                $jp->execute();
+                                $jc = $jp->get_result()->fetch_assoc();
+                                $jp->close();
+                                if (($jc['c'] ?? 0) > 0) {
+                                    $msg = '<div class="alert alert-danger">Kendaraan terjadwal untuk perawatan/perbaikan pada periode tersebut!</div>';
+                                }
                             }
                         }
                     }
@@ -247,15 +263,45 @@ if ($_POST) {
     }
 }
 
-// Get available vehicles
-$vehicles_query = "
-    SELECT k.*, 
-           CASE WHEN k.status_peminjaman = 'Tersedia' AND k.status_kendaraan = 'Operasional' 
-                THEN 1 ELSE 0 END as available
-    FROM kendaraan k
-    WHERE LOWER(COALESCE(k.jenis, '')) = 'bus'
-    ORDER BY available DESC, COALESCE(k.no_reg, k.no_polisi)
-";
+// Get available vehicles: show only vehicles that are currently available.
+$vehicles_where = [];
+$vehicles_where[] = "LOWER(COALESCE(k.status_peminjaman, '')) = 'tersedia'";
+$vehicles_where[] = "LOWER(COALESCE(k.status_kendaraan, '')) = 'operasional'";
+$vehicles_where[] = "LOWER(COALESCE(k.kondisi, '')) NOT LIKE 'rusak%'";
+
+// Exclude vehicles that currently have an active peminjaman (Approved/Ongoing)
+$has_pk = $mysqli->query("SHOW TABLES LIKE 'peminjaman_kendaraan'");
+if ($has_pk && $has_pk->num_rows > 0) {
+    $vehicles_where[] = "NOT EXISTS (SELECT 1 FROM peminjaman_kendaraan pk WHERE pk.kendaraan_id = k.id AND pk.status IN ('Approved','approved','Ongoing','ongoing'))";
+}
+
+// Exclude vehicles currently assigned in an active surat_tugas
+$has_st = $mysqli->query("SHOW TABLES LIKE 'surat_tugas'");
+if ($has_st && $has_st->num_rows > 0) {
+    $vehicles_where[] = "NOT EXISTS (SELECT 1 FROM surat_tugas st WHERE st.kendaraan_id = k.id AND st.status IN ('Disetujui','Dalam Perjalanan'))";
+}
+
+// Exclude vehicles with scheduled/ongoing maintenance
+$has_jp = $mysqli->query("SHOW TABLES LIKE 'jadwal_perawatan'");
+if ($has_jp && $has_jp->num_rows > 0) {
+    $vehicles_where[] = "NOT EXISTS (SELECT 1 FROM jadwal_perawatan jp WHERE jp.kendaraan_id = k.id AND (jp.status IS NULL OR LOWER(COALESCE(jp.status,'')) NOT IN ('selesai','dibatalkan')))";
+}
+
+$where_sql = '';
+if (!empty($vehicles_where)) {
+    $where_sql = ' WHERE ' . implode(' AND ', $vehicles_where);
+}
+
+$cols_info = $mysqli->query("SHOW COLUMNS FROM kendaraan")->fetch_all(MYSQLI_ASSOC);
+$cols_names = array_column($cols_info, 'Field');
+$join_pengguna = '';
+$select_extra = '';
+if (in_array('pengguna_id', $cols_names, true)) {
+    $join_pengguna = ' LEFT JOIN pengguna pg ON k.pengguna_id = pg.id';
+    $select_extra = ', COALESCE(pg.nama_lengkap, "") AS nama_pengemudi';
+}
+$order_col = 'COALESCE(k.no_reg, k.no_polisi)';
+$vehicles_query = "SELECT k.* " . $select_extra . ", 1 as available FROM kendaraan k " . $join_pengguna . " " . $where_sql . " ORDER BY " . $order_col;
 $vehicles = $mysqli->query($vehicles_query)->fetch_all(MYSQLI_ASSOC);
 ?>
 
@@ -283,11 +329,16 @@ $vehicles = $mysqli->query($vehicles_query)->fetch_all(MYSQLI_ASSOC);
                             <option value="<?= $vehicle['id'] ?>" 
                                     <?= !$vehicle['available'] ? 'disabled' : '' ?>
                                     data-type="<?= htmlspecialchars($vehicle['jenis']) ?>"
+                                    data-merk="<?= htmlspecialchars($vehicle['merk']) ?>"
                                     data-fuel="<?= htmlspecialchars($vehicle['bahan_bakar']) ?>"
                                     data-no_reg="<?= htmlspecialchars($vehicle['no_reg'] ?? '') ?>"
-                                    data-satker="<?= htmlspecialchars($vehicle['satker'] ?? '') ?>">
-                                <?= htmlspecialchars(($vehicle['no_reg'] ?? '') !== '' ? $vehicle['no_reg'] : ($vehicle['no_polisi'] ?? '-')) ?><?= !empty($vehicle['no_polisi']) ? ' (Nopol: ' . htmlspecialchars($vehicle['no_polisi']) . ')' : '' ?> - 
-                                <?= htmlspecialchars($vehicle['merk']) ?> <?= htmlspecialchars($vehicle['tipe']) ?>
+                                    data-satker="<?= htmlspecialchars($vehicle['satker'] ?? '') ?>"
+                                    data-driver="<?= htmlspecialchars($vehicle['nama_pengemudi'] ?? '') ?>">
+                                <?php
+                                    $display_reg = !empty($vehicle['no_reg']) ? $vehicle['no_reg'] : ($vehicle['no_polisi'] ?? '-');
+                                    $driver_label = !empty($vehicle['nama_pengemudi']) ? $vehicle['nama_pengemudi'] : '(Belum ditentukan)';
+                                ?>
+                                <?= htmlspecialchars($display_reg) ?> - <?= htmlspecialchars($vehicle['merk']) ?> <?= htmlspecialchars($vehicle['tipe']) ?> - <?= htmlspecialchars($driver_label) ?>
                                 <?= !$vehicle['available'] ? ' (Tidak Tersedia)' : '' ?>
                             </option>
                         <?php endforeach; ?>
@@ -303,15 +354,19 @@ $vehicles = $mysqli->query($vehicles_query)->fetch_all(MYSQLI_ASSOC);
             
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label for="tujuan" class="form-label">Tujuan *</label>
-                    <input type="text" id="tujuan" name="tujuan" class="form-control" required 
-                           placeholder="Contoh: Jakarta Pusat, Bandung, Surabaya">
-                </div>
-                
-                <div class="form-group">
-                    <label for="estimasi_km">Estimasi KM</label>
-                    <input type="number" id="estimasi_km" name="estimasi_km" class="form-control" min="1" 
-                           placeholder="Estimasi jarak tempuh (KM)">
+                    <label for="map_search" class="form-label">Cari Lokasi Tujuan *</label>
+                    <input type="text" id="map_search" name="map_search" class="form-control" placeholder="Cari lokasi tujuan...">
+                    <small class="form-text text-muted">Pilih lokasi yang muncul untuk melihat rute pulang-pergi dari SPBT Kemhan Cawang.</small>
+                    <div id="map_search_suggestions" class="list-group mt-2"></div>
+                    <div class="mt-2">
+                        <button type="button" id="addDestinationBtn" class="btn btn-sm btn-outline-primary">Tambah Tujuan</button>
+                        <ul id="destinationList" class="list-group mt-2"></ul>
+                    </div>
+                    <input type="hidden" name="tujuan_hidden" id="tujuan_hidden" value="">
+                    <input type="hidden" name="estimasi_km" id="estimasi_km" value="">
+                    <input type="hidden" name="estimasi_bbm" id="estimasi_bbm" value="">
+                    <div id="miniMap" style="height:260px; margin-top:12px; border:1px solid #e6e6e6; border-radius:6px;"></div>
+                    <div class="mt-2 small text-muted">Jarak pulang-pergi: <span id="routeDistance">-</span> km &middot; Estimasi BBM: <span id="routeFuel">-</span> L</div>
                 </div>
             </div>
             
@@ -329,17 +384,6 @@ $vehicles = $mysqli->query($vehicles_query)->fetch_all(MYSQLI_ASSOC);
             </div>
             
             <div class="form-row">
-                <div class="form-group">
-                    <label for="estimasi_bbm">Estimasi BBM (L)</label>
-                    <input type="number" id="estimasi_bbm" name="estimasi_bbm" class="form-control" min="0" step="1" 
-                           placeholder="Estimasi bahan bakar (liter)">
-                </div>
-
-                <div class="form-group">
-                    <label for="estimasi_bbm_rp">Estimasi BBM (Rp)</label>
-                    <input type="text" id="estimasi_bbm_rp" class="form-control" readonly placeholder="Estimasi biaya bahan bakar (Rp)">
-                </div>
-                
                 <div class="form-group">
                     <label for="kendaraan_fuel">Tipe Bahan Bakar</label>
                     <input type="text" id="kendaraan_fuel" class="form-control" readonly placeholder="Pilih kendaraan untuk melihat tipe bahan bakar">
@@ -398,96 +442,186 @@ document.addEventListener('DOMContentLoaded', function() {
     // Auto estimate fuel in liters based on distance and show vehicle fuel type + cost in Rp
     const estimasiKm = document.getElementById('estimasi_km');
     const estimasiBbm = document.getElementById('estimasi_bbm');
-    const estimasiBbmRp = document.getElementById('estimasi_bbm_rp');
     const kendaraanSelect = document.getElementById('kendaraan_id');
     const kendaraanFuel = document.getElementById('kendaraan_fuel');
 
-    // Heuristics and assumptions (tunable): base efficiency (km per liter) by vehicle type
-    const baseEfficiencyByType = {
-        'city car': 17, // City Car / LCGC ~15-20
-        'lcgc': 17,
-        'sedan': 12.5,
-        'suv': 10,
-        'sport': 6.5,
-        'hybrid': 24,
-        'diesel': 11
-    };
-
-    // Fuel type multipliers and price per liter assumptions (Rp) — these are reasonable defaults and can be tuned
-    const fuelMultipliers = {
-        'pertamax turbo': 1.08,
-        'pertamax': 1.05,
-        'pertalite': 1.0,
-        'dexlite': 1.12,
-        'solar': 1.12
-    };
-    const fuelPrice = {
-        'pertamax turbo': 18000,
-        'pertamax': 16000,
-        'pertalite': 10000,
-        'dexlite': 9000,
-        'solar': 9000
-    };
-
-    function normalize(str) {
-        return (str || '').toString().trim().toLowerCase();
-    }
-
-    function computeEstimates() {
-        const km = parseFloat(estimasiKm.value) || 0;
-        const opt = kendaraanSelect.options[kendaraanSelect.selectedIndex];
-        const jenis = opt ? normalize(opt.getAttribute('data-type')) : '';
-        const fuel = opt ? normalize(opt.getAttribute('data-fuel')) : '';
-
-        kendaraanFuel.value = opt ? (opt.getAttribute('data-fuel') || '') : '';
-
-        // Determine base efficiency
-        let baseEff = 10; // conservative default
-        if (jenis) {
-            // try exact match or contains
-            for (const key in baseEfficiencyByType) {
-                if (jenis.indexOf(key) !== -1) { baseEff = baseEfficiencyByType[key]; break; }
-            }
-        }
-
-        // apply fuel multiplier
-        let multiplier = 1.0;
-        if (fuel) {
-            for (const key in fuelMultipliers) {
-                if (fuel.indexOf(key) !== -1) { multiplier = fuelMultipliers[key]; break; }
-            }
-        }
-
-        const eff = baseEff * multiplier;
-        const liters = km > 0 ? Math.max(1, Math.ceil(km / eff)) : '';
-        estimasiBbm.value = liters;
-
-        // compute cost
-        let pricePerL = 15000; // default assumption
-        if (fuel) {
-            for (const key in fuelPrice) {
-                if (fuel.indexOf(key) !== -1) { pricePerL = fuelPrice[key]; break; }
-            }
-        }
-        if (liters) {
-            const cost = liters * pricePerL;
-            // format number with thousand separators
-            estimasiBbmRp.value = cost.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-        } else {
-            estimasiBbmRp.value = '';
-        }
-        // Sync hidden no_reg and satker inputs when vehicle changes
+    // Sync selected vehicle metadata (no_reg / satker / fuel) and clear prior estimates when vehicle changes
+    kendaraanSelect.addEventListener('change', function() {
+        const opt = this.selectedOptions && this.selectedOptions[0];
         const noRegInput = document.getElementById('no_reg');
         const satkerInput = document.getElementById('satker');
+        const kendaraanFuel = document.getElementById('kendaraan_fuel');
         if (opt) {
             const noReg = opt.getAttribute('data-no_reg') || '';
             const satk = opt.getAttribute('data-satker') || '';
             if (noRegInput) noRegInput.value = noReg;
             if (satkerInput) satkerInput.value = satk;
+            if (kendaraanFuel) kendaraanFuel.value = opt.getAttribute('data-fuel') || '';
         }
+        // Clear previous estimations to avoid stale values
+        const estimasiKmEl = document.getElementById('estimasi_km');
+        const estimasiBbmEl = document.getElementById('estimasi_bbm');
+        if (estimasiKmEl) estimasiKmEl.value = '';
+        if (estimasiBbmEl) estimasiBbmEl.value = '';
+        const routeDistanceEl = document.getElementById('routeDistance');
+        const routeFuelEl = document.getElementById('routeFuel');
+        if (routeDistanceEl) routeDistanceEl.textContent = '-';
+        if (routeFuelEl) routeFuelEl.textContent = '-';
+    });
+});
+</script>
+<!-- Leaflet Routing Machine (for route distance estimation) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+    if (!document.getElementById('miniMap')) return;
+
+    const map = L.map('miniMap').setView([-6.200, 106.816], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+
+    const mapSearch = document.getElementById('map_search');
+    const suggestionsContainer = document.getElementById('map_search_suggestions');
+    const routeDistanceEl = document.getElementById('routeDistance');
+    const routeFuelEl = document.getElementById('routeFuel');
+    const tujuanHidden = document.getElementById('tujuan_hidden');
+    const estimasiKmEl = document.getElementById('estimasi_km');
+    const estimasiBbmEl = document.getElementById('estimasi_bbm');
+    const kendaraanSelect = document.getElementById('kendaraan_id');
+
+    let routingControl = null;
+    let originLatLng = null;
+    let originMarker = null;
+    let destMarker = null;
+
+    function geocodeAddress(q){
+        return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
+            .then(r=>r.json()).then(j=>j && j.length ? j[0] : null).catch(()=>null);
+    }
+    function geocodeSuggestions(q, limit = 5){
+        return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=' + limit + '&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
+            .then(r=>r.json()).catch(()=>[]);
+    }
+    function reverseGeocode(lat, lon){
+        return fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + encodeURIComponent(lat) + '&lon=' + encodeURIComponent(lon), { headers: { 'Accept': 'application/json' } })
+            .then(r=>r.json()).then(j=>j && j.display_name ? j.display_name : null).catch(()=>null);
     }
 
-    estimasiKm.addEventListener('input', computeEstimates);
-    kendaraanSelect.addEventListener('change', computeEstimates);
+    // initialize origin by geocoding SPBT Kemhan Cawang
+    geocodeAddress('SPBT Kemhan Cawang').then(r => {
+        if (r) {
+            originLatLng = L.latLng(parseFloat(r.lat), parseFloat(r.lon));
+            originMarker = L.marker(originLatLng).addTo(map).bindPopup(r.display_name || 'SPBT Kemhan Cawang');
+            map.setView(originLatLng, 12);
+        }
+    }).catch(()=>{});
+
+    function clearRouting(){
+        if (routingControl) { try{ map.removeControl(routingControl); } catch(e){} routingControl = null; }
+        if (destMarker) { try{ map.removeLayer(destMarker); } catch(e){} destMarker = null; }
+        routeDistanceEl.textContent = '-';
+        routeFuelEl.textContent = '-';
+        if (estimasiKmEl) estimasiKmEl.value = '';
+        if (estimasiBbmEl) estimasiBbmEl.value = '';
+        tujuanHidden.value = '';
+    }
+
+    // multi-destination helpers
+    const addDestinationBtn = document.getElementById('addDestinationBtn');
+    const destinationList = document.getElementById('destinationList');
+    const destMarkers = new Map();
+
+    function addDestinationInput(value){
+        const li = document.createElement('li'); li.className = 'list-group-item d-flex align-items-center';
+        const input = document.createElement('input'); input.type='text'; input.className='form-control me-2 destination-item'; input.value = value || ''; input.placeholder='Alamat tujuan';
+        li.style.position='relative';
+        const sugg = document.createElement('div'); sugg.className='destination-suggestions list-group'; sugg.style.position='absolute'; sugg.style.left='0'; sugg.style.right='0'; sugg.style.top='100%'; sugg.style.zIndex='1200';
+        const btn = document.createElement('button'); btn.type='button'; btn.className='btn btn-sm btn-danger remove-destination'; btn.innerHTML='&times;';
+        btn.addEventListener('click', function(){ const m = destMarkers.get(input); if(m){ try{ map.removeLayer(m); }catch(e){} destMarkers.delete(input); } li.remove(); recalcRouteAndEstimates(); });
+        input.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); geocodeInputAndSetMarker(input).then(recalcRouteAndEstimates); } });
+        input.addEventListener('blur', function(){ setTimeout(()=>{ if (input.value.trim()) geocodeInputAndSetMarker(input).then(recalcRouteAndEstimates); sugg.innerHTML=''; }, 200); });
+        let acTimeout = null;
+        input.addEventListener('input', function(){ const q = input.value.trim(); if (acTimeout) clearTimeout(acTimeout); sugg.innerHTML=''; if (q.length < 2) return; acTimeout = setTimeout(function(){ geocodeSuggestions(q,5).then(list=>{ sugg.innerHTML=''; if(!list||!list.length) return; list.forEach(item=>{ const a=document.createElement('a'); a.href='#'; a.className='list-group-item list-group-item-action'; a.textContent=item.display_name; a.addEventListener('click', function(ev){ ev.preventDefault(); input.value = item.display_name; input.dataset.lat = item.lat; input.dataset.lng = item.lon; input.dataset.display = item.display_name; const old = destMarkers.get(input); if(old) try{ map.removeLayer(old); }catch(e){} const m = L.marker([parseFloat(item.lat), parseFloat(item.lon)]).addTo(map).bindPopup(item.display_name); destMarkers.set(input, m); sugg.innerHTML=''; recalcRouteAndEstimates(); }); sugg.appendChild(a); }); }).catch(()=>{ sugg.innerHTML=''; }); }, 300); });
+        li.appendChild(input); li.appendChild(btn); li.appendChild(sugg); destinationList.appendChild(li); return input;
+    }
+
+    function geocodeInputAndSetMarker(input){
+        const q = input.value.trim(); if(!q) return Promise.resolve(null);
+        return geocodeAddress(q).then(res=>{ if(!res) return null; input.dataset.lat = res.lat; input.dataset.lng = res.lon; input.dataset.display = res.display_name || q; const latlng = L.latLng(parseFloat(res.lat), parseFloat(res.lon)); const old = destMarkers.get(input); if(old) try{ map.removeLayer(old); }catch(e){} const m = L.marker(latlng).addTo(map).bindPopup(input.dataset.display || q); destMarkers.set(input, m); return {lat: latlng.lat, lng: latlng.lng}; });
+    }
+
+    function setOriginMarker(latlng, display){ if(originMarker) try{ map.removeLayer(originMarker); }catch(e){} originMarker = L.marker(latlng, {icon: L.icon({iconUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-icon.png'})}).addTo(map).bindPopup(display || 'SPBT Kemhan Cawang'); }
+
+    function getConsumptionRateForSelectedVehicle(){ if(!kendaraanSelect) return 4; const opt = kendaraanSelect.selectedOptions && kendaraanSelect.selectedOptions[0]; const merk = (opt && (opt.dataset && opt.dataset.merk)) ? opt.dataset.merk.toLowerCase() : ''; if (merk.indexOf('mercedes') !== -1) return 3; if (merk.indexOf('mitsubishi') !== -1) return 4; if (merk.indexOf('hino') !== -1) return 5; return 4; }
+
+    function recalcRouteAndEstimates(){
+        const originVal = 'SPBT Kemhan Cawang';
+        const originPromise = geocodeAddress(originVal).then(r=>{ if(r){ setOriginMarker([parseFloat(r.lat), parseFloat(r.lon)], r.display_name); return {lat: parseFloat(r.lat), lng: parseFloat(r.lon)} } return null; });
+        const destInputs = Array.from(document.querySelectorAll('.destination-item'));
+        const destPromises = destInputs.map(inp=>{ const v = inp.value.trim(); if(!v) return Promise.resolve(null); if (inp.dataset.lat && inp.dataset.lng) return Promise.resolve({lat: parseFloat(inp.dataset.lat), lng: parseFloat(inp.dataset.lng)}); return geocodeAddress(v).then(r=>{ if(r){ inp.dataset.lat=r.lat; inp.dataset.lng=r.lon; inp.dataset.display=r.display_name; const old = destMarkers.get(inp); if (old) try{ map.removeLayer(old); }catch(e){} const m = L.marker([parseFloat(r.lat), parseFloat(r.lon)]).addTo(map).bindPopup(r.display_name); destMarkers.set(inp,m); return {lat: parseFloat(r.lat), lng: parseFloat(r.lon)} } return null; }); });
+
+        return Promise.all([originPromise].concat(destPromises)).then(results => {
+            const originLatLng = results[0];
+            const destLatLngs = results.slice(1).filter(Boolean);
+            if (!originLatLng || destLatLngs.length === 0) {
+                routeDistanceEl.textContent='-'; routeFuelEl.textContent='-'; if(routingControl){ try{ map.removeControl(routingControl); }catch(e){} routingControl=null; }
+                return;
+            }
+            const waypoints = [L.latLng(originLatLng.lat, originLatLng.lng)].concat(destLatLngs.map(d=>L.latLng(d.lat, d.lng))).concat([L.latLng(originLatLng.lat, originLatLng.lng)]);
+            if (routingControl) { try{ map.removeControl(routingControl); } catch(e){} routingControl=null; }
+            routingControl = L.Routing.control({ waypoints: waypoints, lineOptions: { styles: [{color: 'blue', opacity: 0.6, weight: 5}] }, createMarker: function(i, wp){ return L.marker(wp.latLng); }, addWaypoints: false, routeWhileDragging: false, fitSelectedRoutes: true, router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }) }).addTo(map);
+            routingControl.on('routesfound', function(e){ const summary = e.routes && e.routes[0] && e.routes[0].summary; if(!summary) return; const distKm = Math.round((summary.totalDistance/1000)*100)/100; routeDistanceEl.textContent = distKm; if (estimasiKmEl) estimasiKmEl.value = distKm; const rate = getConsumptionRateForSelectedVehicle(); const liters = Math.round((distKm / rate) * 100) / 100; routeFuelEl.textContent = liters; if (estimasiBbmEl) estimasiBbmEl.value = liters; tujuanHidden.value = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.dataset.display || i.value).filter(Boolean).join('||'); });
+        });
+    }
+
+    // Add destination button
+    addDestinationBtn?.addEventListener('click', function(){ const newInp = addDestinationInput(''); newInp.focus(); });
+
+    // Map click: add destination
+    map.on('click', function(e){ reverseGeocode(e.latlng.lat, e.latlng.lng).then(addr=>{ const display = addr || (e.latlng.lat + ',' + e.latlng.lng); const inp = addDestinationInput(display); inp.dataset.lat = e.latlng.lat; inp.dataset.lng = e.latlng.lng; const m = L.marker(e.latlng).addTo(map).bindPopup(inp.value); destMarkers.set(inp,m); recalcRouteAndEstimates(); }).catch(()=>{ const display = e.latlng.lat + ',' + e.latlng.lng; const inp = addDestinationInput(display); inp.dataset.lat = e.latlng.lat; inp.dataset.lng = e.latlng.lng; const m = L.marker(e.latlng).addTo(map).bindPopup(inp.value); destMarkers.set(inp,m); recalcRouteAndEstimates(); });
+
+    // autocomplete suggestions (debounced) for the main search input: add as destination
+    let acTimer = null;
+    mapSearch.addEventListener('input', function(){
+        const q = this.value.trim();
+        suggestionsContainer.innerHTML = '';
+        if (acTimer) clearTimeout(acTimer);
+        if (q.length < 2) return;
+        acTimer = setTimeout(function(){
+            geocodeSuggestions(q, 5).then(list => {
+                suggestionsContainer.innerHTML = '';
+                (list || []).forEach(item => {
+                    const a = document.createElement('a');
+                    a.href = '#';
+                    a.className = 'list-group-item list-group-item-action';
+                    a.textContent = item.display_name;
+                    a.addEventListener('click', function(ev){
+                        ev.preventDefault();
+                        mapSearch.value = '';
+                        suggestionsContainer.innerHTML = '';
+                        const inp = addDestinationInput(item.display_name);
+                        inp.dataset.lat = item.lat; inp.dataset.lng = item.lon; inp.dataset.display = item.display_name;
+                        const old = destMarkers.get(inp); if(old) try{ map.removeLayer(old); }catch(e){}
+                        const m = L.marker([parseFloat(item.lat), parseFloat(item.lon)]).addTo(map).bindPopup(item.display_name);
+                        destMarkers.set(inp, m);
+                        recalcRouteAndEstimates();
+                    });
+                    suggestionsContainer.appendChild(a);
+                });
+            }).catch(()=>{ suggestionsContainer.innerHTML = ''; });
+        }, 250);
+    });
+
+    // Pack destinations on submit
+    const form = document.querySelector('form');
+    if (form) {
+        form.addEventListener('submit', function(){ const dests = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.dataset.display || i.value).filter(Boolean); tujuanHidden.value = dests.join('||'); const kmEl = document.getElementById('estimasi_km'); const bbmEl = document.getElementById('estimasi_bbm'); if (routeDistanceEl.textContent && kmEl) kmEl.value = routeDistanceEl.textContent; if (routeFuelEl.textContent && bbmEl) bbmEl.value = routeFuelEl.textContent; });
+    }
+
+    // initial calc after short delay
+    setTimeout(()=>{ recalcRouteAndEstimates(); }, 700);
+
+    // clear routing if user clears search
+    mapSearch.addEventListener('change', function(){ if (!this.value.trim()) { /* keep destinations, but clear suggestions */ suggestionsContainer.innerHTML = ''; } });
 });
 </script>

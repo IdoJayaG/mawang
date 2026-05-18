@@ -76,7 +76,7 @@
                 <div class="vehicle-image-container bg-light d-flex align-items-center justify-content-center overflow-hidden" style="min-height:180px;">
                     <?php $photo = get_vehicle_photo_web_path((int)$kendaraan['id']); ?>
                     <?php if ($photo): ?>
-                        <img src="<?= htmlspecialchars($photo) ?>?v=<?= urlencode($kendaraan['updated_at'] ?? $kendaraan['created_at'] ?? time()) ?>" class="w-100 h-100 object-fit-cover" alt="<?= htmlspecialchars($kendaraan['merk'] . ' ' . $kendaraan['tipe']) ?>">
+                        <img src="<?= htmlspecialchars((string)$photo) ?>?v=<?= urlencode($kendaraan['updated_at'] ?? $kendaraan['created_at'] ?? time()) ?>" class="w-100 h-100 object-fit-cover" alt="<?= htmlspecialchars((($kendaraan['merk'] ?? '') . ' ' . ($kendaraan['tipe'] ?? ''))) ?>">
                     <?php else: ?>
                         <div class="text-center text-muted">
                             <i class="fas fa-car fa-3x d-block mb-2"></i>
@@ -86,7 +86,7 @@
                 </div>
                 
                 <div class="card-body p-4">
-                    <h5 class="card-title text-primary mb-3"><?= htmlspecialchars($kendaraan['merk'] . ' ' . $kendaraan['tipe']) ?></h5>
+                    <h5 class="card-title text-primary mb-3"><?= htmlspecialchars((($kendaraan['merk'] ?? '') . ' ' . ($kendaraan['tipe'] ?? ''))) ?></h5>
                     <div class="mb-3">
                         <div class="d-flex align-items-center mb-2 text-muted small">
                             <i class="fas fa-id-card text-primary me-2 icon-width"></i>
@@ -94,24 +94,24 @@
                         </div>
                         <div class="d-flex align-items-center mb-2 text-muted small">
                             <i class="fas fa-calendar text-primary me-2 icon-width"></i>
-                            <span><?= htmlspecialchars($kendaraan['tahun_pembuatan']) ?></span>
+                            <span><?= htmlspecialchars((string)($kendaraan['tahun_pembuatan'] ?? '-')) ?></span>
                         </div>
                         <div class="d-flex align-items-center mb-2 text-muted small">
                             <i class="fas fa-palette text-primary me-2 icon-width"></i>
-                            <span><?= htmlspecialchars($kendaraan['warna']) ?></span>
+                            <span><?= htmlspecialchars((string)($kendaraan['warna'] ?? '-')) ?></span>
                         </div>
                         <div class="d-flex align-items-center mb-2 text-muted small">
                             <i class="fas fa-gas-pump text-primary me-2 icon-width"></i>
-                            <span><?= htmlspecialchars($kendaraan['bahan_bakar']) ?></span>
+                            <span><?= htmlspecialchars((string)($kendaraan['bahan_bakar'] ?? '-')) ?></span>
                         </div>
                     </div>
                     
                     <div class="mb-3">
                         <span class="badge bg-<?= strtolower($kendaraan['kondisi']) == 'baik' ? 'success' : 'warning' ?> me-2 mb-2">
-                            <?= htmlspecialchars($kendaraan['kondisi']) ?>
+                            <?= htmlspecialchars((string)($kendaraan['kondisi'] ?? '-')) ?>
                         </span>
                         <span class="badge bg-<?= strtolower($kendaraan['status_penggunaan']) == 'tersedia' ? 'info' : 'danger' ?> mb-2">
-                            <?= htmlspecialchars($kendaraan['status_penggunaan']) ?>
+                            <?= htmlspecialchars((string)($kendaraan['status_penggunaan'] ?? '-')) ?>
                         </span>
                     </div>
                 

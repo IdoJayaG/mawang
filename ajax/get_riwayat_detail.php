@@ -71,19 +71,7 @@ try {
     <?php endif; ?>
     
     <div class="row">
-        <div class="col-md-4">
-            <div class="detail-group">
-                <label>Biaya:</label>
-                <div class="detail-value">
-                    <?php if ($data['biaya'] > 0): ?>
-                        <strong class="text-success">Rp <?= number_format($data['biaya']) ?></strong>
-                    <?php else: ?>
-                        <span class="text-muted">Tidak ada biaya</span>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-4">
+        <div class="col-md-6">
             <div class="detail-group">
                 <label>KM Perawatan:</label>
                 <div class="detail-value">
@@ -91,7 +79,7 @@ try {
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-6">
             <div class="detail-group">
                 <label>Status:</label>
                 <div class="detail-value">
@@ -133,19 +121,7 @@ try {
     <?php endif; ?>
     
     <div class="row">
-        <div class="col-md-4">
-            <div class="detail-group">
-                <label>Biaya:</label>
-                <div class="detail-value">
-                    <?php if ($data['biaya'] > 0): ?>
-                        <strong class="text-success">Rp <?= number_format($data['biaya']) ?></strong>
-                    <?php else: ?>
-                        <span class="text-muted">Tidak ada biaya</span>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-4">
+        <div class="col-md-6">
             <div class="detail-group">
                 <label>KM Perawatan:</label>
                 <div class="detail-value">
@@ -153,7 +129,7 @@ try {
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-6">
             <div class="detail-group">
                 <label>Kategori:</label>
                 <div class="detail-value">

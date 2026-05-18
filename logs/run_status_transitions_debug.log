@@ -1,0 +1,7 @@
+2026-05-13T14:23:57+07:00 Promoted surat_tugas id 29 nomor_surat ST/001/V/2026 to Dalam Perjalanan (by user: 1)
+2026-05-13T14:23:57+07:00 Updated peminjaman_kendaraan -> Ongoing for nomor_surat ST/001/V/2026 affected=0
+2026-05-13T14:23:58+07:00 Set kendaraan.id 143 status_peminjaman=Dipinjam (affected=1)
+2026-05-13T14:25:17+07:00 Finalized surat_tugas id 29 nomor_surat ST/001/V/2026 to Selesai (by user: 1)
+2026-05-13T14:25:17+07:00 Updated peminjaman_kendaraan -> completed for nomor_surat ST/001/V/2026 affected=0
+2026-05-13T14:25:17+07:00 Set kendaraan.id 143 status_peminjaman=Tersedia (affected=1)
+2026-05-13T14:25:17+07:00 Inserted riwayat_pemakaian id=36 kendaraan_id=143

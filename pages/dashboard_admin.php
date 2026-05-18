@@ -22,27 +22,19 @@ $master_counts = [];
 
 // Users by role
 $stats['users'] = [];
-$rres = $mysqli->query("SELECT r.kode_role as role, COUNT(*) as count FROM user_account ua JOIN role r ON ua.role_id = r.id WHERE ua.status = 'Aktif' GROUP BY r.kode_role");
+$rres = $mysqli->query("SELECT r.kode_role as role, COUNT(*) as count FROM user_account ua JOIN role r ON ua.role_id = r.id WHERE ua.status = 'Aktif' AND LOWER(COALESCE(r.kode_role, r.nama_role, '')) <> 'operator' GROUP BY r.kode_role");
 if ($rres) {
     while ($r = $rres->fetch_assoc()) {
         $stats['users'][$r['role']] = intval($r['count']);
     }
 }
 
-// Vehicle status and jenis
+// Vehicle status (jenis removed - deprecated field)
 $stats['kendaraan_status'] = [];
-$stats['kendaraan_jenis'] = [];
 $res = $mysqli->query("SELECT status_kendaraan, COUNT(*) as jumlah FROM kendaraan GROUP BY status_kendaraan");
 if ($res) {
     while ($row = $res->fetch_assoc()) {
         $stats['kendaraan_status'][$row['status_kendaraan']] = intval($row['jumlah']);
-    }
-}
-
-$res = $mysqli->query("SELECT jenis, COUNT(*) as jumlah FROM kendaraan GROUP BY jenis");
-if ($res) {
-    while ($row = $res->fetch_assoc()) {
-        $stats['kendaraan_jenis'][$row['jenis']] = intval($row['jumlah']);
     }
 }
 
@@ -307,7 +299,7 @@ render_sidebar($current_page, 'admin');
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <div class="d-flex align-items-center">
                                         <div class="role-icon me-3">
-                                            <i class="fas fa-<?= $role === 'admin' ? 'crown' : ($role === 'operator' ? 'cogs' : 'user') ?> text-primary"></i>
+                                            <i class="fas fa-<?= $role === 'admin' ? 'crown' : 'user' ?> text-primary"></i>
                                         </div>
                                         <span class="text-capitalize fw-semibold"><?= ucfirst($role) ?></span>
                                     </div>
@@ -709,7 +701,7 @@ render_sidebar($current_page, 'admin');
                                         <th>Tanggal</th>
                                         <th>Bengkel</th>
                                         <th>Prioritas</th>
-                                        <th>Estimasi Biaya</th>
+                                        <!-- Estimasi Biaya removed from admin scheduled maintenance -->
                                         <th>Status</th>
                                     </tr>
                                 </thead>
@@ -763,9 +755,8 @@ render_sidebar($current_page, 'admin');
                                                 <?= htmlspecialchars($maintenance['prioritas'] ?? 'Normal') ?>
                                             </span>
                                         </td>
-                                        <td>
-                                            <strong>Rp <?= number_format($maintenance['estimasi_biaya'] ?? 0, 0, ',', '.') ?></strong>
-                                            <?php if (!empty($maintenance['km_saat_perawatan'])): ?>
+                                        <!-- Estimasi Biaya removed from admin scheduled maintenance -->
+                                        <?php if (!empty($maintenance['km_saat_perawatan'])): ?>
                                                 <br><small class="text-muted"><?= number_format($maintenance['km_saat_perawatan']) ?> km</small>
                                             <?php endif; ?>
                                         </td>

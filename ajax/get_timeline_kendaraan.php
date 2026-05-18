@@ -30,9 +30,9 @@ try {
     
     // Get combined timeline (maintenance + usage + fuel)
     $stmt = $mysqli->prepare("
-        SELECT 'maintenance' as type, tanggal_perawatan as date, jenis_perawatan as title, 
-               CONCAT('Bengkel: ', COALESCE(bengkel, '-'), ' | Mekanik: ', COALESCE(mekanik, '-')) as description,
-               biaya, km_saat_perawatan as km_value, 'success' as status
+         SELECT 'maintenance' as type, tanggal_perawatan as date, jenis_perawatan as title, 
+             CONCAT('Bengkel: ', COALESCE(bengkel, '-'), ' | Mekanik: ', COALESCE(mekanik, '-')) as description,
+             0 as biaya, km_saat_perawatan as km_value, 'success' as status
         FROM riwayat_perawatan 
         WHERE kendaraan_id = ?
         
@@ -46,9 +46,9 @@ try {
         
         UNION ALL
         
-        SELECT 'fuel' as type, tanggal_isi as date, CONCAT('Pengisian BBM: ', jumlah_liter, ' liter') as title,
-               CONCAT('Jenis: ', jenis_bbm, ' | Harga: Rp ', FORMAT(harga_per_liter, 0)) as description,
-               total_biaya as biaya, km_saat_isi as km_value, 'warning' as status
+         SELECT 'fuel' as type, tanggal_isi as date, CONCAT('Pengisian BBM: ', jumlah_liter, ' liter') as title,
+             CONCAT('Jenis: ', COALESCE(jenis_bbm, '-')) as description,
+             0 as biaya, km_saat_isi as km_value, 'warning' as status
         FROM log_bahan_bakar 
         WHERE kendaraan_id = ?
         
@@ -93,11 +93,6 @@ try {
                                 </small>
                             </div>
                             <div class="text-right">
-                                <?php if ($item['biaya'] > 0): ?>
-                                    <span class="badge badge-<?= $item['status'] ?>">
-                                        Rp <?= number_format($item['biaya']) ?>
-                                    </span>
-                                <?php endif; ?>
                                 <?php if ($item['km_value']): ?>
                                     <br><small class="text-muted">
                                         <?= number_format($item['km_value']) ?> KM

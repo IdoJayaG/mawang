@@ -39,8 +39,6 @@ $stats_result = $mysqli->query("
     SELECT 
         COUNT(*) as total_isi,
         SUM(jumlah_liter) as total_liter,
-        SUM(biaya) as total_biaya,
-        AVG(harga_per_liter) as avg_harga,
         MAX(tanggal_isi) as last_refuel
     FROM log_bahan_bakar
     WHERE kendaraan_id = $kendaraan_id
@@ -52,7 +50,6 @@ $monthly_result = $mysqli->query("
     SELECT 
         DATE_FORMAT(tanggal_isi, '%Y-%m') as bulan,
         SUM(jumlah_liter) as total_liter,
-        SUM(biaya) as total_biaya,
         COUNT(*) as jumlah_isi
     FROM log_bahan_bakar
     WHERE kendaraan_id = $kendaraan_id
@@ -100,9 +97,6 @@ $efficiency_result = $mysqli->query("
                                     <i class="fas fa-gas-pump me-2"></i>Log Bahan Bakar
                                 </h4>
                                 <h5 class="mb-0"><?php echo htmlspecialchars($vehicle['merk'] . ' ' . $vehicle['tipe']); ?> - <?php echo htmlspecialchars($vehicle['no_reg'] ?? $vehicle['no_polisi']); ?>
-                                    <?php if (!empty($vehicle['no_polisi'])): ?>
-                                        &middot; <small class="text-muted">Nopol: <?= htmlspecialchars($vehicle['no_polisi']) ?></small>
-                                    <?php endif; ?>
                                 </h5>
                             </div>
                             <a href="index.php?page=kendaraan_detail&id=<?php echo $kendaraan_id; ?>" class="btn btn-light">
@@ -130,18 +124,7 @@ $efficiency_result = $mysqli->query("
                                             <small>Total Liter</small>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
-                                        <div class="stats-card text-center p-3 mb-3">
-                                            <h3 class="mb-1">Rp <?php echo number_format($stats['total_biaya'] ?: 0, 0, ',', '.'); ?></h3>
-                                            <small>Total Biaya</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="stats-card text-center p-3 mb-3">
-                                            <h3 class="mb-1">Rp <?php echo number_format($stats['avg_harga'] ?: 0, 0, ',', '.'); ?></h3>
-                                            <small>Rata-rata Harga/L</small>
-                                        </div>
-                                    </div>
+                                    <!-- Biaya/harga dihapus dari tampilan -->
                                 </div>
                                 <?php if ($stats['last_refuel']): ?>
                                 <div class="alert alert-info mb-0">
@@ -236,27 +219,19 @@ $efficiency_result = $mysqli->query("
                                                 </div>
                                                 
                                                 <div class="row">
-                                                    <div class="col-md-2">
+                                                    <div class="col-md-3">
                                                         <small class="text-muted">Jumlah:</small><br>
                                                         <strong class="text-primary"><?php echo number_format($fuel['jumlah_liter'], 1); ?> Liter</strong>
                                                     </div>
-                                                    <div class="col-md-2">
-                                                        <small class="text-muted">Harga/Liter:</small><br>
-                                                        <strong>Rp <?php echo number_format($fuel['harga_per_liter'], 0, ',', '.'); ?></strong>
-                                                    </div>
-                                                    <div class="col-md-2">
-                                                        <small class="text-muted">Total Biaya:</small><br>
-                                                        <strong class="text-success">Rp <?php echo number_format($fuel['biaya'], 0, ',', '.'); ?></strong>
-                                                    </div>
-                                                    <div class="col-md-2">
+                                                    <div class="col-md-3">
                                                         <small class="text-muted">KM Saat Isi:</small><br>
                                                         <strong><?php echo number_format($fuel['km_saat_isi'] ?: 0, 0, ',', '.'); ?> km</strong>
                                                     </div>
-                                                    <div class="col-md-2">
+                                                    <div class="col-md-3">
                                                         <small class="text-muted">Operator:</small><br>
                                                         <strong><?php echo htmlspecialchars($fuel['operator_nama'] ?: 'Tidak tercatat'); ?></strong>
                                                     </div>
-                                                    <div class="col-md-2">
+                                                    <div class="col-md-3">
                                                         <small class="text-muted">SPBU:</small><br>
                                                         <strong><?php echo htmlspecialchars($fuel['spbu'] ?: 'Tidak tercatat'); ?></strong>
                                                     </div>
@@ -320,23 +295,6 @@ $efficiency_result = $mysqli->query("
                 borderColor: '#FF6B6B',
                 borderWidth: 2,
                 yAxisID: 'y'
-            }, {
-                label: 'Biaya (Ribu Rp)',
-                data: [
-                    <?php 
-                    $monthly_result->data_seek(0);
-                    $costs = [];
-                    while ($row = $monthly_result->fetch_assoc()) {
-                        $costs[] = round($row['total_biaya'] / 1000, 1);
-                    }
-                    echo implode(',', $costs);
-                    ?>
-                ],
-                backgroundColor: 'rgba(255, 142, 83, 0.7)',
-                borderColor: '#FF8E53',
-                borderWidth: 2,
-                type: 'line',
-                yAxisID: 'y1'
             }]
         };
 
@@ -366,18 +324,6 @@ $efficiency_result = $mysqli->query("
                             display: true,
                             text: 'Liter'
                         }
-                    },
-                    y1: {
-                        type: 'linear',
-                        display: true,
-                        position: 'right',
-                        title: {
-                            display: true,
-                            text: 'Biaya (Ribu Rp)'
-                        },
-                        grid: {
-                            drawOnChartArea: false,
-                        },
                     }
                 }
             }

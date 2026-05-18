@@ -170,6 +170,57 @@ if ($_POST && in_array($action, ['approve', 'reject', 'edit'])) {
                             $mysqli->query("UPDATE kendaraan SET `{$vcol}` = '{$val}' WHERE id = {$vid}");
                         }
 
+                        // If there is no linked surat_tugas yet, create a minimal surat_tugas record
+                        $has_st_table = table_exists($mysqli, 'surat_tugas');
+                        $current_suratt_id = (int)($peminjaman['surat_tugas_id'] ?? 0);
+                        if ($has_st_table && $current_suratt_id <= 0) {
+                            $st_cols = get_table_columns($mysqli, 'surat_tugas');
+                            $desired = [];
+                            if (in_array('nomor_surat', $st_cols, true)) $desired['nomor_surat'] = ['type'=>'s','value'=>'AUTO-' . time()];
+                            if (in_array('tanggal_surat', $st_cols, true)) $desired['tanggal_surat'] = ['type'=>'s','value'=>date('Y-m-d')];
+                            if (in_array('berangkat_dari', $st_cols, true)) $desired['berangkat_dari'] = ['type'=>'s','value'=>'SPBT Kemhan Cawang'];
+                            if (in_array('kendaraan_id', $st_cols, true)) $desired['kendaraan_id'] = ['type'=>'i','value'=> (int)$peminjaman['kendaraan_id']];
+                            // determine pengguna/pemohon
+                            $pengguna_id = null;
+                            foreach (['peminjam_id','pemohon_id','pengguna_id','user_id'] as $c) {
+                                if (!empty($peminjaman[$c])) { $pengguna_id = (int)$peminjaman[$c]; break; }
+                            }
+                            if ($pengguna_id && in_array('pengguna_id', $st_cols, true)) $desired['pengguna_id'] = ['type'=>'i','value'=>$pengguna_id];
+                            if (in_array('tujuan', $st_cols, true)) $desired['tujuan'] = ['type'=>'s','value'=>$peminjaman['tujuan'] ?? ''];
+                            if (in_array('keperluan', $st_cols, true)) $desired['keperluan'] = ['type'=>'s','value'=>$peminjaman['keperluan'] ?? ''];
+                            if (in_array('tanggal_berangkat', $st_cols, true)) $desired['tanggal_berangkat'] = ['type'=>'s','value'=>$peminjaman['tanggal_mulai'] ?? null];
+                            if (in_array('tanggal_kembali', $st_cols, true)) $desired['tanggal_kembali'] = ['type'=>'s','value'=>$peminjaman['tanggal_selesai'] ?? null];
+                            if (in_array('estimasi_km', $st_cols, true)) $desired['estimasi_km'] = ['type'=>'i','value'=> (int)($peminjaman['estimasi_km'] ?? 0)];
+                            if (in_array('estimasi_bbm', $st_cols, true)) $desired['estimasi_bbm'] = ['type'=>'d','value'=> ($peminjaman['estimasi_bbm'] ?? 0)];
+                            if (in_array('status', $st_cols, true)) $desired['status'] = ['type'=>'s','value'=>'Disetujui'];
+                            if (in_array('created_by', $st_cols, true)) $desired['created_by'] = ['type'=>'i','value'=>$current_user_id];
+
+                            if (!empty($desired)) {
+                                $insert_cols = array_keys($desired);
+                                $types = '';
+                                $vals = [];
+                                foreach ($desired as $meta) { $types .= $meta['type']; $vals[] = $meta['value']; }
+                                $placeholders = implode(', ', array_fill(0, count($insert_cols), '?'));
+                                $sql_ins = "INSERT INTO surat_tugas (" . implode(', ', $insert_cols) . ") VALUES (" . $placeholders . ")";
+                                $ins = $mysqli->prepare($sql_ins);
+                                if ($ins) {
+                                    $bind_params = [];
+                                    $bind_params[] = & $types;
+                                    for ($i = 0; $i < count($vals); $i++) { $bind_params[] = & $vals[$i]; }
+                                    call_user_func_array([$ins, 'bind_param'], $bind_params);
+                                    if ($ins->execute()) {
+                                        $new_st_id = $ins->insert_id;
+                                        // link back to peminjaman_kendaraan if column exists
+                                        if ($has_surat_tugas_id) {
+                                            $upd = $mysqli->prepare("UPDATE peminjaman_kendaraan SET surat_tugas_id = ? WHERE id = ?");
+                                            if ($upd) { $upd->bind_param('ii', $new_st_id, $peminjaman_id); $upd->execute(); $upd->close(); }
+                                        }
+                                    }
+                                    $ins->close();
+                                }
+                            }
+                        }
+
                         // If this approval originated from surat_tugas flow, finalize surat_tugas for driver visibility.
                         $surat_tugas_id = (int)($peminjaman['surat_tugas_id'] ?? 0);
                         if ($surat_tugas_id > 0 && table_exists($mysqli, 'surat_tugas')) {
@@ -830,11 +881,11 @@ function getStatusBadge($status) {
                                     </td>
                                     <td>
                                         <div class="vehicle-info">
-                                            <strong><?= htmlspecialchars($peminjaman['no_reg'] ?: ($peminjaman['no_polisi'] ?? '')) ?></strong>
-                                            <?php if (!empty($peminjaman['no_reg'])): ?>
-                                                <br><small class="text-muted">Reg: <?= htmlspecialchars($peminjaman['no_reg']) ?></small>
-                                            <?php endif; ?>
-                                            <br><small class="text-muted"><?= htmlspecialchars($peminjaman['merk']) ?> <?= htmlspecialchars($peminjaman['tipe']) ?></small>
+                                            <strong><?= htmlspecialchars($peminjaman['no_reg'] ?? ($peminjaman['no_polisi'] ?? '')) ?></strong>
+                                                <?php if (!empty($peminjaman['no_reg'] ?? '')): ?>
+                                                    <br><small class="text-muted">Reg: <?= htmlspecialchars($peminjaman['no_reg'] ?? '') ?></small>
+                                                <?php endif; ?>
+                                                <br><small class="text-muted"><?= htmlspecialchars($peminjaman['merk'] ?? '') ?> <?= htmlspecialchars($peminjaman['tipe'] ?? '') ?></small>
                                         </div>
                                     </td>
                                     <td>

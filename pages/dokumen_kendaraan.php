@@ -63,6 +63,10 @@ if ($_POST) {
     } else {
         switch ($action) {
             case 'add':
+                if (!can_admin()) {
+                    $msg = '<div class="alert alert-danger">Hanya administrator yang dapat menambahkan dokumen.</div>';
+                    break;
+                }
                 $kendaraan_id = (int)$_POST['kendaraan_id'];
                 if ($current_role === 'driver' && !in_array($kendaraan_id, $accessible_vehicle_ids, true)) {
                     $msg = '<div class="alert alert-danger">Anda tidak memiliki akses ke kendaraan tersebut.</div>';
@@ -379,9 +383,11 @@ function getValidityBadge($validity) {
             <h1><i class="fas fa-file-alt me-2"></i>Dokumen Kendaraan</h1>
             <p class="mb-0">Kelola dokumen dan surat-surat kendaraan</p>
         <div class="header-actions">
+            <?php if (can_admin()): ?>
             <button class="btn btn-light btn-lg" data-bs-toggle="modal" data-bs-target="#addModal">
                 <i class="fas fa-plus me-1"></i> Tambah Dokumen
             </button>
+            <?php endif; ?>
         </div>
 </div>
 
@@ -497,9 +503,6 @@ function getValidityBadge($validity) {
                             <tr>
                                 <td>
                                     <strong><?= htmlspecialchars(($row['no_reg'] ?? '') !== '' ? $row['no_reg'] : ($row['no_polisi'] ?? '-')) ?></strong>
-                                    <?php if (!empty($row['no_polisi'])): ?>
-                                        <br><small class="text-muted">Nopol: <?= htmlspecialchars($row['no_polisi']) ?></small>
-                                    <?php endif; ?>
                                     <br><small class="text-muted"><?= htmlspecialchars($row['merk'] . ' ' . $row['tipe']) ?></small>
                                 </td>
                                 <td>
@@ -583,6 +586,7 @@ function getValidityBadge($validity) {
 
 
 
+<?php if (can_admin()): ?>
 <!-- Add Modal -->
 <div class="modal fade" id="addModal" tabindex="-1" data-bs-backdrop="false">
     <div class="modal-dialog modal-lg">
@@ -670,6 +674,7 @@ function getValidityBadge($validity) {
         </div>
     </div>
 </div>
+<?php endif; ?>
 
 <!-- Edit Modal -->
 <div class="modal fade" id="editModal" tabindex="-1" data-bs-backdrop="false">

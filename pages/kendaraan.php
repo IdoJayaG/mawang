@@ -19,34 +19,7 @@ $keyword = trim($_GET['q'] ?? '');
 
 $msg = '';
 
-// Ordered enum for Penanggung Jawab (as requested)
-$PENANGGUNG_ENUM = [
-    'Kepala SPBT Kemhan Cawang',
-    'Wakil Kepala SPBT Kemhan Cawang',
-    'Kataud',
-    'Bidduk TI',
-    'Kabidduk TI',
-    'Kasubbid SDM TI',
-    'Kasubbid Jarkomta & Duknis',
-    'Kabidinfomin',
-    'Kasubbid Sisfopers',
-    'Kasubbid Sisfogarku',
-    'Kabidinfoops',
-    'Kasubbid Sisfoter',
-    'Kasubbid Sisfointel',
-    'Kasubbid Sisfoopslat',
-    'Kabidpamsisfo',
-    'Kasubbid Pam Aplikasi',
-    'Kasubbid Pam jarkomta',
-    'Tamudi Kapus',
-    'Baurku',
-    'Caraka',
-    'Kaurpers',
-    'Kaurdal',
-    'Kaurtu',
-    'Baurtarlat',
-    'Baur Spri Kapus'
-];
+// Note: `penanggung_jawab` column/enum removed — handled via migration and code cleanup.
 
 // Check if DB has optional pengguna assignment column
 $HAS_PENGGUNA_ID = function_exists('db_table_columns') && in_array('pengguna_id', db_table_columns('kendaraan') ?: [], true);
@@ -515,14 +488,13 @@ if ($action === 'export_excel') {
                     $sheet->setCellValue('G'.$row, ($kondisi === 'baik') ? '1' : '');
                     $sheet->setCellValue('H'.$row, (strpos($kondisi,'ringan') !== false) ? '1' : '');
                     $sheet->setCellValue('I'.$row, (strpos($kondisi,'berat') !== false) ? '1' : '');
-                    $sheet->setCellValue('J'.$row, (string)($v['penanggung_jawab'] ?? ''));
                     $row++;
                 }
             }
 
             // Border tabel
             if ($row > 10) {
-                $tableRange = 'A8:J'.($row-1);
+                $tableRange = 'A8:I'.($row-1);
                 $sheet->getStyle($tableRange)->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
             } else {
                 // tetap kasih border header
@@ -655,24 +627,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tipe = trim($_POST['tipe'] ?? '');
             $tahun_pembuatan = ($_POST['tahun_pembuatan'] !== '' ? (int)$_POST['tahun_pembuatan'] : 0);
             $warna = trim($_POST['warna'] ?? '');
-            $jenis = trim($_POST['jenis'] ?? '');
             $bahan_bakar = trim($_POST['bahan_bakar'] ?? '');
             $kondisi = trim($_POST['kondisi'] ?? 'Baik');
             $status_kendaraan = trim($_POST['status_kendaraan'] ?? 'Operasional');
             $satker = trim($_POST['satker'] ?? '');
-            $penanggung_jawab = trim($_POST['penanggung_jawab'] ?? '');
             $locator = trim($_POST['locator'] ?? '');
             $pengguna_id = null;
             if (isset($_POST['pengguna_id']) && $_POST['pengguna_id'] !== '' && ctype_digit((string)$_POST['pengguna_id'])) {
                 $pengguna_id = (int)$_POST['pengguna_id'];
             }
 
-            // Validate penanggung_jawab (required)
-            if ($penanggung_jawab === '' || !in_array($penanggung_jawab, $PENANGGUNG_ENUM, true)) {
-                $msg = '<div class="alert alert-danger">Penanggung jawab wajib dipilih dari daftar.</div>';
-            }
+            $locator = trim($_POST['locator'] ?? '');
 
-            // If pengguna dipilih, validasi jabatan harus sama dengan penanggung_jawab dan status aktif
+            // If pengguna dipilih, validate user exists and is active (no longer tied to penanggung_jawab)
             if (empty($msg) && $pengguna_id !== null) {
                 $stmtC = $mysqli->prepare("SELECT jabatan, status_aktif FROM pengguna WHERE id = ? LIMIT 1");
                 if ($stmtC) {
@@ -685,34 +652,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $msg = '<div class="alert alert-danger">Pengguna yang dipilih tidak ditemukan.</div>';
                     } elseif (($rowC['status_aktif'] ?? '') !== 'Aktif') {
                         $msg = '<div class="alert alert-danger">Pengguna yang dipilih tidak aktif.</div>';
-                    } elseif (($rowC['jabatan'] ?? '') !== $penanggung_jawab) {
-                        $msg = '<div class="alert alert-danger">Jabatan pengguna tidak sesuai dengan penanggung jawab.</div>';
                     }
                 }
             }
 
-        if ($no_reg !== '' && $merk !== '' && $satker !== '' && $penanggung_jawab !== '' && (!$HAS_LOCATOR || $locator !== '') && empty($msg)) {
+            // Uniqueness: a driver (pengguna_id) may only be assigned to one vehicle.
+            if (empty($msg) && $HAS_PENGGUNA_ID && $pengguna_id !== null) {
+                $checkSql = "SELECT id, no_reg FROM kendaraan WHERE pengguna_id = ? LIMIT 1";
+                $checkStmt = $mysqli->prepare($checkSql);
+                if ($checkStmt) {
+                    $checkStmt->bind_param('i', $pengguna_id);
+                    $checkStmt->execute();
+                    $ex = $checkStmt->get_result()->fetch_assoc();
+                    $checkStmt->close();
+                    if (!empty($ex)) {
+                        $msg = '<div class="alert alert-danger">Pengguna yang dipilih sudah ditugaskan ke kendaraan lain (No.Reg: ' . htmlspecialchars($ex['no_reg'] ?? $ex['id']) . '). Pilih pengguna lain.</div>';
+                    }
+                }
+            }
+
+        if ($no_reg !== '' && $merk !== '' && $satker !== '' && (!$HAS_LOCATOR || $locator !== '') && empty($msg)) {
                 if ($HAS_PENGGUNA_ID) {
                     if ($pengguna_id === null) {
-                        $sql = "INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, jenis, bahan_bakar, kondisi, status_kendaraan, satker, penanggung_jawab, locator, pengguna_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NOW())";
+                        $sql = "INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, bahan_bakar, kondisi, status_kendaraan, satker, locator, pengguna_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NOW())";
                         $stmt = $mysqli->prepare($sql);
                         if ($stmt) {
-                            // 15 params: 6s + i (tahun) + 8s
-                            $stmt->bind_param('ssssssissssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator);
+                            // 13 params: 6s + i (tahun) + 6s (removed jenis)
+                            $stmt->bind_param('ssssssisssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $locator);
                         }
                     } else {
-                        $sql = "INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, jenis, bahan_bakar, kondisi, status_kendaraan, satker, penanggung_jawab, locator, pengguna_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
+                        $sql = "INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, bahan_bakar, kondisi, status_kendaraan, satker, locator, pengguna_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
                         $stmt = $mysqli->prepare($sql);
                         if ($stmt) {
-                            // 16 params: 6s + i (tahun) + 8s + i (pengguna_id)
-                            $stmt->bind_param('ssssssissssssssi', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator, $pengguna_id);
+                            // 14 params: 6s + i (tahun) + 6s + i (pengguna_id, removed jenis)
+                            $stmt->bind_param('ssssssisssssssi', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $locator, $pengguna_id);
                         }
                     }
                 } else {
-                    $stmt = $mysqli->prepare("INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, jenis, bahan_bakar, kondisi, status_kendaraan, satker, penanggung_jawab, locator, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                    $stmt = $mysqli->prepare("INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, bahan_bakar, kondisi, status_kendaraan, satker, locator, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
                     if ($stmt) {
-                        // 15 params: 6s + i (tahun) + 8s
-                        $stmt->bind_param('ssssssissssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator);
+                        // 13 params: 6s + i (tahun) + 6s (removed jenis)
+                        $stmt->bind_param('ssssssisssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $locator);
                     }
                 }
                 if ($stmt) {
@@ -768,7 +748,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $msg = '<div class="alert alert-danger">Gagal menyiapkan query.</div>';
                 }
             } else {
-        $msg = $msg ?: '<div class="alert alert-danger">No. Reg, merk, satker, penanggung jawab, dan locator harus diisi!</div>';
+        $msg = $msg ?: '<div class="alert alert-danger">No. Reg, merk, satker, dan locator harus diisi!</div>';
             }
         } elseif ($action === 'edit' && $can_crud && $id) {
             $old_locator = '';
@@ -792,23 +772,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tipe = trim($_POST['tipe'] ?? '');
             $tahun_pembuatan = ($_POST['tahun_pembuatan'] !== '' ? (int)$_POST['tahun_pembuatan'] : 0);
             $warna = trim($_POST['warna'] ?? '');
-            $jenis = trim($_POST['jenis'] ?? '');
             $bahan_bakar = trim($_POST['bahan_bakar'] ?? '');
             $kondisi = trim($_POST['kondisi'] ?? 'Baik');
             $status_kendaraan = trim($_POST['status_kendaraan'] ?? 'Operasional');
             $satker = trim($_POST['satker'] ?? '');
-            $penanggung_jawab = trim($_POST['penanggung_jawab'] ?? '');
             $locator = trim($_POST['locator'] ?? '');
             $pengguna_id = null;
             if (isset($_POST['pengguna_id']) && $_POST['pengguna_id'] !== '' && ctype_digit((string)$_POST['pengguna_id'])) {
                 $pengguna_id = (int)$_POST['pengguna_id'];
             }
 
-        if ($penanggung_jawab === '' || !in_array($penanggung_jawab, $PENANGGUNG_ENUM, true)) {
-                $msg = '<div class="alert alert-danger">Penanggung jawab tidak valid.</div>';
-            }
-
-            // Validasi kesesuaian pengguna jika dipilih
+            // Validasi pengguna yang dipilih (tetap wajib aktif jika dipilih)
             if (empty($msg) && $pengguna_id !== null) {
                 $stmtC = $mysqli->prepare("SELECT jabatan, status_aktif FROM pengguna WHERE id = ? LIMIT 1");
                 if ($stmtC) {
@@ -821,32 +795,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $msg = '<div class="alert alert-danger">Pengguna yang dipilih tidak ditemukan.</div>';
                     } elseif (($rowC['status_aktif'] ?? '') !== 'Aktif') {
                         $msg = '<div class="alert alert-danger">Pengguna yang dipilih tidak aktif.</div>';
-                    } elseif (($rowC['jabatan'] ?? '') !== $penanggung_jawab) {
-                        $msg = '<div class="alert alert-danger">Jabatan pengguna tidak sesuai dengan penanggung jawab.</div>';
                     }
                 }
             }
 
-        if ($no_reg !== '' && $merk !== '' && $satker !== '' && $penanggung_jawab !== '' && (!$HAS_LOCATOR || $locator !== '') && empty($msg)) {
+            // Uniqueness check for edit: ensure pengguna_id not assigned to other kendaraan
+            if (empty($msg) && $HAS_PENGGUNA_ID && $pengguna_id !== null) {
+                $chk = $mysqli->prepare("SELECT id, no_reg FROM kendaraan WHERE pengguna_id = ? AND id <> ? LIMIT 1");
+                if ($chk) {
+                    $chk->bind_param('ii', $pengguna_id, $id);
+                    $chk->execute();
+                    $ex = $chk->get_result()->fetch_assoc();
+                    $chk->close();
+                    if (!empty($ex)) {
+                        $msg = '<div class="alert alert-danger">Pengguna yang dipilih sudah ditugaskan ke kendaraan lain (No.Reg: ' . htmlspecialchars($ex['no_reg'] ?? $ex['id']) . '). Pilih pengguna lain.</div>';
+                    }
+                }
+            }
+
+        if ($no_reg !== '' && $merk !== '' && $satker !== '' && (!$HAS_LOCATOR || $locator !== '') && empty($msg)) {
                 if ($HAS_PENGGUNA_ID) {
                     if ($pengguna_id === null) {
-                        $sql = "UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, jenis=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, penanggung_jawab=?, locator=?, pengguna_id=NULL, updated_at=NOW() WHERE id=?";
+                        $sql = "UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, locator=?, pengguna_id=NULL, updated_at=NOW() WHERE id=?";
                         $stmt = $mysqli->prepare($sql);
                         if ($stmt) {
-                            $stmt->bind_param('ssssssissssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator, $id);
+                            $stmt->bind_param('ssssssissssssi', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $locator, $id);
                         }
                     } else {
-                        $sql = "UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, jenis=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, penanggung_jawab=?, locator=?, pengguna_id=?, updated_at=NOW() WHERE id=?";
+                        $sql = "UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, locator=?, pengguna_id=?, updated_at=NOW() WHERE id=?";
                         $stmt = $mysqli->prepare($sql);
                         if ($stmt) {
-                            // 17 params: 6s + i (tahun) + 8s + i (pengguna_id) + i (id)
-                            $stmt->bind_param('ssssssissssssssii', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator, $pengguna_id, $id);
+                            // 15 params: 6s + i (tahun) + 6s + i (pengguna_id) + i (id, removed jenis)
+                            $stmt->bind_param('ssssssissssssii', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $locator, $pengguna_id, $id);
                         }
                     }
                 } else {
-                    $stmt = $mysqli->prepare("UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, jenis=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, penanggung_jawab=?, locator=?, updated_at=NOW() WHERE id=?");
+                    $stmt = $mysqli->prepare("UPDATE kendaraan SET no_polisi=?, no_reg=?, no_rangka=?, no_mesin=?, merk=?, tipe=?, tahun_pembuatan=?, warna=?, bahan_bakar=?, kondisi=?, status_kendaraan=?, satker=?, locator=?, updated_at=NOW() WHERE id=?");
                     if ($stmt) {
-                        $stmt->bind_param('ssssssissssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab, $locator, $id);
+                        $stmt->bind_param('ssssssissssssi', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $locator, $id);
                     }
                 }
                     if ($stmt) {
@@ -898,7 +884,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $msg = '<div class="alert alert-danger">Gagal menyiapkan query.</div>';
                     }
             } else {
-            $msg = $msg ?: '<div class="alert alert-danger">No. Reg, merk, satker, penanggung jawab, dan locator harus diisi!</div>';
+            $msg = $msg ?: '<div class="alert alert-danger">No. Reg, merk, satker, dan locator harus diisi!</div>';
             }
         } elseif ($action === 'import_excel' && $can_crud) {
             if (isset($_FILES['excel_file']) && ($_FILES['excel_file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
@@ -925,8 +911,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $key = str_replace([' ', '-'], '_', $key);
                                 if ($key !== '') $map[$key] = $col;
                             }
-                            // Added penanggung_jawab to required headers so imported data does not default ke nilai enum terakhir
-                            $required = ['no_rangka','no_mesin','no_reg','merk','tipe','tahun_pembuatan','warna','jenis','bahan_bakar','satker','kondisi','status_kendaraan','penanggung_jawab'];
+                            // Note: penanggung_jawab removed from required headers (column dropped from DB)
+                            // Note: jenis removed from required headers (replaced by pengguna_id driver selection)
+                            $required = ['no_rangka','no_mesin','no_reg','merk','tipe','tahun_pembuatan','warna','bahan_bakar','satker','kondisi','status_kendaraan'];
                             foreach ($required as $req) {
                                 if (!isset($map[$req])) {
                                     throw new \Exception('Header tidak lengkap. Wajib: ' . implode(',', $required));
@@ -942,7 +929,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $tahun_pembuatan_raw = trim((string)($dataRow[$map['tahun_pembuatan']] ?? ''));
                                 $tahun_pembuatan = ($tahun_pembuatan_raw === '' ? 0 : (int)$tahun_pembuatan_raw);
                                 $warna = trim((string)($dataRow[$map['warna']] ?? ''));
-                                $jenis = trim((string)($dataRow[$map['jenis']] ?? ''));
                                 $bahan_bakar = trim((string)($dataRow[$map['bahan_bakar']] ?? ''));
                                 // Normalisasi nilai bahan bakar dari file import
                                 if ($bahan_bakar !== '') {
@@ -967,17 +953,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $satker = trim((string)($dataRow[$map['satker']] ?? ''));
                                 $kondisi = trim((string)($dataRow[$map['kondisi']] ?? ''));
                                 $status_kendaraan = trim((string)($dataRow[$map['status_kendaraan']] ?? ''));
-                                $penanggung_jawab = trim((string)($dataRow[$map['penanggung_jawab']] ?? ''));
                                 $no_polisi = isset($map['no_polisi']) ? trim((string)($dataRow[$map['no_polisi']] ?? '')) : '';
                                 if ($no_polisi === '') { $no_polisi = $no_reg; }
 
-                                if ($merk === '' || $satker === '' || $no_reg === '' || $penanggung_jawab === '') {
-                                    $errors[] = 'Baris ' . (intval($i) + 2) . ': merk/satker/no_reg/penanggung_jawab wajib diisi.';
-                                    continue;
-                                }
-
-                                if (!in_array($penanggung_jawab, $PENANGGUNG_ENUM, true)) {
-                                    $errors[] = 'Baris ' . (intval($i) + 2) . ': penanggung_jawab tidak valid (harus sesuai enum).';
+                                if ($merk === '' || $satker === '' || $no_reg === '') {
+                                    $errors[] = 'Baris ' . (intval($i) + 2) . ': merk/satker/no_reg wajib diisi.';
                                     continue;
                                 }
 
@@ -993,10 +973,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     }
                                 }
 
-                                $stmt = $mysqli->prepare("INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, jenis, bahan_bakar, kondisi, status_kendaraan, satker, penanggung_jawab, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                                $stmt = $mysqli->prepare("INSERT INTO kendaraan (no_polisi, no_reg, no_rangka, no_mesin, merk, tipe, tahun_pembuatan, warna, bahan_bakar, kondisi, status_kendaraan, satker, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
                                 if ($stmt === false) { $errors[] = 'Baris ' . (intval($i) + 2) . ': gagal menyiapkan statement: ' . $mysqli->error; continue; }
-                                // 14 params: 6s + i (tahun) + 7s
-                                $stmt->bind_param('ssssssisssssss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $jenis, $bahan_bakar, $kondisi, $status_kendaraan, $satker, $penanggung_jawab);
+                                // 12 params: 6s + i (tahun) + 5s (removed jenis)
+                                $stmt->bind_param('ssssssississss', $no_polisi, $no_reg, $no_rangka, $no_mesin, $merk, $tipe, $tahun_pembuatan, $warna, $bahan_bakar, $kondisi, $status_kendaraan, $satker);
                                 if ($stmt->execute()) {
                                     $imported++;
                                     log_activity('IMPORT_VEHICLE', 'Import kendaraan: ' . $no_reg . ' - ' . $merk);
@@ -1102,6 +1082,30 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
 }
 ?>
 
+<?php
+// Load drivers (pengguna with role='driver') for vehicle forms if column exists
+$drivers = [];
+if ($HAS_PENGGUNA_ID) {
+    // Some installations store role in user_account/role table; prefer joining there to find drivers
+    // Exclude users who are already assigned to a vehicle (one driver per vehicle constraint).
+    // If editing, allow the current vehicle's assigned pengguna to remain selectable.
+    $currentAssigned = 0;
+    if (!empty($edit_data) && !empty($edit_data['pengguna_id'])) { $currentAssigned = (int)$edit_data['pengguna_id']; }
+    $excludeSub = "SELECT COALESCE(pengguna_id,0) FROM kendaraan WHERE pengguna_id IS NOT NULL";
+    if ($currentAssigned > 0) { $excludeSub .= " AND pengguna_id <> " . $currentAssigned; }
+
+    $sqlDrivers = "SELECT p.id, p.nama_lengkap, p.pangkat, p.nrp_nip
+        FROM pengguna p
+        JOIN user_account ua ON p.id = ua.pengguna_id
+        JOIN role r ON ua.role_id = r.id
+        WHERE (ua.status = 'Aktif' OR ua.status = 'aktif') AND UPPER(COALESCE(r.kode_role, '')) = 'DRIVER'
+          AND p.id NOT IN ($excludeSub)
+        ORDER BY p.nama_lengkap ASC";
+    $drivers_res = $mysqli->query($sqlDrivers);
+    if ($drivers_res) { $drivers = $drivers_res->fetch_all(MYSQLI_ASSOC); }
+}
+?>
+
 <?= $msg ?>
 
 <?php if ($can_crud && $action === 'add'): ?>
@@ -1139,16 +1143,7 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                         <label for="warna">Warna</label>
                         <input type="text" id="warna" name="warna" class="form-control" placeholder="Hijau, Hitam, Biru">
                     </div>
-                    <div class="form-group">
-                        <label for="jenis">Jenis Kendaraan</label>
-                        <select id="jenis" name="jenis" class="form-control">
-                            <option value="Roda 2">Roda 2</option>
-                            <option value="Roda 4" selected>Roda 4</option>
-                            <option value="Truk">Truk</option>
-                            <option value="Bus">Bus</option>
-                            <option value="Lainnya">Lainnya</option>
-                        </select>
-                    </div>
+                    
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -1188,15 +1183,7 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                         <label for="no_mesin">Nomor Mesin</label>
                         <input type="text" id="no_mesin" name="no_mesin" class="form-control">
                     </div>
-                    <div class="form-group">
-                        <label for="penanggung_jawab">Penanggung Jawab *</label>
-                        <select id="penanggung_jawab" name="penanggung_jawab" class="form-control" required>
-                            <option value="">-- Pilih --</option>
-                            <?php foreach ($PENANGGUNG_ENUM as $pj): ?>
-                                <option value="<?= htmlspecialchars($pj) ?>"><?= htmlspecialchars($pj) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
+                    <!-- penanggung_jawab field removed (column dropped). -->
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -1205,15 +1192,20 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                         <small class="form-text text-muted">Isi dengan locator atau uniqueId dari perangkat Traccar.</small>
                     </div>
                 </div>
+                <?php if ($HAS_PENGGUNA_ID): ?>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="pengguna_id">Pengguna (otomatis sesuai penanggung jawab)</label>
-                        <select id="pengguna_id" name="pengguna_id" class="form-control" disabled>
-                            <option value="">-- Pilih penanggung jawab dahulu --</option>
+                        <label for="pengguna_id">Driver</label>
+                        <select id="pengguna_id" name="pengguna_id" class="form-control">
+                            <option value="">-- Pilih Driver (opsional) --</option>
+                            <?php foreach ($drivers as $d): ?>
+                                <option value="<?= (int)$d['id'] ?>"><?= htmlspecialchars((!empty($d['pangkat']) ? $d['pangkat'] . ' ' : '') . $d['nama_lengkap'] . (!empty($d['nrp_nip']) ? ' (' . $d['nrp_nip'] . ')' : '')) ?></option>
+                            <?php endforeach; ?>
                         </select>
-                        <small class="form-text text-muted">Daftar ini menampilkan pengguna aktif dengan jabatan sesuai penanggung jawab yang dipilih. Opsional.</small>
+                        <small class="form-text text-muted">Pilih pengguna dengan role 'driver' (jika ada).</small>
                     </div>
                 </div>
+                <?php endif; ?>
                 <div class="form-row">
                     <div class="form-group">
                         <label for="foto">Foto Kendaraan</label>
@@ -1231,34 +1223,7 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
             </form>
         </div>
     </div>
-    <script>
-    $(document).ready(function(){
-        function loadPenggunaByJabatan(jabatan, preselectId){
-            var $pg = $('#pengguna_id');
-            $pg.prop('disabled', true).empty();
-            if(!jabatan){ $pg.append('<option value="">-- Pilih penanggung jawab dahulu --</option>'); return; }
-            $pg.append('<option value="">Memuat data...</option>');
-            $.getJSON('ajax/get_pengguna_by_jabatan.php', { jabatan: jabatan }, function(resp){
-                $pg.empty();
-                if(resp && resp.success && Array.isArray(resp.users) && resp.users.length){
-                    $pg.append('<option value="">-- Pilih Pengguna --</option>');
-                    resp.users.forEach(function(u){
-                        var label = (u.pangkat ? (u.pangkat + ' - ') : '') + u.nama_lengkap;
-                        var opt = $('<option>').val(u.id).text(label);
-                        if(preselectId && String(preselectId)===String(u.id)) opt.attr('selected','selected');
-                        $pg.append(opt);
-                    });
-                    $pg.prop('disabled', false);
-                } else {
-                    $pg.append('<option value="">Tidak ada pengguna aktif untuk jabatan ini</option>');
-                }
-            }).fail(function(){
-                $pg.empty().append('<option value="">Gagal memuat data pengguna</option>');
-            });
-        }
-        $('#penanggung_jawab').on('change', function(){ loadPenggunaByJabatan($(this).val(), null); });
-    });
-    </script>
+    
 <?php elseif ($can_crud && $action === 'edit' && $edit_data): ?>
     <div class="card">
         <div class="card-header">
@@ -1294,16 +1259,7 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                         <label for="warna">Warna</label>
                         <input type="text" id="warna" name="warna" class="form-control" value="<?= htmlspecialchars($edit_data['warna'] ?? '') ?>" placeholder="Putih, Hitam">
                     </div>
-                    <div class="form-group">
-                        <label for="jenis">Jenis Kendaraan</label>
-                        <select id="jenis" name="jenis" class="form-control">
-                            <option value="Roda 2" <?= $edit_data['jenis'] === 'Roda 2' ? 'selected' : '' ?>>Roda 2</option>
-                            <option value="Roda 4" <?= $edit_data['jenis'] === 'Roda 4' ? 'selected' : '' ?>>Roda 4</option>
-                            <option value="Truk" <?= $edit_data['jenis'] === 'Truk' ? 'selected' : '' ?>>Truk</option>
-                            <option value="Bus" <?= $edit_data['jenis'] === 'Bus' ? 'selected' : '' ?>>Bus</option>
-                            <option value="Lainnya" <?= $edit_data['jenis'] === 'Lainnya' ? 'selected' : '' ?>>Lainnya</option>
-                        </select>
-                    </div>
+                    
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -1343,15 +1299,7 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                         <label for="no_mesin">Nomor Mesin</label>
                         <input type="text" id="no_mesin" name="no_mesin" class="form-control" value="<?= htmlspecialchars($edit_data['no_mesin'] ?: '') ?>">
                     </div>
-                    <div class="form-group">
-                        <label for="penanggung_jawab">Penanggung Jawab *</label>
-                        <select id="penanggung_jawab" name="penanggung_jawab" class="form-control" required>
-                            <option value="">-- Pilih --</option>
-                            <?php foreach ($PENANGGUNG_ENUM as $pj): ?>
-                                <option value="<?= htmlspecialchars($pj) ?>" <?= ($edit_data['penanggung_jawab'] ?? '') === $pj ? 'selected' : '' ?>><?= htmlspecialchars($pj) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
+                    <!-- penanggung_jawab field removed (column dropped). -->
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -1360,15 +1308,24 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                         <small class="form-text text-muted">Isi dengan locator atau uniqueId dari perangkat Traccar.</small>
                     </div>
                 </div>
+                
+                <?php if ($HAS_PENGGUNA_ID): ?>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="pengguna_id">Pengguna (otomatis sesuai penanggung jawab)</label>
-                        <select id="pengguna_id" name="pengguna_id" class="form-control" disabled>
-                            <option value="">-- Pilih penanggung jawab dahulu --</option>
+                        <label for="pengguna_id">Driver</label>
+                        <select id="pengguna_id" name="pengguna_id" class="form-control">
+                            <option value="">-- Pilih Driver (opsional) --</option>
+                            <?php foreach ($drivers as $d): ?>
+                                <option value="<?= (int)$d['id'] ?>" <?= ((int)($edit_data['pengguna_id'] ?? 0) === (int)$d['id']) ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars((!empty($d['pangkat']) ? $d['pangkat'] . ' ' : '') . $d['nama_lengkap'] . (!empty($d['nrp_nip']) ? ' (' . $d['nrp_nip'] . ')' : '')) ?>
+                                </option>
+                            <?php endforeach; ?>
                         </select>
-                        <small class="form-text text-muted">Daftar ini menampilkan pengguna aktif dengan jabatan sesuai penanggung jawab yang dipilih. Opsional.</small>
+                        <small class="form-text text-muted">Pilih pengguna dengan role 'driver' (jika ada).</small>
                     </div>
                 </div>
+                <?php endif; ?>
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="foto">Foto Kendaraan</label>
@@ -1391,60 +1348,7 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
             </form>
         </div>
     </div>
-    <script>
-    // JS khusus halaman Edit Kendaraan: muat pengguna sesuai penanggung_jawab + preselect saved pengguna
-    $(document).ready(function() {
-        function loadPenggunaByJabatan(jabatan, preselectId) {
-            var $pg = $('#pengguna_id');
-            $pg.prop('disabled', true);
-            $pg.empty();
-            if (!jabatan) {
-                $pg.append('<option value="">-- Pilih penanggung jawab dahulu --</option>');
-                return;
-            }
-            $pg.append('<option value="">Memuat data...</option>');
-            $.ajax({
-                url: 'ajax/get_pengguna_by_jabatan.php',
-                method: 'GET',
-                dataType: 'json',
-                data: { jabatan: jabatan },
-                success: function(resp) {
-                    $pg.empty();
-                    if (resp && resp.success && Array.isArray(resp.users) && resp.users.length > 0) {
-                        $pg.append('<option value="">-- Pilih Pengguna --</option>');
-                        resp.users.forEach(function(u){
-                            var label = (u.pangkat ? (u.pangkat + ' - ') : '') + u.nama_lengkap;
-                            var opt = $('<option>').val(u.id).text(label);
-                            if (preselectId && String(preselectId) === String(u.id)) { opt.attr('selected', 'selected'); }
-                            $pg.append(opt);
-                        });
-                        $pg.prop('disabled', false);
-                    } else {
-                        $pg.append('<option value="">Tidak ada pengguna aktif untuk jabatan ini</option>');
-                        $pg.prop('disabled', true);
-                    }
-                },
-                error: function() {
-                    $pg.empty().append('<option value="">Gagal memuat data pengguna</option>');
-                    $pg.prop('disabled', true);
-                }
-            });
-        }
-        var $pj = $('#penanggung_jawab');
-        if ($pj.length) {
-            $pj.on('change', function(){
-                var keep = $('#pengguna_id').val();
-                loadPenggunaByJabatan($(this).val(), keep);
-            });
-            var existingPJ = $pj.val();
-            var existingUser = '<?= isset($edit_data['pengguna_id']) ? (int)$edit_data['pengguna_id'] : 0 ?>';
-            existingUser = existingUser && existingUser !== '0' ? existingUser : null;
-            if (existingPJ) {
-                loadPenggunaByJabatan(existingPJ, existingUser);
-            }
-        }
-    });
-    </script>
+    
 <?php else: ?>
     <div class="page-header">
                 <h1><i class="fas fa-car me-2"></i>Daftar Kendaraan</h1>
@@ -1501,11 +1405,9 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                             <th><?= $buildSort('no_reg','No. Reg') ?></th>
                             <th><?= $buildSort('merk','Merk & Tipe') ?></th>
                             <th><?= $buildSort('tahun_pembuatan','Tahun') ?></th>
-                            <th><?= $buildSort('jenis','Jenis') ?></th>
-                            <th><?= $buildSort('penanggung_jawab','Penanggung Jawab') ?></th>
                             <th><?= $buildSort('status_kendaraan','Status') ?></th>
                             <?php if ($current_role !== 'user'): ?>
-                                <th><?= $buildSort('current_user','Pengguna Saat Ini') ?></th>
+                                <th><?= $buildSort('current_user','Driver') ?></th>
                             <?php endif; ?>
                             <th>Aksi</th>
                         </tr>
@@ -1533,8 +1435,6 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                                     </div>
                                 </td>
                                 <td><?= htmlspecialchars($vehicle['tahun_pembuatan'] ?: '-') ?></td>
-                                <td><span class="badge bg-info text-dark"><?= htmlspecialchars($vehicle['jenis'] ?: '-') ?></span></td>
-                                <td><small class="text-muted"><?= htmlspecialchars($vehicle['penanggung_jawab'] ?? '-') ?></small></td>
                                 <td><span class="badge bg-secondary"><?= htmlspecialchars($vehicle['status_kendaraan'] ?: '-') ?></span></td>
                                 <?php if ($current_role !== 'user'): ?>
                                 <td>
@@ -1624,57 +1524,8 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
     })();
 
     $(document).ready(function() {
-        // Dependent dropdown: pengguna by penanggung_jawab
-        function loadPenggunaByJabatan(jabatan, preselectId) {
-            var $pg = $('#pengguna_id');
-            $pg.prop('disabled', true);
-            $pg.empty();
-            if (!jabatan) {
-                $pg.append('<option value="">-- Pilih penanggung jawab dahulu --</option>');
-                return;
-            }
-            $pg.append('<option value="">Memuat data...</option>');
-            $.ajax({
-                url: 'ajax/get_pengguna_by_jabatan.php',
-                method: 'GET',
-                dataType: 'json',
-                data: { jabatan: jabatan },
-                success: function(resp) {
-                    $pg.empty();
-                    if (resp && resp.success && Array.isArray(resp.users) && resp.users.length > 0) {
-                        $pg.append('<option value="">-- Pilih Pengguna --</option>');
-                        resp.users.forEach(function(u){
-                            var label = (u.pangkat ? (u.pangkat + ' - ') : '') + u.nama_lengkap;
-                            var opt = $('<option>').val(u.id).text(label);
-                            if (preselectId && String(preselectId) === String(u.id)) { opt.attr('selected', 'selected'); }
-                            $pg.append(opt);
-                        });
-                        $pg.prop('disabled', false);
-                    } else {
-                        $pg.append('<option value="">Tidak ada pengguna aktif untuk jabatan ini</option>');
-                    }
-                },
-                error: function() {
-                    $pg.empty().append('<option value="">Gagal memuat data pengguna</option>');
-                }
-            });
-        }
+        // `penanggung_jawab` removed: pengguna select now editable when available
 
-        var $pj = $('#penanggung_jawab');
-        if ($pj.length) {
-            // On change: preserve current selection if still valid
-            $pj.on('change', function(){
-                var keep = $('#pengguna_id').val();
-                loadPenggunaByJabatan($(this).val(), keep);
-            });
-            // On edit page, auto-load if value exists
-            var existingPJ = $pj.val();
-            if (existingPJ) {
-                var existingUser = '<?= isset($edit_data['pengguna_id']) ? (int)$edit_data['pengguna_id'] : 0 ?>';
-                existingUser = existingUser && existingUser !== '0' ? existingUser : null;
-                loadPenggunaByJabatan(existingPJ, existingUser);
-            }
-        }
         function cleanupModalState() {
             try {
                 if ($('.modal.show').length === 0 && $('.modal-backdrop').length > 0) {
@@ -1704,7 +1555,7 @@ if ($HAS_PENGGUNA_ID && !empty($vehicles)) {
                         <label for="excel_file" class="form-label">Pilih File Excel (.xlsx) *</label>
             <input type="file" class="form-control" id="excel_file" name="excel_file" accept=".xlsx" required>
             <div class="form-text">
-              Header wajib: <code>no_rangka,no_mesin,no_reg,merk,tipe,tahun_pembuatan,warna,jenis,bahan_bakar,satker,kondisi,status_kendaraan,penanggung_jawab</code>.
+              Header wajib: <code>no_rangka,no_mesin,no_reg,merk,tipe,tahun_pembuatan,warna,jenis,bahan_bakar,satker,kondisi,status_kendaraan</code>.
               <a href="templates/template_kendaraan.php">Download template</a>.
             </div>
           </div>

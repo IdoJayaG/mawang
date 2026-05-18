@@ -21,6 +21,8 @@ require_once __DIR__ . '/../lib/table_helpers.php';
 $riwayat_has_kategori = table_has_columns($mysqli, 'riwayat_perawatan', ['kategori']);
 $riwayat_has_bengkel = table_has_columns($mysqli, 'riwayat_perawatan', ['bengkel']);
 $riwayat_has_mekanik = table_has_columns($mysqli, 'riwayat_perawatan', ['mekanik']);
+// Do not persist biaya values from jadwal into riwayat (code-only removal of price)
+$riwayat_has_biaya = table_has_columns($mysqli, 'riwayat_perawatan', ['biaya']);
 
 // Fetch all jadwal_perawatan with status 'Selesai'
 $stmt = $mysqli->prepare("SELECT j.* FROM jadwal_perawatan j WHERE j.status = 'Selesai'");
@@ -46,7 +48,8 @@ foreach ($rows as $jadwal) {
         $mysqli->begin_transaction();
 
         $tanggal_selesai = date('Y-m-d');
-        $biaya_aktual = $jadwal['biaya_aktual'] ?: $jadwal['estimasi_biaya'];
+        // Do not carry over any price/cost values; persist zero if column exists
+        $biaya_aktual = 0.0;
         $jenis_perawatan_enum = 'Lainnya';
         $jenis_original = strtolower($jadwal['jenis_perawatan'] ?? '');
         if (stripos($jenis_original, 'servis') !== false || stripos($jenis_original, 'service') !== false) {
@@ -85,7 +88,7 @@ foreach ($rows as $jadwal) {
         $cols[] = 'km_saat_perawatan';
         if ($riwayat_has_bengkel) $cols[] = 'bengkel';
         if ($riwayat_has_mekanik) $cols[] = 'mekanik';
-        $cols[] = 'biaya';
+        if ($riwayat_has_biaya) $cols[] = 'biaya';
         $cols[] = 'status';
         $cols[] = 'created_by';
 
@@ -107,7 +110,7 @@ foreach ($rows as $jadwal) {
         $types .= 'i'; $params[] = $km_saat_perawatan;
         if ($riwayat_has_bengkel) { $types .= 's'; $params[] = $bengkel; }
         if ($riwayat_has_mekanik) { $types .= 's'; $params[] = $mekanik; }
-        $types .= 'd'; $params[] = $biaya_aktual;
+        if ($riwayat_has_biaya) { $types .= 'd'; $params[] = 0.0; }
         $types .= 's'; $params[] = $status_perawatan;
         // Use created_by from jadwal if available, otherwise 0
         $types .= 'i'; $params[] = isset($jadwal['created_by']) ? (int)$jadwal['created_by'] : 0;

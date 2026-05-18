@@ -74,22 +74,7 @@ try {
                         </div>
                     </div>
                 </div>
-                <div class="col-md-6">
-                    <div class="card border-success mb-3">
-                        <div class="card-body text-center">
-                            <?php 
-                            $total_biaya = 0;
-                            $maintenances->data_seek(0);
-                            while ($row = $maintenances->fetch_assoc()) {
-                                $total_biaya += $row['biaya'];
-                            }
-                            $maintenances->data_seek(0);
-                            ?>
-                            <h4 class="text-success">Rp <?= number_format($total_biaya) ?></h4>
-                            <p class="mb-0">Total Biaya</p>
-                        </div>
-                    </div>
-                </div>
+                <!-- Total biaya dihapus dari ringkasan -->
             </div>
             <div class="card border-info">
                 <div class="card-body">
@@ -131,14 +116,13 @@ try {
         <div class="table-responsive">
             <table class="table table-bordered table-hover">
                 <thead class="bg-primary text-white">
-                    <tr>
-                        <th width="12%">Tanggal</th>
-                        <th width="18%">Jenis Perawatan</th>
-                        <th width="15%">Bengkel</th>
-                        <th width="15%">Mekanik</th>
-                        <th width="12%">KM</th>
-                        <th width="15%">Biaya</th>
-                        <th width="8%">Status</th>
+                        <tr>
+                        <th width="14%">Tanggal</th>
+                        <th width="20%">Jenis Perawatan</th>
+                        <th width="18%">Bengkel</th>
+                        <th width="18%">Mekanik</th>
+                        <th width="10%">KM</th>
+                        <th width="10%">Status</th>
                         <th width="5%">Detail</th>
                     </tr>
                 </thead>
@@ -165,13 +149,6 @@ try {
                             <?= $maintenance['km_saat_perawatan'] ? number_format($maintenance['km_saat_perawatan']) . ' KM' : '-' ?>
                         </td>
                         <td>
-                            <?php if ($maintenance['biaya'] > 0): ?>
-                                <strong class="text-success">Rp <?= number_format($maintenance['biaya']) ?></strong>
-                            <?php else: ?>
-                                <span class="text-muted">-</span>
-                            <?php endif; ?>
-                        </td>
-                        <td>
                             <span class="badge badge-success badge-sm">
                                 <?= htmlspecialchars($maintenance['status']) ?>
                             </span>
@@ -186,14 +163,14 @@ try {
                     </tr>
                     <?php if (!empty($maintenance['keterangan'])): ?>
                     <tr class="table-light">
-                        <td colspan="8">
+                        <td colspan="7">
                             <small><strong>Keterangan:</strong> <?= nl2br(htmlspecialchars($maintenance['keterangan'])) ?></small>
                         </td>
                     </tr>
                     <?php endif; ?>
                     <?php if (!empty($maintenance['sparepart_diganti'])): ?>
                     <tr class="table-light">
-                        <td colspan="8">
+                        <td colspan="7">
                             <small><strong>Sparepart:</strong> <?= nl2br(htmlspecialchars($maintenance['sparepart_diganti'])) ?></small>
                         </td>
                     </tr>

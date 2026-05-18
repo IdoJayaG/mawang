@@ -1,0 +1,8 @@
+2026-05-13 15:40:10 [riwayat_perbaikan POST] user=70 role=driver action=add
+CSRF present=1 ok=1
+Vehicle check: kendaraan_id=143 access_allowed=1
+Insert OK new_id=22
+2026-05-16 07:26:41 [riwayat_perbaikan POST] user=50 role=driver action=add
+CSRF present=1 ok=1
+Vehicle check: kendaraan_id=123 access_allowed=1
+Insert OK new_id=23

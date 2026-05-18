@@ -938,6 +938,73 @@ if ($_POST) {
                         log_user_activity("Menyetujui/menetapkan surat tugas ID: $surat_id; menetapkan kendaraan ID: " . ($kend ?? 'null') . " ke pengguna ID: " . ($penerima ?? 'null'));
                     }
 
+                    // If status moved to Selesai, create a laporan_perjalanan entry if not already present
+                    $prev_status_l = strtolower(trim((string)$prev_status));
+                    $new_status_l = strtolower(trim((string)$status));
+                    if ($new_status_l === 'selesai' && $prev_status_l !== 'selesai') {
+                        try {
+                            $tblLp = $conn->query("SHOW TABLES LIKE 'laporan_perjalanan'");
+                            if ($tblLp && $tblLp->num_rows > 0) {
+                                $tanggal_lp = $tanggal_kembali ?: $tanggal_berangkat ?: null;
+                                $kend_id = $kendaraan_id ?: $prev_kendaraan_id ?: 0;
+                                if ($tanggal_lp && $kend_id > 0) {
+                                    // determine pengguna for laporan: prefer posted pengguna_id, then previous, then kendaraan.pengguna_id
+                                    $peng_id = !empty($pengguna_id) ? (int)$pengguna_id : (!empty($prev_pengguna_id) ? (int)$prev_pengguna_id : 0);
+                                    if (empty($peng_id)) {
+                                        $stp = $conn->prepare("SELECT pengguna_id FROM kendaraan WHERE id = ? LIMIT 1");
+                                        if ($stp) {
+                                            $stp->bind_param('i', $kend_id);
+                                            $stp->execute();
+                                            $pv = $stp->get_result()->fetch_assoc();
+                                            $stp->close();
+                                            $peng_id = !empty($pv['pengguna_id']) ? (int)$pv['pengguna_id'] : 0;
+                                        }
+                                    }
+
+                                    $uraian = trim($laporan_perjalanan ?: $keperluan ?: $perihal ?: ('Surat Tugas ' . ($nomor_surat ?? $surat_id)));
+                                    $route = trim($tujuan ?? '');
+                                    $jarak_km_val = null;
+                                    if (isset($estimasi_km) && $estimasi_km !== '' && is_numeric($estimasi_km)) {
+                                        $jarak_km_val = (int)$estimasi_km;
+                                    }
+
+                                    // avoid duplicate laporan for same kendaraan+tanggal
+                                    $chkLp = $conn->prepare("SELECT COUNT(*) c FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? LIMIT 1");
+                                    $dupLp = false;
+                                    if ($chkLp) {
+                                        $chkLp->bind_param('is', $kend_id, $tanggal_lp);
+                                        $chkLp->execute();
+                                        $cres = $chkLp->get_result()->fetch_assoc();
+                                        $dupLp = ((int)($cres['c'] ?? 0)) > 0;
+                                        $chkLp->close();
+                                    }
+
+                                    if (!$dupLp) {
+                                        if ($jarak_km_val === null) {
+                                            if ($peng_id > 0) {
+                                                $ins = $conn->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, NULL, NOW())");
+                                                if ($ins) { $ins->bind_param('siiss', $tanggal_lp, $kend_id, $peng_id, $uraian, $route); $ins->execute(); $ins->close(); }
+                                            } else {
+                                                $ins = $conn->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, NULL, ?, ?, NULL, NOW())");
+                                                if ($ins) { $ins->bind_param('siss', $tanggal_lp, $kend_id, $uraian, $route); $ins->execute(); $ins->close(); }
+                                            }
+                                        } else {
+                                            if ($peng_id > 0) {
+                                                $ins = $conn->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+                                                if ($ins) { $kms = (double)$jarak_km_val; $ins->bind_param('siissd', $tanggal_lp, $kend_id, $peng_id, $uraian, $route, $kms); $ins->execute(); $ins->close(); }
+                                            } else {
+                                                $ins = $conn->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, NULL, ?, ?, ?, NOW())");
+                                                if ($ins) { $kms = (double)$jarak_km_val; $ins->bind_param('sissd', $tanggal_lp, $kend_id, $uraian, $route, $kms); $ins->execute(); $ins->close(); }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Throwable $e) {
+                            @file_put_contents(__DIR__ . '/../logs/run_status_transitions_history_error.log', date('c') . ' ' . $e->getMessage() . "\n", FILE_APPEND);
+                        }
+                    }
+
                     $msg = '<div class="alert alert-success">Surat tugas berhasil diperbarui!</div>';
                     log_user_activity("Memperbarui surat tugas ID: $surat_id");
                     log_surat_tugas_role_activity($current_role, "Memperbarui surat tugas ID: $surat_id");
@@ -980,14 +1047,19 @@ if ($action === 'edit' && $surat_id && $can_crud) {
 
 // Get vehicles and users for dropdown
 $vehicles = [];
-$vehicles_query = "SELECT id, no_polisi, no_reg, merk, tipe FROM kendaraan WHERE LOWER(COALESCE(jenis, '')) = 'bus' ORDER BY COALESCE(no_reg, no_polisi)";
+$vehicles_query = "SELECT id, no_polisi, no_reg, merk, tipe FROM kendaraan ORDER BY COALESCE(no_reg, no_polisi)";
 $vehicles_result = $conn->query($vehicles_query);
 if ($vehicles_result) {
     $vehicles = $vehicles_result->fetch_all(MYSQLI_ASSOC);
 }
 
 $users = [];
-$users_query = "SELECT p.id, p.nama_lengkap, p.pangkat, p.nrp_nip FROM pengguna p WHERE p.status_aktif = 'Aktif'";
+// Fetch drivers by joining user_account and role (some schemas store role outside pengguna)
+$users_query = "SELECT p.id, p.nama_lengkap, p.pangkat, p.nrp_nip
+    FROM pengguna p
+    JOIN user_account ua ON p.id = ua.pengguna_id
+    JOIN role r ON ua.role_id = r.id
+    WHERE (ua.status = 'Aktif' OR ua.status = 'aktif') AND UPPER(COALESCE(r.kode_role, '')) = 'DRIVER'";
 if ($is_user && $current_user_id) {
     $users_query .= " AND p.id = " . (int)$current_user_id;
 }
@@ -1105,7 +1177,7 @@ if ($users_result) {
                                     <th class="sortable" data-type="num">No <span class="sort-indicator"></span></th>
                                     <th class="sortable" data-type="text">Nomor Surat <span class="sort-indicator"></span></th>
                                     <th class="sortable" data-type="text">Kendaraan <span class="sort-indicator"></span></th>
-                                    <th class="sortable" data-type="text">Pengguna <span class="sort-indicator"></span></th>
+                                    <th class="sortable" data-type="text">Penanggung Jawab <span class="sort-indicator"></span></th>
                                     <th class="sortable" data-type="text">Tujuan <span class="sort-indicator"></span></th>
                                     <th class="sortable" data-type="date">Tanggal Berangkat <span class="sort-indicator"></span></th>
                                     <th class="sortable" data-type="text">Status <span class="sort-indicator"></span></th>
@@ -1772,28 +1844,42 @@ if ($users_result) {
                                             <select name="kendaraan_id" id="kendaraan_id" class="form-control" required>
                                                 <option value="">Pilih Kendaraan</option>
                                                 <?php foreach ($vehicles as $vehicle): ?>
-                                                    <option value="<?= $vehicle['id'] ?>" 
-                                                            <?= (isset($surat_data) && $surat_data['kendaraan_id'] == $vehicle['id']) ? 'selected' : '' ?>>
-                                                        <?= htmlspecialchars(($vehicle['no_reg'] ?? '') !== '' ? $vehicle['no_reg'] : ($vehicle['no_polisi'] ?? '-')) ?><?= !empty($vehicle['no_polisi']) ? ' (Nopol: ' . htmlspecialchars($vehicle['no_polisi']) . ')' : '' ?> - <?= htmlspecialchars($vehicle['merk'] . ' ' . $vehicle['tipe']) ?>
-                                                    </option>
-                                                <?php endforeach; ?>
+                                                        <option value="<?= $vehicle['id'] ?>" data-merk="<?= htmlspecialchars($vehicle['merk'] ?? '') ?>" 
+                                                                <?= (isset($surat_data) && $surat_data['kendaraan_id'] == $vehicle['id']) ? 'selected' : '' ?>>
+                                                            <?= htmlspecialchars(($vehicle['no_reg'] ?? '') !== '' ? $vehicle['no_reg'] : ($vehicle['no_polisi'] ?? '-')) ?><?= !empty($vehicle['no_polisi']) ? ' (Nopol: ' . htmlspecialchars($vehicle['no_polisi']) . ')' : '' ?> - <?= htmlspecialchars(trim(($vehicle['merk'] ?? '') . ' ' . ($vehicle['tipe'] ?? ''))) ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
                                             </select>
                                         </div>
                                     </div>
                                     <div class="col-md-6">
                                         <div class="form-group">
-                                            <label for="pengguna_id">Pengguna *</label>
-                                            <select name="pengguna_id" id="pengguna_id" class="form-control" required <?= $is_user ? 'disabled' : '' ?>>
-                                                <option value="">Pilih Pengguna</option>
-                                                <?php foreach ($users as $user): ?>
-                                                    <option value="<?= $user['id'] ?>" 
-                                                            <?= ((isset($surat_data) && $surat_data['pengguna_id'] == $user['id']) || (!isset($surat_data) && $is_user && (int)$current_user_id === (int)$user['id'])) ? 'selected' : '' ?>>
-                                                        <?= htmlspecialchars(($user['pangkat'] ? $user['pangkat'] . ' ' : '') . $user['nama_lengkap'] . ' (' . $user['nrp_nip'] . ')') ?>
-                                                    </option>
-                                                <?php endforeach; ?>
-                                            </select>
-                                            <?php if ($is_user): ?>
-                                                <input type="hidden" name="pengguna_id" value="<?= (int)$current_user_id ?>">
+                                            <label for="pengguna_id">Penanggung Jawab *</label>
+                                            <?php if ($action === 'edit'): ?>
+                                                <!-- Edit mode: Display only, read-only -->
+                                                <input type="text" class="form-control" readonly 
+                                                       value="<?= htmlspecialchars((isset($surat_data) && !empty($surat_data['pengguna_nama_lengkap'])) 
+                                                                   ? (($surat_data['pengguna_pangkat'] ?? '') !== '' ? $surat_data['pengguna_pangkat'] . ' ' : '') . $surat_data['pengguna_nama_lengkap']
+                                                                   : '(Tidak tersedia)') ?>">
+                                                <input type="hidden" name="pengguna_id" value="<?= isset($surat_data) ? (int)$surat_data['pengguna_id'] : '' ?>">
+                                            <?php else: ?>
+                                                <!-- Create mode: Editable select (for admin/operator) or hidden for users -->
+                                                <select name="pengguna_id" id="pengguna_id" class="form-control" required <?= $is_user ? 'style="display:none"' : '' ?>>
+                                                    <option value="">Pilih Pengguna (atau pilih kendaraan terlebih dahulu)</option>
+                                                    <?php foreach ($users as $user): ?>
+                                                        <option value="<?= $user['id'] ?>" 
+                                                                <?= ((isset($surat_data) && $surat_data['pengguna_id'] == $user['id']) || (!isset($surat_data) && $is_user && (int)$current_user_id === (int)$user['id'])) ? 'selected' : '' ?>>
+                                                            <?= htmlspecialchars(($user['pangkat'] ? $user['pangkat'] . ' ' : '') . $user['nama_lengkap'] . ' (' . $user['nrp_nip'] . ')') ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <!-- Display selected driver for users -->
+                                                <?php if ($is_user): ?>
+                                                    <div id="pengguna_display" class="alert alert-info mt-2" style="display:none;">
+                                                        Penanggung Jawab: <strong id="pengguna_display_text"></strong>
+                                                    </div>
+                                                    <input type="hidden" name="pengguna_id" id="pengguna_id_hidden" value="<?= (int)$current_user_id ?>">
+                                                <?php endif; ?>
                                             <?php endif; ?>
                                         </div>
                                     </div>
@@ -1802,21 +1888,44 @@ if ($users_result) {
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="form-group">
-                                            <label for="tujuan">Tujuan *</label>
-                                            <input type="text" name="tujuan" id="tujuan" 
-                                                           class="form-control" required
-                                                           value="<?= htmlspecialchars($surat_data['tujuan'] ?? '') ?>"
-                                                           placeholder="Contoh: Wisma Majestic Cisarua Bogor">
+                                            <label>Tujuan (bisa lebih dari satu) *</label>
+                                            <ul id="destinationList" class="list-group mb-2">
+                                                <?php
+                                                $dest_items = [];
+                                                if (!empty($surat_data['tujuan'])) {
+                                                    // If multiple stored separated by '||', split; else single
+                                                    if (strpos($surat_data['tujuan'], '||') !== false) {
+                                                        $dest_items = array_map('trim', explode('||', $surat_data['tujuan']));
+                                                    } else {
+                                                        $dest_items = [trim($surat_data['tujuan'])];
+                                                    }
+                                                }
+                                                if (empty($dest_items)) $dest_items = [''];
+                                                foreach ($dest_items as $di): ?>
+                                                    <li class="list-group-item d-flex align-items-center">
+                                                        <input type="text" class="form-control me-2 destination-item" value="<?= htmlspecialchars($di) ?>" placeholder="Alamat tujuan">
+                                                        <button type="button" class="btn btn-sm btn-danger remove-destination">&times;</button>
+                                                    </li>
+                                                <?php endforeach; ?>
+                                            </ul>
+                                            <div class="mb-2">
+                                                <button type="button" id="addDestinationBtn" class="btn btn-sm btn-outline-primary">Tambah Tujuan</button>
+                                            </div>
+                                            <input type="hidden" name="tujuan" id="tujuan_hidden" value="<?= isset($surat_data['tujuan']) ? htmlspecialchars($surat_data['tujuan']) : '' ?>">
+                                            <small class="form-text text-muted">Anda bisa menambah beberapa tujuan; peta akan menghitung rute otomatis.</small>
                                         </div>
                                     </div>
                                     <div class="col-md-6">
                                         <div class="form-group">
-                                            <label for="berangkat_dari">Berangkat Dari *</label>
-                                            <input type="text" name="berangkat_dari" id="berangkat_dari" 
-                                                   class="form-control" required
-                                                   value="<?= htmlspecialchars($surat_data['berangkat_dari'] ?? 'SPBT Kemhan Cawang') ?>"
-                                                   placeholder="Contoh: SPBT Kemhan Cawang">
+                                            <label>Berangkat Dari</label>
+                                            <div class="form-control-plaintext">SPBT Kemhan Cawang</div>
+                                            <input type="hidden" name="berangkat_dari" id="berangkat_dari" value="<?= htmlspecialchars($surat_data['berangkat_dari'] ?? 'SPBT Kemhan Cawang') ?>">
+                                            <small class="form-text text-muted">Asal rute dipaksa ke SPBT Kemhan Cawang; pilih tujuan pada peta atau gunakan saran lokasi.</small>
                                         </div>
+                                    </div>
+                                    <div class="col-12">
+                                        <div id="routeMap" style="height:360px; border:1px solid #ddd; border-radius:6px;"></div>
+                                        <div id="routeSummary" class="mt-2 small text-muted">Jarak: <span id="routeDistance">-</span> km — Estimasi BBM: <span id="routeFuel">-</span> L</div>
                                     </div>
                                 </div>
 
@@ -2028,6 +2137,71 @@ if ($users_result) {
 </div>
 
 <script>
+// Auto-populate driver/pengguna based on selected vehicle
+$(document).ready(function() {
+    const kendaraanSelect = document.getElementById('kendaraan_id');
+    const penggunaSelect = document.getElementById('pengguna_id');
+    const penggunaDisplay = document.getElementById('pengguna_display');
+    const penggunaDisplayText = document.getElementById('pengguna_display_text');
+    const penggunaHidden = document.getElementById('pengguna_id_hidden');
+    
+    // Handle vehicle selection change
+    if (kendaraanSelect) {
+        kendaraanSelect.addEventListener('change', function() {
+            const kendaraanId = parseInt(this.value);
+            
+            if (kendaraanId <= 0) {
+                // Clear when no vehicle selected
+                if (penggunaSelect) penggunaSelect.value = '';
+                if (penggunaDisplay) penggunaDisplay.style.display = 'none';
+                if (penggunaHidden) penggunaHidden.value = '';
+                return;
+            }
+            
+            // Fetch driver info
+            fetch('ajax/get_vehicle_driver.php?kendaraan_id=' + kendaraanId)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data) {
+                        const driverInfo = data.data;
+                        
+                        if (driverInfo.has_driver && driverInfo.pengguna_id) {
+                            // Set pengguna_id value
+                            if (penggunaSelect) {
+                                penggunaSelect.value = driverInfo.pengguna_id;
+                            }
+                            if (penggunaHidden) {
+                                penggunaHidden.value = driverInfo.pengguna_id;
+                            }
+                            
+                            // Show driver info for users
+                            if (penggunaDisplay && penggunaDisplayText) {
+                                penggunaDisplayText.textContent = driverInfo.display_text;
+                                penggunaDisplay.style.display = 'block';
+                            }
+                        } else {
+                            // No penanggung jawab assigned
+                            if (penggunaSelect) penggunaSelect.value = '';
+                            if (penggunaHidden) penggunaHidden.value = '';
+                            if (penggunaDisplay) penggunaDisplay.style.display = 'none';
+                            alert('Kendaraan yang dipilih belum memiliki penanggung jawab yang ditugaskan.');
+                        }
+                    }
+                    try { if (typeof recalcRouteAndEstimates === 'function') recalcRouteAndEstimates(); } catch (e) { }
+                })
+                .catch(error => {
+                    console.error('Error fetching penanggung jawab info:', error);
+                    alert('Gagal mengambil informasi penanggung jawab kendaraan.');
+                });
+        });
+        
+        // Trigger change if vehicle is already selected (edit mode)
+        if (kendaraanSelect.value) {
+            kendaraanSelect.dispatchEvent(new Event('change'));
+        }
+    }
+});
+
 function filterStatus(status) {
     const table = document.getElementById('suratTable');
     const rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
@@ -2165,6 +2339,236 @@ function downloadPDF(suratId) {
         }, 500);
     }
 }
+</script>
+
+<!-- Leaflet + Routing -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" integrity="" crossorigin="" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
+
+<script>
+// Map, routing and geocoding for multi-destination route + BBM estimate
+document.addEventListener('DOMContentLoaded', function(){
+    if (!document.getElementById('routeMap')) return;
+
+    const map = L.map('routeMap').setView([-6.200, 106.816], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let routingControl = null;
+    let originMarker = null;
+    const destMarkers = new Map(); // inputElem -> marker
+
+    const kendaraanSelect = document.getElementById('kendaraan_id');
+    const originInput = document.getElementById('berangkat_dari');
+    const destinationList = document.getElementById('destinationList');
+    const addDestinationBtn = document.getElementById('addDestinationBtn');
+    const routeDistanceEl = document.getElementById('routeDistance');
+    const routeFuelEl = document.getElementById('routeFuel');
+
+    // Simple nominatim geocode
+    function geocodeAddress(q){
+        return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
+            .then(r => r.json())
+            .then(j => j && j.length ? j[0] : null)
+            .catch(()=>null);
+    }
+    function reverseGeocode(lat, lon){
+        return fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + encodeURIComponent(lat) + '&lon=' + encodeURIComponent(lon), { headers: { 'Accept': 'application/json' } })
+            .then(r => r.json())
+            .then(j => j && j.display_name ? j.display_name : null)
+            .catch(()=>null);
+    }
+
+    function addDestinationInput(value){
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex align-items-center';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-control me-2 destination-item';
+        input.value = value || '';
+        input.placeholder = 'Alamat tujuan';
+        // container for suggestions
+        li.style.position = 'relative';
+        const sugg = document.createElement('div');
+        sugg.className = 'destination-suggestions list-group';
+        sugg.style.position = 'absolute';
+        sugg.style.left = '0';
+        sugg.style.right = '0';
+        sugg.style.top = '100%';
+        sugg.style.zIndex = '1200';
+        const btn = document.createElement('button');
+        btn.type = 'button'; btn.className = 'btn btn-sm btn-danger remove-destination'; btn.innerHTML = '&times;';
+        btn.addEventListener('click', function(){
+            // remove marker if exists
+            const m = destMarkers.get(input);
+            if (m) { map.removeLayer(m); destMarkers.delete(input); }
+            li.remove(); recalcRouteAndEstimates();
+        });
+        input.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); geocodeInputAndSetMarker(input).then(recalcRouteAndEstimates); } });
+        input.addEventListener('blur', function(){ setTimeout(()=>{ if (input.value.trim()) geocodeInputAndSetMarker(input).then(recalcRouteAndEstimates); sugg.innerHTML=''; }, 200); });
+        // autocomplete (Nominatim) with debounce
+        let acTimeout = null;
+        input.addEventListener('input', function(){
+            const q = input.value.trim();
+            if (acTimeout) clearTimeout(acTimeout);
+            if (q.length < 2) { sugg.innerHTML = ''; return; }
+            acTimeout = setTimeout(function(){
+                fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(q))
+                    .then(r => r.json())
+                    .then(list => {
+                        sugg.innerHTML = '';
+                        if (!list || !list.length) return;
+                        list.forEach(item => {
+                            const a = document.createElement('a');
+                            a.href = '#';
+                            a.className = 'list-group-item list-group-item-action';
+                            a.textContent = item.display_name;
+                            a.addEventListener('click', function(ev){ ev.preventDefault(); input.value = item.display_name; input.dataset.lat = item.lat; input.dataset.lng = item.lon; input.dataset.display = item.display_name; // place marker immediately
+                                const old = destMarkers.get(input); if (old) map.removeLayer(old);
+                                const m = L.marker([parseFloat(item.lat), parseFloat(item.lon)]).addTo(map).bindPopup(item.display_name);
+                                destMarkers.set(input, m);
+                                sugg.innerHTML = '';
+                                recalcRouteAndEstimates();
+                            });
+                            sugg.appendChild(a);
+                        });
+                    }).catch(()=>{ sugg.innerHTML=''; });
+            }, 300);
+        });
+        li.appendChild(input); li.appendChild(btn); li.appendChild(sugg); destinationList.appendChild(li);
+        return input;
+    }
+
+    function geocodeInputAndSetMarker(input){
+        const q = input.value.trim();
+        if (!q) return Promise.resolve(null);
+        return geocodeAddress(q).then(res => {
+            if (!res) return null;
+            input.dataset.lat = res.lat; input.dataset.lng = res.lon; input.dataset.display = res.display_name || q;
+            // place marker
+            const latlng = L.latLng(parseFloat(res.lat), parseFloat(res.lon));
+            const old = destMarkers.get(input);
+            if (old) map.removeLayer(old);
+            const m = L.marker(latlng).addTo(map).bindPopup(input.dataset.display || q);
+            destMarkers.set(input, m);
+            return {lat: latlng.lat, lng: latlng.lng};
+        });
+    }
+
+    function setOriginMarker(latlng, display){
+        if (originMarker) map.removeLayer(originMarker);
+        originMarker = L.marker(latlng, {icon: L.icon({iconUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-icon.png'})}).addTo(map).bindPopup(display || 'Asal');
+    }
+
+    function getConsumptionRateForSelectedVehicle(){
+        if (!kendaraanSelect) return 4;
+        const opt = kendaraanSelect.selectedOptions && kendaraanSelect.selectedOptions[0];
+        const merk = (opt && (opt.dataset && opt.dataset.merk)) ? opt.dataset.merk.toLowerCase() : '';
+        if (merk.includes('mercedes')) return 3;
+        if (merk.includes('mitsubishi')) return 4;
+        if (merk.includes('hino')) return 5;
+        return 4; // default
+    }
+
+    function recalcRouteAndEstimates(){
+        // Build promises to ensure lat/lng available for origin and all destinations
+        const originVal = originInput ? (originInput.value || '').trim() : 'SPBT Kemhan Cawang';
+        const destInputs = Array.from(document.querySelectorAll('.destination-item'));
+        const originPromise = (originInput && originInput.dataset && originInput.dataset.lat && originInput.dataset.lng) ? Promise.resolve({lat: parseFloat(originInput.dataset.lat), lng: parseFloat(originInput.dataset.lng)}) : (originVal ? geocodeAddress(originVal).then(r=>{ if(r){ if (originInput){ originInput.dataset.lat=r.lat; originInput.dataset.lng=r.lon; originInput.dataset.display=r.display_name; } setOriginMarker([parseFloat(r.lat), parseFloat(r.lon)], r.display_name); return {lat: parseFloat(r.lat), lng: parseFloat(r.lon)} } return null; }) : Promise.resolve(null));
+
+        const destPromises = destInputs.map(inp => {
+            const v = inp.value.trim();
+            if (!v) return Promise.resolve(null);
+            if (inp.dataset.lat && inp.dataset.lng) return Promise.resolve({lat: parseFloat(inp.dataset.lat), lng: parseFloat(inp.dataset.lng)});
+            return geocodeAddress(v).then(r=>{ if (r){ inp.dataset.lat=r.lat; inp.dataset.lng=r.lon; inp.dataset.display=r.display_name; const old = destMarkers.get(inp); if (old) map.removeLayer(old); const m = L.marker([parseFloat(r.lat), parseFloat(r.lon)]).addTo(map).bindPopup(r.display_name); destMarkers.set(inp,m); return {lat: parseFloat(r.lat), lng: parseFloat(r.lon)} } return null; });
+        });
+
+        return Promise.all([originPromise].concat(destPromises)).then(results => {
+            const originLatLng = results[0];
+            const destLatLngs = results.slice(1).filter(Boolean);
+            if (!originLatLng || destLatLngs.length === 0) {
+                // Not enough points to route
+                routeDistanceEl.textContent = '-'; routeFuelEl.textContent = '-';
+                if (routingControl) { try{ map.removeControl(routingControl); } catch(e){} routingControl = null; }
+                return;
+            }
+
+            // Build waypoints: origin -> dest1 -> dest2 ... -> origin (return)
+            const waypoints = [L.latLng(originLatLng.lat, originLatLng.lng)].concat(destLatLngs.map(d=>L.latLng(d.lat, d.lng))).concat([L.latLng(originLatLng.lat, originLatLng.lng)]);
+
+            if (routingControl) { try{ map.removeControl(routingControl); } catch(e){} routingControl = null; }
+            routingControl = L.Routing.control({
+                waypoints: waypoints,
+                lineOptions: { styles: [{color: 'blue', opacity: 0.6, weight: 5}] },
+                createMarker: function(i, wp) { return L.marker(wp.latLng); },
+                addWaypoints: false,
+                routeWhileDragging: false,
+                fitSelectedRoutes: true,
+                router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' })
+            }).addTo(map);
+
+            routingControl.on('routesfound', function(e){
+                const summary = e.routes && e.routes[0] && e.routes[0].summary;
+                if (!summary) return;
+                const distKm = (summary.totalDistance/1000);
+                const distKmFixed = Math.round(distKm * 100) / 100;
+                routeDistanceEl.textContent = distKmFixed;
+                // Estimasi BBM
+                const rate = getConsumptionRateForSelectedVehicle();
+                const liters = Math.round((distKm / rate) * 100) / 100;
+                routeFuelEl.textContent = liters;
+                // Update form fields
+                const kmEl = document.getElementById('estimasi_km');
+                const bbmEl = document.getElementById('estimasi_bbm');
+                if (kmEl) kmEl.value = distKmFixed;
+                if (bbmEl) bbmEl.value = liters;
+            });
+
+            // Fit map to route after short delay
+            setTimeout(()=>{ try{ if (routingControl && routingControl.getPlan) routingControl.getPlan().setWaypoints(waypoints); } catch(e){} }, 300);
+        });
+    }
+
+    // Initialize existing destination inputs
+    Array.from(document.querySelectorAll('.destination-item')).forEach(inp => {
+        inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); geocodeInputAndSetMarker(inp).then(recalcRouteAndEstimates); } });
+        inp.addEventListener('blur', function(){ if (inp.value.trim()) geocodeInputAndSetMarker(inp).then(recalcRouteAndEstimates); });
+        if (inp.value.trim()) geocodeInputAndSetMarker(inp);
+    });
+
+    // Add destination button
+    addDestinationBtn?.addEventListener('click', function(){ const newInp = addDestinationInput(''); newInp.focus(); });
+
+    // Map click: add destination at clicked point (origin is fixed to SPBT Kemhan Cawang)
+    map.on('click', function(e){
+        reverseGeocode(e.latlng.lat, e.latlng.lng).then(addr=>{
+            const inp = addDestinationInput(addr || (e.latlng.lat + ',' + e.latlng.lng));
+            inp.dataset.lat = e.latlng.lat; inp.dataset.lng = e.latlng.lng; const m = L.marker(e.latlng).addTo(map).bindPopup(inp.value); destMarkers.set(inp, m);
+            recalcRouteAndEstimates();
+        });
+    });
+
+    // Pack destinations on form submit (join with '||')
+    const form = document.querySelector('form');
+    if (form) {
+        form.addEventListener('submit', function(){
+            const dests = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.value.trim()).filter(Boolean);
+            document.getElementById('tujuan_hidden').value = dests.join('||');
+            // ensure estimasi fields are set (already done by recalc)
+            const kmEl = document.getElementById('estimasi_km');
+            const bbmEl = document.getElementById('estimasi_bbm');
+            if (routeDistanceEl.textContent && kmEl) kmEl.value = routeDistanceEl.textContent;
+            if (routeFuelEl.textContent && bbmEl) bbmEl.value = routeFuelEl.textContent;
+        });
+    }
+
+    // initial calc if possible
+    setTimeout(()=>{ recalcRouteAndEstimates(); }, 800);
+});
 </script>
 <script>
 document.addEventListener('DOMContentLoaded', function(){

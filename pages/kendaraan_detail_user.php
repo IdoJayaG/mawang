@@ -4,7 +4,8 @@ require_once __DIR__ . '/../templates/page_template.php';
 
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
-require_role('user');
+// Allow any logged-in role to access this user-focused detail view. If a vehicle is not available
+// for the current account, non-user roles will be redirected to the unified detail page.
 
 $user_id = get_current_user_id();
 $kendaraan_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
@@ -88,7 +89,11 @@ if (!$kendaraan) {
 }
 
 if (!$kendaraan) {
-    header('Location: index.php?page=kendaraan_saya');
+    if (function_exists('get_current_role') && get_current_role() === 'user') {
+        header('Location: index.php?page=kendaraan_saya');
+        exit;
+    }
+    header('Location: index.php?page=kendaraan_detail&id=' . $kendaraan_id);
     exit;
 }
 
@@ -301,10 +306,7 @@ $log_bbm = $stmt->get_result();
                                     <span class="label">Jumlah:</span>
                                     <span><?= number_format($bbm['jumlah_liter'], 2) ?> Liter</span>
                                 </div>
-                                <div class="bbm-detail">
-                                    <span class="label">Biaya:</span>
-                                    <span>Rp <?= number_format($bbm['total_biaya'] ?? 0) ?></span>
-                                </div>
+                                <!-- Biaya removed from BBM log display -->
                                 <div class="bbm-detail">
                                     <span class="label">KM:</span>
                                     <span><?= number_format($bbm['km_saat_isi'] ?? 0) ?></span>

@@ -27,12 +27,12 @@ $hasLocator = in_array('locator', $kendaraanCols, true);
 $hasPenggunaId = in_array('pengguna_id', $kendaraanCols, true);
 $hasPengguna = table_exists_mysqli($mysqli, 'pengguna');
 
-$select = "p.*, NULL AS vehicle_id, NULL AS no_reg, NULL AS no_polisi, NULL AS merk, NULL AS tipe, NULL AS locator, NULL AS pengguna_id, NULL AS user_name, NULL AS user_pangkat, NULL AS penanggung_jawab";
+$select = "p.*, NULL AS vehicle_id, NULL AS no_reg, NULL AS no_polisi, NULL AS merk, NULL AS tipe, NULL AS locator, NULL AS pengguna_id, NULL AS user_name, NULL AS user_pangkat";
 $from = " FROM traccar_positions_last p";
 
 if ($hasKendaraan && $hasLocator) {
         // Locator matching supports uniqueId, numeric deviceId, and deviceName from Traccar.
-        $select = "p.*, k.id AS vehicle_id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.locator, k.penanggung_jawab, " .
+        $select = "p.*, k.id AS vehicle_id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.locator, " .
                             ($hasPenggunaId ? "k.pengguna_id" : "NULL") . " AS pengguna_id, " .
                             (($hasPengguna && $hasPenggunaId) ? "u.nama_lengkap" : "NULL") . " AS user_name, " .
                             (($hasPengguna && $hasPenggunaId) ? "u.pangkat" : "NULL") . " AS user_pangkat";
@@ -60,9 +60,7 @@ if (!$res) {
 
 $rows = [];
 while ($r = $res->fetch_assoc()) {
-    if (empty($r['user_name']) && !empty($r['penanggung_jawab'])) {
-        $r['user_name'] = $r['penanggung_jawab'];
-    }
+    // penanggung_jawab column removed; user_name now always from pengguna relationship or stays empty
     $labelParts = [];
     if (!empty($r['no_polisi'])) {
         $labelParts[] = $r['no_polisi'];

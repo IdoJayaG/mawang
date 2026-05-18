@@ -41,8 +41,7 @@ if ($action === 'view' && $id > 0) {
             <div class="card-header bg-light d-flex justify-content-between align-items-center">
                 <div>
                     <strong><?= htmlspecialchars($record['merk'] . ' ' . $record['tipe']) ?></strong>
-                    <div class="small text-muted">No. Reg: <?= htmlspecialchars($record['no_reg']) ?> / <?= htmlspecialchars($record['no_polisi'] ?? '-') ?></div>
-                    <div class="small text-muted">No. Reg: <?= htmlspecialchars($record['no_reg'] ?? '-') ?><?= !empty($record['no_polisi']) ? ' / Nopol: ' . htmlspecialchars($record['no_polisi']) : '' ?></div>
+                    <div class="small text-muted">No. Reg: <?= htmlspecialchars($record['no_reg'] ?? '-') ?></div>
                 </div>
                 <div class="text-end small text-muted">
                     <?= htmlspecialchars($record['pemakai'] ?? $record['username'] ?? 'N/A') ?>
@@ -182,10 +181,10 @@ $total_pages = max(1, ceil($total / $limit));
             <table class="table table-striped table-hover">
                 <thead>
                     <tr>
-                        <th>#</th>
+                        <th>No</th>
                         <th>Tanggal</th>
                         <th>Kendaraan</th>
-                        <th>No. Reg / Nopol</th>
+                        <th>No. Reg</th>
                         <th>Pemakai</th>
                         <th>Driver</th>
                         <th>KM</th>
@@ -200,15 +199,16 @@ $total_pages = max(1, ceil($total / $limit));
                             <td><?= $i++ ?></td>
                             <td><?= date('d/m/Y', strtotime($r['tanggal'])) ?><br><small><?= htmlspecialchars($r['jam_keluar'] ?? '') ?> - <?= htmlspecialchars($r['jam_kembali'] ?? '') ?></small></td>
                             <td><?= htmlspecialchars($r['merk'] . ' ' . $r['tipe']) ?></td>
-                            <td><?= htmlspecialchars(($r['no_polisi'] ?? '-') . ' / ' . ($r['no_reg'] ?? '-')) ?></td>
-                                <td><?= htmlspecialchars(($r['no_reg'] ?? '-') . ' / ' . ($r['no_polisi'] ?? '-')) ?></td>
+                            <td><?= htmlspecialchars($r['no_reg'] ?? '-') ?></td>
                             <td><?= htmlspecialchars($r['pemakai'] ?? $r['username'] ?? '-') ?></td>
                             <td><?= htmlspecialchars($r['driver_name'] ?? '-') ?></td>
                             <td><?= number_format($r['km_awal'] ?? 0) ?> / <?= number_format($r['km_akhir'] ?? 0) ?></td>
                             <td><?= !empty($r['bbm_keluar']) ? number_format($r['bbm_keluar'],1) . ' L' : '-' ?> / <?= !empty($r['bbm_kembali']) ? number_format($r['bbm_kembali'],1) . ' L' : '-' ?></td>
                             <td><?= htmlspecialchars(mb_strimwidth($r['keperluan'] ?? '-', 0, 60, '...')) ?></td>
                             <td>
-                                <a href="index.php?page=riwayat_pemakaian&action=view&id=<?= $r['id'] ?>" class="btn btn-sm btn-outline-primary">Lihat</a>
+                                <div class="btn-group" role="group">
+                                    <a href="index.php?page=riwayat_pemakaian&action=view&id=<?= $r['id'] ?>" class="btn btn-sm btn-outline-info" title="Lihat Detail"><i class="fas fa-eye"></i></a>
+                                </div>
                             </td>
                         </tr>
                     <?php endwhile; ?>

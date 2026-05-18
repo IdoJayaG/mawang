@@ -67,25 +67,18 @@ $riwayat_has_teknisi_id = table_has_columns($mysqli, 'riwayat_perawatan', ['tekn
 try {
     $mysqli->begin_transaction();
 
-    // prefer client-supplied tanggal_selesai/biaya_aktual if present (e.g., from modal form)
+    // prefer client-supplied tanggal_selesai if present (biaya fields removed)
     $tanggal_selesai_post = $_POST['tanggal_selesai'] ?? null;
-    $biaya_aktual_post = isset($_POST['biaya_aktual']) && $_POST['biaya_aktual'] !== '' ? (float)$_POST['biaya_aktual'] : null;
 
     if ($status === 'Selesai') {
         // Mark the jadwal_perawatan record as Selesai (do not move/delete record)
         $use_tanggal = $tanggal_selesai_post ?: date('Y-m-d');
-        // If biaya provided from client use it, otherwise fall back to existing biaya_aktual or estimasi
-        if ($biaya_aktual_post !== null) {
-            $use_biaya = $biaya_aktual_post;
-        } else {
-            $use_biaya = is_numeric($jadwal['biaya_aktual']) && $jadwal['biaya_aktual'] > 0 ? (float)$jadwal['biaya_aktual'] : (float)($jadwal['estimasi_biaya'] ?? 0);
-        }
-
-        $stmt = $mysqli->prepare("UPDATE jadwal_perawatan SET status = ?, tanggal_selesai = ?, biaya_aktual = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
+        // Update jadwal status and tanggal selesai (biaya fields removed)
+        $stmt = $mysqli->prepare("UPDATE jadwal_perawatan SET status = ?, tanggal_selesai = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
         if (!$stmt) {
             throw new Exception('Gagal menyiapkan query update jadwal: ' . $mysqli->error);
         }
-        $stmt->bind_param('ssdii', $status, $use_tanggal, $use_biaya, $current_user_id, $id);
+        $stmt->bind_param('ssii', $status, $use_tanggal, $current_user_id, $id);
         if (!$stmt->execute()) {
             throw new Exception('Gagal mengupdate jadwal menjadi selesai: ' . $stmt->error);
         }

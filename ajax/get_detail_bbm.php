@@ -41,20 +41,17 @@ try {
     $bbm_logs = $stmt->get_result();
     $stmt->close();
     
-    // Calculate statistics
+    // Calculate statistics (harga/biaya dihapus)
     $total_pengisian = $bbm_logs->num_rows;
     $total_liter = 0;
-    $total_biaya = 0;
     $logs_array = [];
-    
+
     while ($log = $bbm_logs->fetch_assoc()) {
         $total_liter += $log['jumlah_liter'];
-        $total_biaya += $log['biaya'];
         $logs_array[] = $log;
     }
-    
+
     $rata_konsumsi = $total_pengisian > 0 ? $total_liter / $total_pengisian : 0;
-    $rata_biaya = $total_pengisian > 0 ? $total_biaya / $total_pengisian : 0;
     
     ob_start();
 ?>
@@ -114,12 +111,7 @@ try {
                             <small class="text-muted">Total Liter</small>
                         </div>
                     </div>
-                    <div class="col-md-3">
-                        <div class="stat-item">
-                            <h5 class="text-danger mb-1">Rp <?= number_format($total_biaya) ?></h5>
-                            <small class="text-muted">Total Biaya</small>
-                        </div>
-                    </div>
+                    <!-- Total biaya/harga dihapus dari tampilan -->
                     <div class="col-md-3">
                         <div class="stat-item">
                             <h5 class="text-info mb-1"><?= number_format($rata_konsumsi, 2) ?> L</h5>
@@ -145,8 +137,6 @@ try {
                         <tr>
                             <th>Tanggal</th>
                             <th>Jumlah (L)</th>
-                            <th>Harga/L</th>
-                            <th>Total Biaya</th>
                             <th>KM</th>
                             <th>SPBU</th>
                             <th>Jenis BBM</th>
@@ -163,8 +153,6 @@ try {
                                 <small class="text-muted"><?= date('H:i', strtotime($log['tanggal_isi'])) ?></small>
                             </td>
                             <td><strong class="text-primary"><?= number_format($log['jumlah_liter'], 2) ?></strong></td>
-                            <td>Rp <?= number_format($log['harga_per_liter']) ?></td>
-                            <td><strong class="text-success">Rp <?= number_format($log['biaya']) ?></strong></td>
                             <td>
                                 <?= $log['km_saat_isi'] ? number_format($log['km_saat_isi']) : '<span class="text-muted">-</span>' ?>
                             </td>

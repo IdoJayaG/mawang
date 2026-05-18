@@ -11,6 +11,54 @@ $profile_user_id = ($current_role !== 'user' && $view_user_id) ? $view_user_id :
 
 $msg = '';
 
+// Resolve profile identifiers robustly. Prefer `user_account.id` for the current session
+// to avoid accidental numeric collisions between account.id and pengguna.id.
+$current_account_id = get_current_account_id();
+$current_pengguna_id = get_current_user_id();
+
+$profile_account_id = null; // user_account.id
+$profile_pengguna_id = null; // pengguna.id
+
+// If admin/operator passed ?id=, interpret that id as the requested profile (try account id first)
+if ($view_user_id !== null && $current_role !== 'user') {
+    $v = (int)$view_user_id;
+    $st = $mysqli->prepare("SELECT id, pengguna_id FROM user_account WHERE id = ? LIMIT 1");
+    if ($st) {
+        $st->bind_param('i', $v);
+        $st->execute();
+        $r = $st->get_result()->fetch_assoc();
+        $st->close();
+        if ($r) {
+            $profile_account_id = (int)$r['id'];
+            $profile_pengguna_id = !empty($r['pengguna_id']) ? (int)$r['pengguna_id'] : null;
+        }
+    }
+    if (is_null($profile_account_id)) {
+        // maybe the id was a pengguna.id
+        $st2 = $mysqli->prepare("SELECT id FROM pengguna WHERE id = ? LIMIT 1");
+        if ($st2) {
+            $st2->bind_param('i', $v);
+            $st2->execute();
+            $r2 = $st2->get_result()->fetch_assoc();
+            $st2->close();
+            if ($r2) {
+                $profile_pengguna_id = $v;
+                $profile_account_id = get_user_account_id_for_pengguna($v);
+            }
+        }
+    }
+} else {
+    // Default: show current session's profile — prefer account id when available
+    $profile_account_id = $current_account_id;
+    $profile_pengguna_id = $current_pengguna_id;
+    if (empty($profile_account_id) && !empty($profile_pengguna_id)) {
+        $profile_account_id = get_user_account_id_for_pengguna($profile_pengguna_id);
+    }
+}
+
+// For fallbacks below which use a single numeric id, keep a requested id (prefer account id)
+$requested_id = $profile_account_id ?? $profile_pengguna_id ?? (int)$profile_user_id;
+
 // Handle form submission for profile update
 if ($_POST && isset($_POST['action']) && $_POST['action'] === 'update_profile') {
     // Disallow users with role 'user' from performing updates
@@ -28,8 +76,10 @@ if ($_POST && isset($_POST['action']) && $_POST['action'] === 'update_profile') 
             // Update user profile
             // Perbarui data: simpan di tabel pengguna bila tersedia (pengguna adalah sumber kebenaran untuk nama/no_hp/email/alamat)
             // Use the profile being viewed/edited (admins may edit other users via ?id=)
-            $stmt2 = $mysqli->prepare("SELECT pengguna_id FROM user_account WHERE id = ? LIMIT 1");
-            $stmt2->bind_param('i', $profile_user_id);
+            $stmt2 = $mysqli->prepare("SELECT pengguna_id FROM user_account WHERE id = ? OR pengguna_id = ? LIMIT 1");
+            $bind_account = $profile_account_id ?? 0;
+            $bind_pengguna = $profile_pengguna_id ?? $requested_id;
+            $stmt2->bind_param('ii', $bind_account, $bind_pengguna);
             $stmt2->execute();
             $res2 = $stmt2->get_result()->fetch_assoc();
             $stmt2->close();
@@ -56,26 +106,30 @@ if ($_POST && isset($_POST['action']) && $_POST['action'] === 'update_profile') 
     }
 }
 
-// Get current user profile data
-if ($current_role === 'user') {
-    // Ambil data user + pengguna. Perhatikan: kolom nama pada pengguna adalah nama_lengkap, nrp disimpan di nrp_nip
-    // Include role name from role table as `role`
-    $stmt = $mysqli->prepare("SELECT ua.*, p.nama_lengkap AS nama, p.no_hp, p.email AS email, p.alamat, p.nrp_nip AS nrp, p.pangkat, p.jabatan, COALESCE(p.kesatuan, '') AS satuan, ua.created_at, ua.last_login, ua.status, ua.username, ua.role_id, ua.pengguna_id, COALESCE(r.nama_role, '') AS role
+// Get current user profile data (prefer matching user_account.id when available)
+$selectBase = "SELECT ua.*, p.nama_lengkap AS nama, p.no_hp, p.email AS email, p.alamat, p.nrp_nip AS nrp, p.pangkat, p.jabatan, COALESCE(p.kesatuan, '') AS satuan, ua.created_at, ua.last_login, ua.status, ua.username, ua.role_id, ua.pengguna_id, COALESCE(r.nama_role, '') AS role
         FROM user_account ua
         LEFT JOIN pengguna p ON ua.pengguna_id = p.id
-        LEFT JOIN role r ON ua.role_id = r.id
-        WHERE ua.id = ?");
+        LEFT JOIN role r ON ua.role_id = r.id";
+
+if (!empty($profile_account_id)) {
+    $stmt = $mysqli->prepare($selectBase . " WHERE ua.id = ? LIMIT 1");
+    $stmt->bind_param('i', $profile_account_id);
+} elseif (!empty($profile_pengguna_id)) {
+    $stmt = $mysqli->prepare($selectBase . " WHERE ua.pengguna_id = ? LIMIT 1");
+    $stmt->bind_param('i', $profile_pengguna_id);
 } else {
-    // For operator/admin: include pengguna info when available so admins/operators can view/edit personal data
-    $stmt = $mysqli->prepare("SELECT ua.*, p.nama_lengkap AS nama, p.no_hp, p.email AS email, p.alamat, p.nrp_nip AS nrp, p.pangkat, p.jabatan, COALESCE(p.kesatuan, '') AS satuan, ua.created_at, ua.last_login, ua.status, ua.username, ua.role_id, ua.pengguna_id, COALESCE(r.nama_role, '') AS role
-        FROM user_account ua
-        LEFT JOIN pengguna p ON ua.pengguna_id = p.id
-        LEFT JOIN role r ON ua.role_id = r.id
-        WHERE ua.id = ?");
+    // Fallback: try to use current session account id, otherwise use requested id for both fields
+    $current_account = get_current_account_id();
+    if (!empty($current_account)) {
+        $stmt = $mysqli->prepare($selectBase . " WHERE ua.id = ? LIMIT 1");
+        $stmt->bind_param('i', $current_account);
+    } else {
+        $stmt = $mysqli->prepare($selectBase . " WHERE ua.id = ? OR ua.pengguna_id = ? LIMIT 1");
+        $stmt->bind_param('ii', $requested_id, $requested_id);
+    }
 }
 
-    // Bind the profile user id for data display (admins may view other users)
-    $stmt->bind_param('i', $profile_user_id);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
 $stmt->close();
@@ -115,14 +169,33 @@ if ($current_role === 'user') {
     $peminjaman_stats = $stats_query->get_result()->fetch_assoc();
     $stats_query->close();
     
-    // Get riwayat pemakaian count
-    // Use profile_user_id for activity/riwayat counts when viewing another user
-    $riwayat_query = $mysqli->prepare("SELECT COUNT(*) as total FROM riwayat_pemakaian WHERE user_id = ?");
-    $riwayat_query->bind_param('i', $profile_user_id);
-    $riwayat_query->execute();
-    $riwayat_count = $riwayat_query->get_result()->fetch_assoc()['total'];
-    $riwayat_query->close();
-    
+    // Get riwayat pemakaian count (schema-aware: some installations use user_id, others pengguna_id)
+    $riwayat_count = 0;
+    if (function_exists('db_table_exists') && db_table_exists('riwayat_pemakaian')) {
+        $rp_cols = db_table_columns('riwayat_pemakaian');
+        if (in_array('user_id', $rp_cols, true)) {
+            $bind_val = $profile_account_id ?: get_user_account_id_for_pengguna($profile_pengguna_id ?? $requested_id);
+            if ($bind_val) {
+                $st_rp = $mysqli->prepare("SELECT COUNT(*) as total FROM riwayat_pemakaian WHERE user_id = ?");
+                if ($st_rp) {
+                    $st_rp->bind_param('i', $bind_val);
+                    $st_rp->execute();
+                    $riwayat_count = (int)$st_rp->get_result()->fetch_assoc()['total'];
+                    $st_rp->close();
+                }
+            }
+        } elseif (in_array('pengguna_id', $rp_cols, true)) {
+            $bind_val = $profile_pengguna_id ?? $requested_id;
+            $st_rp = $mysqli->prepare("SELECT COUNT(*) as total FROM riwayat_pemakaian WHERE pengguna_id = ?");
+            if ($st_rp) {
+                $st_rp->bind_param('i', $bind_val);
+                $st_rp->execute();
+                $riwayat_count = (int)$st_rp->get_result()->fetch_assoc()['total'];
+                $st_rp->close();
+            }
+        }
+    }
+
     $stats['peminjaman'] = $peminjaman_stats;
     $stats['riwayat_count'] = $riwayat_count;
     
@@ -165,46 +238,47 @@ if ($current_role === 'user') {
 
 // Get recent activities for user
 $activities = [];
-// Check if the current role is user
-// Guard recent-activities query by checking user_activity columns first
-    if ($current_role === 'user') {
-    // Ensure user_activity has the columns we expect to avoid unknown-column errors
-    $columns = [];
-    $cols_res = $mysqli->query("SHOW COLUMNS FROM user_activity");
-    if ($cols_res) {
-        while ($c = $cols_res->fetch_assoc()) {
-            $columns[] = $c['Field'];
-        }
-    }
-
-    // Build select parts with safe fallbacks and ensure alias 'activity_description' exists
-    $select_parts = [];
-    $select_parts[] = in_array('activity_type', $columns) ? 'activity_type' : "'' AS activity_type";
-
-    if (in_array('activity_description', $columns)) {
-        $select_parts[] = 'activity_description AS activity_description';
-    } elseif (in_array('description', $columns)) {
-        $select_parts[] = 'description AS activity_description';
+if ($current_role === 'user') {
+    // Some installations do not have user_activity at all; keep the profile page usable.
+    if (function_exists('db_table_exists') && !db_table_exists('user_activity')) {
+        $activities = [];
     } else {
-        $select_parts[] = "'' AS activity_description";
-    }
+        // Ensure user_activity has the columns we expect to avoid unknown-column errors
+        $columns = [];
+        $cols_res = $mysqli->query("SHOW COLUMNS FROM user_activity");
+        if ($cols_res) {
+            while ($c = $cols_res->fetch_assoc()) {
+                $columns[] = $c['Field'];
+            }
+        }
 
-    $select_parts[] = in_array('created_at', $columns) ? 'created_at' : 'NOW() AS created_at';
+        // Build select parts with safe fallbacks and ensure alias 'activity_description' exists
+        $select_parts = [];
+        $select_parts[] = in_array('activity_type', $columns, true) ? 'activity_type' : "'' AS activity_type";
 
-        if (in_array('user_id', $columns)) {
+        if (in_array('activity_description', $columns, true)) {
+            $select_parts[] = 'activity_description AS activity_description';
+        } elseif (in_array('description', $columns, true)) {
+            $select_parts[] = 'description AS activity_description';
+        } else {
+            $select_parts[] = "'' AS activity_description";
+        }
+
+        $select_parts[] = in_array('created_at', $columns, true) ? 'created_at' : 'NOW() AS created_at';
+
+        if (in_array('user_id', $columns, true)) {
             $sql = "SELECT " . implode(', ', $select_parts) . " FROM user_activity WHERE user_id = ? ORDER BY created_at DESC LIMIT 10";
             $activity_query = $mysqli->prepare($sql);
             if ($activity_query) {
-                $activity_query->bind_param('i', $profile_user_id);
+                $activity_bind = $profile_account_id ?: get_user_account_id_for_pengguna($profile_pengguna_id ?? $requested_id);
+                $activity_query->bind_param('i', $activity_bind);
                 $activity_query->execute();
                 $activities = $activity_query->get_result()->fetch_all(MYSQLI_ASSOC);
                 $activity_query->close();
             }
-        } else {
-            // No user_id column — can't fetch per-user activities
-            $activities = [];
         }
     }
+}
 ?>
 
 <div class="profile-page">

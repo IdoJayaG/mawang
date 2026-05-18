@@ -70,6 +70,29 @@ if (!function_exists('get_user_account_id_for_pengguna')) {
     }
 }
 
+// Get current user_account.id for the logged-in session (if available)
+if (!function_exists('get_current_account_id')) {
+    function get_current_account_id() {
+        global $mysqli;
+        $session_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
+        if (!$session_id) return null;
+
+        // If session holds account id, return it
+        $st = $mysqli->prepare("SELECT id FROM user_account WHERE id = ? LIMIT 1");
+        if ($st) {
+            $st->bind_param('i', $session_id);
+            $st->execute();
+            $r = $st->get_result()->fetch_assoc();
+            $st->close();
+            if ($r && isset($r['id'])) return (int)$r['id'];
+        }
+
+        // Otherwise, try mapping session (pengguna.id) -> account id
+        $mapped = get_user_account_id_for_pengguna($session_id);
+        return $mapped ? (int)$mapped : null;
+    }
+}
+
 // Given applicant column and pengguna.id, get the value to bind
 if (!function_exists('pk_applicant_bind_value')) {
     function pk_applicant_bind_value($appCol, $penggunaId) {
@@ -220,6 +243,20 @@ function can_access_vehicle($vehicle_id) {
             $stmt->close();
             if ((int)(isset($res['c']) ? $res['c'] : 0) > 0) return true;
         }
+        // Also allow access when the vehicle has an explicit `pengguna_id` assigned
+        if (db_table_exists('kendaraan') && function_exists('db_table_columns')) {
+            $cols = db_table_columns('kendaraan');
+            if (in_array('pengguna_id', $cols, true)) {
+                $st = $mysqli->prepare("SELECT COUNT(*) c FROM kendaraan WHERE id = ? AND COALESCE(pengguna_id,0) = ?");
+                if ($st) {
+                    $st->bind_param('ii', $vehicle_id, $user_id);
+                    $st->execute();
+                    $r = $st->get_result()->fetch_assoc();
+                    $st->close();
+                    if ((int)(isset($r['c']) ? $r['c'] : 0) > 0) return true;
+                }
+            }
+        }
         return false;
     }
     
@@ -284,13 +321,13 @@ function get_accessible_vehicles($role, $user_id = null, $search = '', $limit = 
     if (!empty($search)) {
         $search_term = "%$search%";
         if ($hasPenggunaId) {
-            $where_conditions[] = "(k.no_polisi LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ? OR k.jenis LIKE ? OR k.penanggung_jawab LIKE ? OR p.nama_lengkap LIKE ?)";
-            $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term, $search_term, $search_term]);
-            $types .= "ssssss";
+            $where_conditions[] = "(k.no_polisi LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ? OR p.nama_lengkap LIKE ?)";
+            $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term]);
+            $types .= "ssss";
         } else {
-            $where_conditions[] = "(k.no_polisi LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ? OR k.jenis LIKE ? OR k.penanggung_jawab LIKE ?)";
-            $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term, $search_term]);
-            $types .= "sssss";
+            $where_conditions[] = "(k.no_polisi LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ?)";
+            $params = array_merge($params, [$search_term, $search_term, $search_term]);
+            $types .= "sss";
         }
     }
     
@@ -359,13 +396,13 @@ function get_accessible_vehicles_paginated($role, $user_id = null, $search = '',
     if (!empty($search)) {
         $search_term = "%$search%";
         if ($hasPenggunaId) {
-            $where_conditions[] = "(k.no_polisi LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ? OR k.jenis LIKE ? OR k.penanggung_jawab LIKE ? OR p.nama_lengkap LIKE ?)";
-            $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term, $search_term, $search_term]);
-            $types .= 'ssssss';
+            $where_conditions[] = "(k.no_polisi LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ? OR p.nama_lengkap LIKE ?)";
+            $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term]);
+            $types .= 'ssss';
         } else {
-            $where_conditions[] = "(k.no_polisi LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ? OR k.jenis LIKE ? OR k.penanggung_jawab LIKE ?)";
-            $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term, $search_term]);
-            $types .= 'sssss';
+            $where_conditions[] = "(k.no_polisi LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ?)";
+            $params = array_merge($params, [$search_term, $search_term, $search_term]);
+            $types .= 'sss';
         }
     }
 
@@ -392,10 +429,8 @@ function get_accessible_vehicles_paginated($role, $user_id = null, $search = '',
         'updated_at' => 'k.updated_at',
         'merk' => 'k.merk',
         'no_reg' => 'k.no_reg',
-        'jenis' => 'k.jenis',
         'tahun_pembuatan' => 'k.tahun_pembuatan',
-        'status_kendaraan' => 'k.status_kendaraan',
-        'penanggung_jawab' => 'k.penanggung_jawab'
+        'status_kendaraan' => 'k.status_kendaraan'
     ];
     if ($hasPenggunaId) {
         // Allow sorting by current user (nama_lengkap)
@@ -587,10 +622,12 @@ function check_login() {
 function redirect_to_dashboard() {
     $role = get_current_role();
     // Flexible mapping: support multiple kode_role variants/aliases
+    // Make `driver` an explicit dashboard target to avoid sending drivers to the generic user dashboard
     $mapping = [
         'dashboard_admin' => ['admin', 'administrator', 'superadmin', 'adm', 'manajer'],
         'dashboard_operator' => ['operator', 'petugas', 'staff', 'ops', 'pimpinan'],
-        'dashboard_user' => ['user', 'pegawai', 'pns', 'anggota', 'driver', 'sopir']
+        'dashboard_driver' => ['driver', 'sopir'],
+        'dashboard_user' => ['user', 'pegawai', 'pns', 'anggota']
     ];
 
     // Exact match first
@@ -651,20 +688,79 @@ function log_activity($action, $description = '') {
     $ip_address = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'UNKNOWN';
     $user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'UNKNOWN';
     
-    // Ensure user_id is not null or 0
-    if (!$user_id || $user_id <= 0) {
+    // Ensure the log_aktivitas table exists
+    if (!function_exists('db_table_exists') || !db_table_exists('log_aktivitas')) {
         return false;
     }
-    
-    $stmt = $mysqli->prepare("INSERT INTO log_aktivitas (user_id, activity_type, description, ip_address, user_agent, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
-    if (!$stmt) {
+
+    // Ensure user_id is a valid pengguna.id; try a few fallbacks to resolve it
+    $valid_user_id = null;
+
+    // 1) If mapping from user_account produced a pengguna id, use it
+    if (!empty($user_id) && is_numeric($user_id)) {
+        // user_id here may already be a pengguna.id from mapping above
+        $chk = $mysqli->prepare("SELECT id FROM pengguna WHERE id = ? LIMIT 1");
+        if ($chk) {
+            $uid_check = (int)$user_id;
+            $chk->bind_param('i', $uid_check);
+            $chk->execute();
+            $res_chk = $chk->get_result();
+            if ($res_chk && $res_chk->fetch_assoc()) {
+                $valid_user_id = $uid_check;
+            }
+            $chk->close();
+        }
+    }
+
+    // 2) If not valid yet, maybe session stores pengguna.id directly
+    if (!$valid_user_id && !empty($session_user_id) && is_numeric($session_user_id)) {
+        $chk2 = $mysqli->prepare("SELECT id FROM pengguna WHERE id = ? LIMIT 1");
+        if ($chk2) {
+            $suid = (int)$session_user_id;
+            $chk2->bind_param('i', $suid);
+            $chk2->execute();
+            $res2 = $chk2->get_result();
+            if ($res2 && $res2->fetch_assoc()) {
+                $valid_user_id = $suid;
+            }
+            $chk2->close();
+        }
+    }
+
+    // 3) If still not found, try resolving by username -> user_account -> pengguna
+    if (!$valid_user_id && !empty($_SESSION['username'])) {
+        $uname = $_SESSION['username'];
+        $stmt_un = $mysqli->prepare("SELECT p.id FROM pengguna p JOIN user_account ua ON ua.pengguna_id = p.id WHERE ua.username = ? LIMIT 1");
+        if ($stmt_un) {
+            $stmt_un->bind_param('s', $uname);
+            $stmt_un->execute();
+            $res_un = $stmt_un->get_result();
+            if ($res_un && ($r = $res_un->fetch_assoc())) {
+                $valid_user_id = (int)$r['id'];
+            }
+            $stmt_un->close();
+        }
+    }
+
+    // If still no valid pengguna id, skip logging to avoid FK errors
+    if (!$valid_user_id) {
         return false;
     }
-    $stmt->bind_param('issss', $user_id, $action, $description, $ip_address, $user_agent);
-    $result = $stmt->execute();
-    $stmt->close();
-    
-    return $result;
+
+    // Insert log with error handling to avoid uncaught exceptions
+    try {
+        $stmt = $mysqli->prepare("INSERT INTO log_aktivitas (user_id, activity_type, description, ip_address, user_agent, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('issss', $valid_user_id, $action, $description, $ip_address, $user_agent);
+        $result = $stmt->execute();
+        $stmt->close();
+        return $result;
+    } catch (Throwable $e) {
+        error_log('log_activity failed: ' . $e->getMessage());
+        return false;
+    }
 }
 
 // Get user info
@@ -772,18 +868,95 @@ function require_role($required_role) {
         }
         return;
     }
-    
-    // Check specific role requirements
-    if ($required_role === 'user' && !in_array($current_role, ['admin', 'pimpinan', 'user', 'driver'], true)) {
-        header('Location: index.php?page=403');
-        exit;
-    } elseif ($required_role === 'operator' && !in_array($current_role, ['admin', 'operator', 'pimpinan', 'driver'], true)) {
-        header('Location: index.php?page=403');
-        exit;
-    } elseif ($required_role !== $current_role && $current_role !== 'admin') {
+    // Map canonical required role to allowed roles (admin already allowed above)
+    $role = strtolower((string)$required_role);
+    $allowed_map = [
+        'admin' => ['admin'],
+        'pimpinan' => ['pimpinan'],
+        'operator' => ['operator', 'pimpinan'],
+        'user' => ['user', 'operator', 'pimpinan'],
+        'driver' => ['driver']
+    ];
+
+    if (isset($allowed_map[$role])) {
+        if (!in_array($current_role, $allowed_map[$role], true)) {
+            header('Location: index.php?page=403');
+            exit;
+        }
+        return;
+    }
+
+    // Fallback: require exact role match
+    if ($role !== $current_role) {
         header('Location: index.php?page=403');
         exit;
     }
+}
+
+// Build upcoming reminders (H-1) for a given pengguna (driver/user)
+function build_upcoming_items($pengguna_id) {
+    global $mysqli;
+    $items = [];
+    $tomorrow = date('Y-m-d', strtotime('+1 day'));
+
+    // jadwal_perawatan
+    if (db_table_exists('jadwal_perawatan')) {
+        $cols = db_table_columns('jadwal_perawatan');
+        $dateCol = in_array('tanggal_perawatan', $cols, true) ? 'tanggal_perawatan' : (in_array('jadwal_tanggal', $cols, true) ? 'jadwal_tanggal' : null);
+        if ($dateCol) {
+            $sqlp = "SELECT jp.id, jp.{$dateCol} AS tanggal, jp.jenis_perawatan, jp.deskripsi, k.no_reg, k.no_polisi, k.merk, k.tipe, jp.kendaraan_id, jp.teknisi_id
+                     FROM jadwal_perawatan jp LEFT JOIN kendaraan k ON k.id = jp.kendaraan_id
+                     WHERE DATE(jp.{$dateCol}) = ? AND (jp.status IS NULL OR LOWER(jp.status) NOT IN ('selesai','dibatalkan'))";
+            $st = $mysqli->prepare($sqlp);
+            if ($st) {
+                $st->bind_param('s', $tomorrow);
+                $st->execute();
+                $res = $st->get_result();
+                while ($r = $res->fetch_assoc()) {
+                    $relevant = false;
+                    if (!empty($r['teknisi_id']) && (int)$r['teknisi_id'] === (int)$pengguna_id) $relevant = true;
+                    if (!$relevant && !empty($r['kendaraan_id'])) {
+                        if (db_table_exists('kendaraan')) {
+                            $st2 = $mysqli->prepare("SELECT pengguna_id FROM kendaraan WHERE id = ? LIMIT 1");
+                            if ($st2) { $st2->bind_param('i', $r['kendaraan_id']); $st2->execute(); $kp = $st2->get_result()->fetch_assoc(); $st2->close(); if (!empty($kp['pengguna_id']) && (int)$kp['pengguna_id'] === (int)$pengguna_id) $relevant = true; }
+                        }
+                    }
+                    if ($relevant) {
+                        $label = trim((string)($r['no_reg'] ?: $r['no_polisi']));
+                        if ($label === '') $label = trim((string)(($r['merk'] ?? '') . ' ' . ($r['tipe'] ?? '')));
+                        $items[] = ['type' => 'Perawatan', 'label' => $label, 'date' => $r['tanggal'], 'note' => ($r['jenis_perawatan'] ?? '-')];
+                    }
+                }
+                $st->close();
+            }
+        }
+    }
+
+    // surat_tugas
+    if (db_table_exists('surat_tugas')) {
+        $cols = db_table_columns('surat_tugas');
+        $hasDriver = in_array('driver_id', $cols, true);
+        $selectCols = "s.id, s.nomor_surat, s.tanggal_berangkat, s.tujuan, s.keperluan, s.kendaraan_id, s.pengguna_id";
+        if ($hasDriver) $selectCols .= ", s.driver_id";
+        $sql = "SELECT " . $selectCols . ", k.no_reg, k.no_polisi FROM surat_tugas s LEFT JOIN kendaraan k ON s.kendaraan_id = k.id WHERE DATE(s.tanggal_berangkat) = ? AND (s.status IS NULL OR LOWER(s.status) NOT IN ('selesai','dibatalkan')) AND (s.pengguna_id = ?";
+        if ($hasDriver) $sql .= " OR s.driver_id = ?";
+        $sql .= " OR k.pengguna_id = ?)";
+        $st = $mysqli->prepare($sql);
+        if ($st) {
+            if ($hasDriver) { $st->bind_param('siii', $tomorrow, $pengguna_id, $pengguna_id, $pengguna_id); }
+            else { $st->bind_param('sii', $tomorrow, $pengguna_id, $pengguna_id); }
+            $st->execute();
+            $res = $st->get_result();
+            while ($r = $res->fetch_assoc()) {
+                $label = trim((string)($r['no_reg'] ?: $r['no_polisi']));
+                if ($label === '') $label = 'Surat Tugas ' . ($r['nomor_surat'] ?? $r['id']);
+                $items[] = ['type' => 'Surat Tugas', 'label' => $label, 'date' => $r['tanggal_berangkat'], 'note' => ($r['tujuan'] ?? $r['keperluan'] ?? '-')];
+            }
+            $st->close();
+        }
+    }
+
+    return $items;
 }
 
 if (!function_exists('insert_notification')) {

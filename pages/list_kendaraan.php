@@ -14,17 +14,44 @@ $limit = 20;
 $page = max(1, (int)($_GET['p'] ?? 1));
 $offset = ($page - 1) * $limit;
 
-$where_conditions = ["k.status_kendaraan = 'Operasional'"];
-// Batasi daftar untuk user: hanya kendaraan berjenis Bus dan Truk
-$where_conditions[] = "k.jenis IN ('Bus','Truk')";
+// Show all vehicles by default for logged-in users (no default restrictions)
+// Prepare where conditions
+$where_conditions = [];
 $params = [];
 $param_types = '';
 
+// Detect which columns exist in kendaraan early (we'll use no_reg and pengguna_id if available)
+$cols_info = $mysqli->query("SHOW COLUMNS FROM kendaraan")->fetch_all(MYSQLI_ASSOC);
+$cols_names = array_column($cols_info, 'Field');
+
+// Determine availability column
+$availability_col = null;
+if (in_array('status', $cols_names)) {
+    $availability_col = 'status';
+} elseif (in_array('status_peminjaman', $cols_names)) {
+    $availability_col = 'status_peminjaman';
+} elseif (in_array('status_kendaraan', $cols_names)) {
+    $availability_col = 'status_kendaraan';
+}
+
+// Prepare optional join to pengguna if kendaraan.pengguna_id exists
+$join_pengguna = '';
+if (in_array('pengguna_id', $cols_names) && function_exists('db_table_exists') && db_table_exists('pengguna')) {
+    $join_pengguna = " LEFT JOIN pengguna pg ON k.pengguna_id = pg.id";
+}
+
+// Build search clause: single input searches nama pengguna (if available), no_reg, merk, tipe
 if ($keyword) {
-    $where_conditions[] = "(k.no_polisi LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ?)";
     $search_term = "%$keyword%";
-    $params = array_merge($params, [$search_term, $search_term, $search_term]);
-    $param_types .= 'sss';
+    if ($join_pengguna) {
+        $where_conditions[] = "(k.no_reg LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ? OR pg.nama_lengkap LIKE ?)";
+        $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term]);
+        $param_types .= 'ssss';
+    } else {
+        $where_conditions[] = "(k.no_reg LIKE ? OR k.merk LIKE ? OR k.tipe LIKE ?)";
+        $params = array_merge($params, [$search_term, $search_term, $search_term]);
+        $param_types .= 'sss';
+    }
 }
 
 if ($jenis_filter) {
@@ -39,19 +66,10 @@ if ($bahan_bakar_filter) {
     $param_types .= 's';
 }
 
-$where_sql = 'WHERE ' . implode(' AND ', $where_conditions);
+$where_sql = !empty($where_conditions) ? ('WHERE ' . implode(' AND ', $where_conditions)) : '';
 
-// Detect which availability column exists in kendaraan
-$cols_info = $mysqli->query("SHOW COLUMNS FROM kendaraan")->fetch_all(MYSQLI_ASSOC);
-$cols_names = array_column($cols_info, 'Field');
-$availability_col = null;
-if (in_array('status', $cols_names)) {
-    $availability_col = 'status';
-} elseif (in_array('status_peminjaman', $cols_names)) {
-    $availability_col = 'status_peminjaman';
-} elseif (in_array('status_kendaraan', $cols_names)) {
-    $availability_col = 'status_kendaraan';
-}
+// Determine order column (prefer no_reg)
+$order_col = in_array('no_reg', $cols_names) ? 'k.no_reg' : 'k.no_polisi';
 
 if ($availability_col) {
     $sql = "
@@ -60,10 +78,11 @@ if ($availability_col) {
            COUNT(p.id) as total_peminjaman,
            AVG(CASE WHEN (LOWER(p.status) IN ('completed','selesai')) AND p.km_akhir IS NOT NULL AND p.km_awal IS NOT NULL THEN (p.km_akhir - p.km_awal) ELSE NULL END) as avg_km
     FROM kendaraan k
+    {$join_pengguna}
     LEFT JOIN peminjaman_kendaraan p ON k.id = p.kendaraan_id
     $where_sql
     GROUP BY k.id
-    ORDER BY available DESC, k.no_polisi
+    ORDER BY available DESC, {$order_col}
     LIMIT ? OFFSET ?
     ";
 } else {
@@ -74,10 +93,11 @@ if ($availability_col) {
            COUNT(p.id) as total_peminjaman,
            AVG(CASE WHEN (LOWER(p.status) IN ('completed','selesai')) AND p.km_akhir IS NOT NULL AND p.km_awal IS NOT NULL THEN (p.km_akhir - p.km_awal) ELSE NULL END) as avg_km
     FROM kendaraan k
+    {$join_pengguna}
     LEFT JOIN peminjaman_kendaraan p ON k.id = p.kendaraan_id
     $where_sql
     GROUP BY k.id
-    ORDER BY k.no_polisi
+    ORDER BY {$order_col}
     LIMIT ? OFFSET ?
     ";
 }
@@ -100,6 +120,7 @@ $stmt->close();
 $count_sql = "
     SELECT COUNT(DISTINCT k.id) as total
     FROM kendaraan k
+    {$join_pengguna}
     $where_sql
 ";
 
@@ -120,8 +141,8 @@ $total_pages = ceil($total_records / $limit);
 
 // Get filter options
 // Filter opsi agar konsisten dengan daftar Bus/Truk
-$jenis_options = $mysqli->query("SELECT DISTINCT jenis FROM kendaraan WHERE status_kendaraan = 'Operasional' AND jenis IN ('Bus','Truk') ORDER BY jenis")->fetch_all(MYSQLI_ASSOC);
-$bahan_bakar_options = $mysqli->query("SELECT DISTINCT bahan_bakar FROM kendaraan WHERE status_kendaraan = 'Operasional' AND jenis IN ('Bus','Truk') ORDER BY bahan_bakar")->fetch_all(MYSQLI_ASSOC);
+$jenis_options = $mysqli->query("SELECT DISTINCT jenis FROM kendaraan ORDER BY jenis")->fetch_all(MYSQLI_ASSOC);
+$bahan_bakar_options = $mysqli->query("SELECT DISTINCT bahan_bakar FROM kendaraan ORDER BY bahan_bakar")->fetch_all(MYSQLI_ASSOC);
 
 // Function to get vehicle image
 function getVehicleImage($jenis, $foto = null) {
@@ -307,24 +328,8 @@ WHERE status_kendaraan = 'Operasional' AND jenis IN ('Bus','Truk')
         <form method="get" class="search-form">
             <input type="hidden" name="page" value="list_kendaraan">
             <div class="filter-group">
-                <input type="text" name="q" placeholder="Cari nomor polisi, merk, tipe..." 
+                <input type="text" name="q" placeholder="Cari nama pengguna, no reg, merek, tipe..." 
                        value="<?= htmlspecialchars($keyword) ?>" class="form-control">
-                <select name="jenis" class="form-control">
-                    <option value="">Semua Jenis</option>
-                    <?php foreach ($jenis_options as $option): ?>
-                        <option value="<?= $option['jenis'] ?>" <?= $jenis_filter === $option['jenis'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($option['jenis']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-                <select name="bahan_bakar" class="form-control">
-                    <option value="">Semua Bahan Bakar</option>
-                    <?php foreach ($bahan_bakar_options as $option): ?>
-                        <option value="<?= $option['bahan_bakar'] ?>" <?= $bahan_bakar_filter === $option['bahan_bakar'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($option['bahan_bakar']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
                 <button type="submit" class="btn btn-primary">
                     <i class="fas fa-search icon-input"></i>
                 </button>
@@ -357,7 +362,8 @@ WHERE status_kendaraan = 'Operasional' AND jenis IN ('Bus','Truk')
                     <div style="flex:1;">
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
-                                <h5 class="mb-1"><?= htmlspecialchars($vehicle['no_polisi']) ?> <?= !empty($vehicle['no_reg']) ? '<small class="text-muted">(Reg: ' . htmlspecialchars($vehicle['no_reg']) . ')</small>' : '' ?> <small class="text-muted">— <?= htmlspecialchars($vehicle['merk']) ?> <?= htmlspecialchars($vehicle['tipe']) ?></small></h5>
+                                <?php $display_reg = !empty($vehicle['no_reg']) ? htmlspecialchars($vehicle['no_reg']) : htmlspecialchars($vehicle['no_polisi'] ?? ''); ?>
+                                <h5 class="mb-1"><?= $display_reg ?> <small class="text-muted">— <?= htmlspecialchars($vehicle['merk']) ?> <?= htmlspecialchars($vehicle['tipe']) ?></small></h5>
                                 <div class="text-muted small">
                                     <?= htmlspecialchars($vehicle['tahun_pembuatan']) ?> • <?= htmlspecialchars($vehicle['jenis']) ?> • <?= htmlspecialchars($vehicle['bahan_bakar']) ?>
                                     <?php if (!empty($vehicle['satker'])): ?>

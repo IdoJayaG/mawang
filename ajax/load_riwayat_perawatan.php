@@ -48,7 +48,6 @@ ob_start();
                 <th>Tanggal</th>
                 <th>Kendaraan</th>
                 <th>Jenis Perawatan</th>
-                <th>Biaya</th>
                 <th>KM</th>
                 <th>Status</th>
                 <th>Dikerjakan Oleh</th>
@@ -77,13 +76,7 @@ if ($result && $result->num_rows > 0):
                         <br><small class="text-muted"><?php echo htmlspecialchars($row['deskripsi']); ?></small>
                     <?php endif; ?>
                 </td>
-                <td>
-                    <?php if ($row['biaya'] > 0): ?>
-                        <strong>Rp <?php echo number_format($row['biaya']); ?></strong>
-                    <?php else: ?>
-                        <span class="text-muted">-</span>
-                    <?php endif; ?>
-                </td>
+                <!-- biaya dihapus dari tampilan riwayat perawatan -->
                 <td>
                     <?php echo $row['km_saat_perawatan'] ? number_format($row['km_saat_perawatan']) . ' KM' : '<span class="text-muted">-</span>'; ?>
                 </td>
@@ -113,7 +106,7 @@ if ($result && $result->num_rows > 0):
 else:
 ?>
             <tr>
-                <td colspan="9" class="text-center text-muted">
+                <td colspan="8" class="text-center text-muted">
                     <div class="py-4">
                         <i class="fas fa-history fa-3x mb-3 text-muted"></i>
                         <h5>Belum ada riwayat perawatan</h5>

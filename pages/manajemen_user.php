@@ -58,6 +58,13 @@ if ($action === 'export_excel') {
             $params = [$like, $like, $like];
             $types = 'sss';
         }
+        // Exclude Operator role from admin listing/export
+        $excludeOp = "LOWER(COALESCE(r.kode_role, r.nama_role, '')) <> 'operator'";
+        if ($where === '') {
+            $where = ' WHERE ' . $excludeOp;
+        } else {
+            $where .= ' AND ' . $excludeOp;
+        }
 
         $sql = 'SELECT ua.username, ua.status, COALESCE(ll.last_login, ua.last_login) AS last_login, ua.created_at, '
              . 'p.nama_lengkap, p.pangkat, p.nrp_nip, p.email, p.no_hp, p.jabatan, r.nama_role '
@@ -145,35 +152,6 @@ if ($action === 'export_excel') {
     }
 }
 
-// Shared Jabatan enum options for forms and server-side validation
-$JABATAN_ENUM = [
-    'Kepala SPBT Kemhan Cawang',
-    'Wakil Kepala SPBT Kemhan Cawang',
-    'Kataud',
-    'Bidduk TI',
-    'Kabidduk TI',
-    'Kasubbid SDM TI',
-    'Kasubbid Jarkomta & Duknis',
-    'Kabidinfomin',
-    'Kasubbid Sisfopers',
-    'Kasubbid Sisfogarku',
-    'Kabidinfoops',
-    'Kasubbid Sisfoter',
-    'Kasubbid Sisfointel',
-    'Kasubbid Sisfoopslat',
-    'Kabidpamsisfo',
-    'Kasubbid Pam Aplikasi',
-    'Kasubbid Pam jarkomta',
-    'Tamudi Kapus',
-    'Baurku',
-    'Caraka',
-    'Kaurpers',
-    'Kaurdal',
-    'Kaurtu',
-    'Baurtarlat',
-    'Baur Spri Kapus'
-];
-
 // Prepare list data (search/sort/pagination) for list view
 if ($action === 'list') {
     // Inputs
@@ -211,6 +189,14 @@ if ($action === 'list') {
         $like = "%{$q}%";
         $params = [$like, $like, $like];
         $types = 'sss';
+    }
+
+    // Exclude Operator role from admin listing
+    $excludeOp = "LOWER(COALESCE(r.kode_role, r.nama_role, '')) <> 'operator'";
+    if ($where === '') {
+        $where = ' WHERE ' . $excludeOp;
+    } else {
+        $where .= ' AND ' . $excludeOp;
     }
 
     // Count total
@@ -405,6 +391,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             if (empty($nama_lengkap) || empty($email)) throw new Exception('Nama lengkap dan email wajib diisi.');
                             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) throw new Exception('Format email tidak valid.');
+                            if ($jenis_personel === 'TNI' && trim($nrp_nip) === '') {
+                                throw new Exception('NRP/NIP wajib diisi untuk personel TNI.');
+                            }
                             // Cek email unik
                             $cekEmail = $mysqli->prepare("SELECT 1 FROM pengguna WHERE email = ? LIMIT 1");
                             $cekEmail->bind_param('s', $email);
@@ -414,10 +403,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 throw new Exception('Email sudah digunakan.');
                             }
                             $cekEmail->close();
-
-                            if ($jabatan !== '' && !in_array($jabatan, $JABATAN_ENUM, true)) {
-                                throw new Exception('Jabatan tidak valid.');
-                            }
 
                             $stmtp = $mysqli->prepare("INSERT INTO pengguna (nama_lengkap, email, pangkat, nrp_nip, no_hp, alamat, jabatan, kesatuan, status_pegawai, status_aktif, jenis_personel, matra, korps, satuan_pns, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
                             if (!$stmtp) throw new Exception('Prepare pengguna gagal: ' . $mysqli->error);
@@ -507,10 +492,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $password_input = isset($map['password']) ? (string)($dataRow[$map['password']] ?? '') : '';
                                 $alamat_input = isset($map['alamat']) ? trim((string)($dataRow[$map['alamat']] ?? '')) : '';
                                 $role_input = isset($map['role']) ? strtolower(trim((string)($dataRow[$map['role']] ?? ''))) : '';
-                                // Soft validation: warn if jabatan not in enum (but still import as-is to preserve legacy)
-                                if ($jabatan !== '' && !in_array($jabatan, $JABATAN_ENUM, true)) {
-                                    $errors[] = 'Baris ' . (intval($i)+2) . ': Jabatan "' . $jabatan . '" tidak ada dalam daftar; disimpan apa adanya.';
-                                }
                                 if (!$nama_lengkap || (!$email && !$nrp)) { $errors[] = 'Baris ' . (intval($i)+2) . ': nama_lengkap dan (email atau nrp) wajib diisi.'; continue; }
                                 // Determine username
                                 $username = '';
@@ -645,6 +626,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $msg = '<div class="alert alert-danger">Nama lengkap, email, dan role wajib diisi!</div>';
             } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $msg = '<div class="alert alert-danger">Format email tidak valid!</div>';
+            } elseif ($jenis_personel === 'TNI' && trim($nrp_nip) === '') {
+                $msg = '<div class="alert alert-danger">NRP/NIP wajib diisi untuk personel TNI!</div>';
             } else {
                 // Cek email digunakan user lain
                 $stmtEmail = $mysqli->prepare("
@@ -660,24 +643,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmtEmail->close();
                     if ($dup) {
                         $msg = '<div class="alert alert-danger">Email sudah digunakan oleh user lain.</div>';
-                        goto end_post_handlers;
-                    }
-                }
-
-                // Validate jabatan (allow legacy)
-                $allowLegacy = false;
-                if ($jabatan !== '' && !in_array($jabatan, $JABATAN_ENUM, true)) {
-                    $stmtCur = $mysqli->prepare("SELECT p.jabatan FROM pengguna p JOIN user_account ua ON ua.pengguna_id = p.id WHERE ua.id = ?");
-                    if ($stmtCur) {
-                        $stmtCur->bind_param('i', $user_id);
-                        $stmtCur->execute();
-                        $stmtCur->bind_result($current_jabatan_db);
-                        $stmtCur->fetch();
-                        $stmtCur->close();
-                        if ($current_jabatan_db && $jabatan === $current_jabatan_db) $allowLegacy = true;
-                    }
-                    if (!$allowLegacy) {
-                        $msg = '<div class="alert alert-danger">Jabatan tidak valid. Pilih dari daftar.</div>';
                         goto end_post_handlers;
                     }
                 }
@@ -930,7 +895,7 @@ if ($action === 'edit' && $user_id) {
     <?php
     // fetch roles
     $roles = [];
-    $rres = $mysqli->query("SELECT id, nama_role FROM role ORDER BY id");
+    $rres = $mysqli->query("SELECT id, nama_role FROM role WHERE LOWER(nama_role) IN ('administrator','pimpinan','driver','user') ORDER BY id");
     if ($rres) {
         while ($rr = $rres->fetch_assoc()) $roles[] = $rr;
     }
@@ -964,7 +929,7 @@ if ($action === 'edit' && $user_id) {
                         </div>
                         <div class="col-md-6 mb-3">
                             <label>Email *</label>
-                            <input type="email" name="email" class="form-control">
+                            <input type="email" name="email" class="form-control" placeholder="nama@gmail.com">
                         </div>
                         <div class="col-md-6 mb-3">
                             <label>Jenis Personel *</label>
@@ -976,11 +941,11 @@ if ($action === 'edit' && $user_id) {
                         </div>
                         <div class="col-md-6 mb-3">
                             <label>NRP/NIP</label>
-                            <input type="text" name="nrp_nip" class="form-control">
+                            <input type="text" name="nrp_nip" id="nrp_nip_input" class="form-control" placeholder="Wajib untuk TNI, opsional untuk PNS/PPPK/Honorer">
                         </div>
                         <div class="col-md-6 mb-3">
                             <label>No. Telepon</label>
-                            <input type="text" name="no_hp" class="form-control">
+                            <input type="tel" name="no_hp" class="form-control" placeholder="08xxxxxxxxxx">
                         </div>
                         <div class="col-md-6 mb-3">
                             <label>Alamat</label>
@@ -1027,17 +992,12 @@ if ($action === 'edit' && $user_id) {
                     <div class="row mt-2">
                         <div class="col-md-6 mb-3">
                             <label>Pangkat/Golongan</label>
-                            <input type="text" name="pangkat" class="form-control" id="pangkat_input">
+                            <input type="text" name="pangkat" class="form-control" id="pangkat_input" placeholder="Contoh: Golongan II/a atau kosong untuk honorer">
                             <select name="pangkat" class="form-select" id="pangkat_select" style="display:none;"></select>
                         </div>
                         <div class="col-md-6 mb-3">
                             <label>Jabatan</label>
-                            <select name="jabatan" class="form-select">
-                                <option value="">-- Pilih Jabatan --</option>
-                                <?php foreach ($JABATAN_ENUM as $opt): ?>
-                                    <option value="<?= htmlspecialchars($opt) ?>"><?= htmlspecialchars($opt) ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                            <input type="text" name="jabatan" class="form-control" placeholder="Isi jabatan">
                         </div>
                     </div>
 
@@ -1110,23 +1070,33 @@ if ($action === 'edit' && $user_id) {
         var pnsSection = document.getElementById('pns_section');
         var pangkatInput = document.getElementById('pangkat_input');
         var pangkatSelect = document.getElementById('pangkat_select');
+        var nrpInput = document.getElementById('nrp_nip_input');
         
         if (jenisPersonel === 'TNI') {
             tniHierarchy.style.display = 'block';
             pnsSection.style.display = 'none';
             pangkatInput.style.display='none'; pangkatInput.disabled=true;
             pangkatSelect.style.display='block'; pangkatSelect.disabled=false;
+            if (nrpInput) {
+                nrpInput.required = true;
+            }
             updatePangkatOptions('create');
         } else if (jenisPersonel === 'PNS') {
             tniHierarchy.style.display = 'none';
             pnsSection.style.display = 'block';
             pangkatSelect.style.display='none'; pangkatSelect.disabled=true;
             pangkatInput.style.display='block'; pangkatInput.disabled=false;
+            if (nrpInput) {
+                nrpInput.required = false;
+            }
         } else {
             tniHierarchy.style.display = 'none';
             pnsSection.style.display = 'none';
             pangkatSelect.style.display='none'; pangkatSelect.disabled=true;
             pangkatInput.style.display='block'; pangkatInput.disabled=false;
+            if (nrpInput) {
+                nrpInput.required = false;
+            }
         }
     }
     </script>
@@ -1151,11 +1121,11 @@ if ($action === 'edit' && $user_id) {
                     </div>
                 </div>
                 
-                <div class="alert alert-info">
+                    <div class="alert alert-info">
                     <strong>Catatan:</strong><br>
                     - Username bisa diisi; jika kosong akan dibuat otomatis dari email/NRP dan dipastikan unik.<br>
                     - Password bisa diisi (min. 6); jika kosong akan diisi acak (8 karakter heksadesimal).<br>
-                    - Role bisa diisi sesuai nama role (mis. Administrator, Operator, User). Jika kosong akan default User.<br>
+                    - Role bisa diisi sesuai nama role (mis. Administrator, Pimpinan, Driver, User). Jika kosong akan default User.<br>
                     - Jenis personel: TNI atau PNS. Jika PNS, kolom kesatuan akan disimpan ke satuan_pns.
                 </div>
 
@@ -1176,7 +1146,7 @@ if ($action === 'edit' && $user_id) {
     <?php
     // roles for select
     $roles = [];
-    $rres = $mysqli->query("SELECT id, nama_role FROM role ORDER BY id");
+    $rres = $mysqli->query("SELECT id, nama_role FROM role WHERE LOWER(nama_role) IN ('administrator','pimpinan','driver','user') ORDER BY id");
     if ($rres) { while ($rr = $rres->fetch_assoc()) $roles[] = $rr; }
     // kesatuan list
     $kesatuans = [];
@@ -1199,15 +1169,15 @@ if ($action === 'edit' && $user_id) {
                     </div>
                     <div class="col-md-6 mb-3">
                         <label>Email *</label>
-                        <input type="email" name="email" class="form-control" required value="<?= htmlspecialchars($edit_data['email'] ?? '') ?>">
+                        <input type="email" name="email" class="form-control" required value="<?= htmlspecialchars($edit_data['email'] ?? '') ?>" placeholder="nama@gmail.com">
                     </div>
                     <div class="col-md-6 mb-3">
                         <label>NRP/NIP</label>
-                        <input type="text" name="nrp_nip" class="form-control" value="<?= htmlspecialchars($edit_data['nrp_nip'] ?? '') ?>">
+                        <input type="text" name="nrp_nip" id="nrp_nip_input_edit" class="form-control" value="<?= htmlspecialchars($edit_data['nrp_nip'] ?? '') ?>" placeholder="Wajib untuk TNI, opsional untuk PNS/PPPK/Honorer">
                     </div>
                     <div class="col-md-6 mb-3">
                         <label>No. Telepon</label>
-                        <input type="text" name="no_hp" class="form-control" value="<?= htmlspecialchars($edit_data['no_hp'] ?? '') ?>">
+                        <input type="tel" name="no_hp" class="form-control" value="<?= htmlspecialchars($edit_data['no_hp'] ?? '') ?>" placeholder="08xxxxxxxxxx">
                     </div>
                     <div class="col-md-6 mb-3">
                         <label>Alamat</label>
@@ -1263,22 +1233,12 @@ if ($action === 'edit' && $user_id) {
                     <!-- Pangkat & Jabatan dipindah ke bawah -->
                     <div class="col-md-6 mb-3">
                         <label>Pangkat/Golongan</label>
-                        <input type="text" name="pangkat" class="form-control" id="pangkat_input_edit" value="<?= htmlspecialchars($edit_data['pangkat'] ?? '') ?>">
+                        <input type="text" name="pangkat" class="form-control" id="pangkat_input_edit" value="<?= htmlspecialchars($edit_data['pangkat'] ?? '') ?>" placeholder="Contoh: Golongan II/a atau kosong untuk honorer">
                         <select name="pangkat" class="form-select" id="pangkat_select_edit" style="display:none;"></select>
                     </div>
                     <div class="col-md-6 mb-3">
                         <label>Jabatan</label>
-                        <select name="jabatan" class="form-select">
-                            <option value="">-- Pilih Jabatan --</option>
-                            <?php $current_jabatan = trim((string)($edit_data['jabatan'] ?? '')); ?>
-                            <?php $has_current = $current_jabatan !== '' && in_array($current_jabatan, $JABATAN_ENUM ?? [], true); ?>
-                            <?php foreach (($JABATAN_ENUM ?? []) as $opt): ?>
-                                <option value="<?= htmlspecialchars($opt) ?>" <?= ($opt === $current_jabatan) ? 'selected' : '' ?>><?= htmlspecialchars($opt) ?></option>
-                            <?php endforeach; ?>
-                            <?php if ($current_jabatan !== '' && !$has_current): ?>
-                                <option value="<?= htmlspecialchars($current_jabatan) ?>" selected><?= htmlspecialchars($current_jabatan) ?> (lama)</option>
-                            <?php endif; ?>
-                        </select>
+                        <input type="text" name="jabatan" class="form-control" value="<?= htmlspecialchars($edit_data['jabatan'] ?? '') ?>" placeholder="Isi jabatan">
                     </div>
                 </div>
                 <div class="row">
@@ -1334,23 +1294,33 @@ if ($action === 'edit' && $user_id) {
         var pnsSection = document.getElementById('pns_section_edit');
         var pangkatInput = document.getElementById('pangkat_input_edit');
         var pangkatSelect = document.getElementById('pangkat_select_edit');
+        var nrpInput = document.getElementById('nrp_nip_input_edit');
         
         if (jenisPersonel === 'TNI') {
             tniHierarchy.style.display = 'block';
             pnsSection.style.display = 'none';
             pangkatInput.style.display='none'; pangkatInput.disabled=true;
             pangkatSelect.style.display='block'; pangkatSelect.disabled=false;
+            if (nrpInput) {
+                nrpInput.required = true;
+            }
             updatePangkatOptions('edit');
         } else if (jenisPersonel === 'PNS') {
             tniHierarchy.style.display = 'none';
             pnsSection.style.display = 'block';
             pangkatSelect.style.display='none'; pangkatSelect.disabled=true;
             pangkatInput.style.display='block'; pangkatInput.disabled=false;
+            if (nrpInput) {
+                nrpInput.required = false;
+            }
         } else {
             tniHierarchy.style.display = 'none';
             pnsSection.style.display = 'none';
             pangkatSelect.style.display='none'; pangkatSelect.disabled=true;
             pangkatInput.style.display='block'; pangkatInput.disabled=false;
+            if (nrpInput) {
+                nrpInput.required = false;
+            }
         }
     }
 
@@ -1453,7 +1423,7 @@ document.addEventListener('click', function(e){
                     <?php
                     // fetch roles and pengguna lists for modal (lightweight)
                     $roles_modal = [];
-                    $rres_modal = $mysqli->query("SELECT id, nama_role FROM role ORDER BY id");
+                    $rres_modal = $mysqli->query("SELECT id, nama_role FROM role WHERE LOWER(nama_role) IN ('administrator','pimpinan','driver','user') ORDER BY id");
                     if ($rres_modal) { while ($rrm = $rres_modal->fetch_assoc()) $roles_modal[] = $rrm; }
 
                     $penggunas_modal = [];
@@ -1491,20 +1461,15 @@ document.addEventListener('click', function(e){
                                             </div>
                                             <div class="col-md-6 mb-3">
                                                 <label>Email *</label>
-                                                <input type="email" name="email" class="form-control">
+                                                <input type="email" name="email" class="form-control" placeholder="nama@gmail.com">
                                             </div>
                                             <div class="col-md-6 mb-3">
                                                 <label>Pangkat/Golongan</label>
-                                                <input type="text" name="pangkat" class="form-control">
+                                                <input type="text" name="pangkat" class="form-control" placeholder="Contoh: Golongan II/a atau kosong untuk honorer">
                                             </div>
                                             <div class="col-md-6 mb-3">
                                                 <label>Jabatan</label>
-                                                <select name="jabatan" class="form-select">
-                                                    <option value="">-- Pilih Jabatan --</option>
-                                                    <?php foreach ($JABATAN_ENUM as $opt): ?>
-                                                        <option value="<?= htmlspecialchars($opt) ?>"><?= htmlspecialchars($opt) ?></option>
-                                                    <?php endforeach; ?>
-                                                </select>
+                                                <input type="text" name="jabatan" class="form-control" placeholder="Isi jabatan">
                                             </div>
                                             <div class="col-md-6 mb-3">
                                                 <label>NRP/NIP</label>
@@ -1512,7 +1477,7 @@ document.addEventListener('click', function(e){
                                             </div>
                                             <div class="col-md-6 mb-3">
                                                 <label>No. Telepon</label>
-                                                <input type="text" name="no_hp" class="form-control">
+                                                <input type="tel" name="no_hp" class="form-control" placeholder="08xxxxxxxxxx">
                                             </div>
                                             <div class="col-md-6 mb-3">
                                                 <label>Alamat</label>

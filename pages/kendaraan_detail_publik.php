@@ -1,5 +1,7 @@
 <?php
 // Detail kendaraan untuk guest - accept id, kendaraan_id, or no_reg
+// Load auth helpers so we can enforce additional checks for logged-in users
+require_once 'includes/auth.php';
 $id = 0;
 if (isset($_GET['id'])) {
     $id = (int)$_GET['id'];
@@ -54,6 +56,13 @@ $stmt->close();
 
 if (!$kendaraan) {
     echo '<div class="alert alert-danger">Kendaraan tidak ditemukan atau tidak dapat diakses</div>';
+    exit;
+}
+
+// If the visitor is a logged-in `user`, restrict detail access to vehicles they are allowed to see
+if (get_current_role() === 'user' && !can_access_vehicle((int)$id)) {
+    echo '<div class="alert alert-danger">Anda tidak memiliki akses ke kendaraan ini.</div>';
+    echo '<a href="index.php?page=list_kendaraan" class="btn btn-secondary">Kembali ke Daftar Kendaraan</a>';
     exit;
 }
 

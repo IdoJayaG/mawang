@@ -432,9 +432,9 @@ if (!empty($_SESSION['swal'])): ?>
                                         <tr><th>Bengkel</th><td><?= htmlspecialchars($jadwal_data['bengkel'] ?? '-') ?></td></tr>
                                         <tr><th>KM Target</th><td><?= !empty($jadwal_data['km_target']) ? number_format($jadwal_data['km_target']) . ' KM' : '-' ?></td></tr>
                                         <tr><th>KM Saat Perawatan</th><td><?= !empty($jadwal_data['km_saat_perawatan']) ? number_format($jadwal_data['km_saat_perawatan']) . ' KM' : '-' ?></td></tr>
-                                        <tr><th>Estimasi Biaya</th><td><?= !empty($jadwal_data['estimasi_biaya']) ? 'Rp ' . number_format($jadwal_data['estimasi_biaya']) : '-' ?></td></tr>
-                                        <tr><th>Biaya</th><td><?= !empty($jadwal_data['biaya']) ? 'Rp ' . number_format($jadwal_data['biaya']) : '-' ?></td></tr>
-                                        <tr><th>Biaya Aktual</th><td><?= !empty($jadwal_data['biaya_aktual']) ? 'Rp ' . number_format($jadwal_data['biaya_aktual']) : '-' ?></td></tr>
+                                        <tr><th>Estimasi Biaya</th><td>-</td></tr>
+                                        <tr><th>Biaya</th><td>-</td></tr>
+                                        <tr><th>Biaya Aktual</th><td>-</td></tr>
                                         <tr><th>Status</th><td><?= htmlspecialchars($jadwal_data['status'] ?? '-') ?></td></tr>
                                         <tr><th>Prioritas</th><td><?= htmlspecialchars($jadwal_data['prioritas'] ?? '-') ?></td></tr>
                                         <tr><th>Teknisi</th><td><?= htmlspecialchars($jadwal_data['teknisi_name'] ?? ($jadwal_data['teknisi_id'] ?? '-')) ?></td></tr>

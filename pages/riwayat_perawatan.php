@@ -76,16 +76,15 @@ if ($action === 'export_excel') {
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Riwayat Perawatan');
-        // Column widths similar to perbaikan export
+        // Column widths (price columns removed)
         $sheet->getColumnDimension('A')->setWidth(6);
         $sheet->getColumnDimension('B')->setWidth(44);
         $sheet->getColumnDimension('C')->setWidth(16);
         $sheet->getColumnDimension('D')->setWidth(18);
-        $sheet->getColumnDimension('E')->setWidth(18);
-        // Header row
-        $sheet->fromArray([[ 'NO', 'NAMA BARANG', 'BANYAKNYA', 'HARGA', 'JUMLAH' ]], null, 'A1');
-        $sheet->getStyle('A1:E1')->getFont()->setBold(true);
-        $sheet->getStyle('A1:E1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+        // Header row (removed Harga/Jumlah columns)
+        $sheet->fromArray([[ 'NO', 'NAMA BARANG', 'BANYAKNYA', 'SATUAN' ]], null, 'A1');
+        $sheet->getStyle('A1:D1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:D1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
         // Group by kendaraan label (no_reg > no_polisi > ID)
         $groups = [];
@@ -107,7 +106,8 @@ if ($action === 'export_excel') {
             // Each perawatan row becomes one item; name from jenis_perawatan/deskripsi; price from biaya_aktual/estimasi
             $nama = (string)($rp['jenis_perawatan'] ?? '');
             if ($nama === '') { $nama = (string)($rp['deskripsi'] ?? '-'); }
-            $harga = (float)($rp['biaya_aktual'] ?? ($rp['estimasi_biaya'] ?? 0));
+            // Price references removed for code-only change; zero out
+            $harga = 0.0;
             // Preserve null for qty if DB value is NULL; otherwise use numeric value
             $qtyVal = null;
             if (array_key_exists('banyaknya', $rp) && $rp['banyaknya'] !== null) {
@@ -196,7 +196,7 @@ if ($action === 'export_excel') {
         }
 
         // Render groups
-        $r = 2; $groupNo = 1; $grand = 0.0;
+        $r = 2; $groupNo = 1;
         foreach ($groupOrder as $gk) {
             $g = $groups[$gk];
             $titleParts = ['Service'];
@@ -229,39 +229,26 @@ if ($action === 'export_excel') {
                 } else {
                     $sheet->setCellValue('A'.$r, '');
                 }
-                // If qty is provided, jumlah = qty * harga; otherwise equals harga
-                $jumlah = ($it['qty'] === null || $it['qty'] === '') ? (float)$it['harga'] : ((float)$it['qty'] * (float)$it['harga']);
-                $grand += $jumlah;
                 $sheet->setCellValue('B'.$r, (string)$it['nama']);
                 // BANYAKNYA: write blank if NULL, numeric if provided
                 if ($it['qty'] === null) {
                     $sheet->setCellValue('C'.$r, '');
                 } else {
-                    // Force numeric cell type to avoid locale/text artifacts
                     $sheet->setCellValueExplicit('C'.$r, (float)$it['qty'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
                 }
-                $sheet->setCellValue('D'.$r, (float)$it['harga']);
-                $sheet->setCellValue('E'.$r, (float)$jumlah);
+                // Write satuan instead of price/amount
+                $sheet->setCellValue('D'.$r, (string)($it['satuan'] ?? ''));
                 $r++;
             }
             // Separator row
             $r++;
         }
-
         // Borders and number formats
         $lastDataRow = max(2, $r - 1);
-        $sheet->getStyle('A1:E'.$lastDataRow)->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
-    // Qty supports decimals (no thousands grouping to avoid stray commas); price/amount as integer currency formatting
-    $sheet->getStyle('C2:C'.$lastDataRow)->getNumberFormat()->setFormatCode('#,##0');
-    $sheet->getStyle('D2:E'.$lastDataRow)->getNumberFormat()->setFormatCode('#,##0');
+        $sheet->getStyle('A1:D'.$lastDataRow)->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+        // Qty supports decimals (no thousands grouping to avoid stray commas)
+        $sheet->getStyle('C2:C'.$lastDataRow)->getNumberFormat()->setFormatCode('#,##0');
         $sheet->getStyle('A2:A'.$lastDataRow)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
-
-        // Grand total row
-        $sheet->setCellValue('D'.$r, 'Total');
-        $sheet->setCellValue('E'.$r, $grand);
-        $sheet->getStyle('A'.$r.':E'.$r)->getFont()->setBold(true);
-        $sheet->getStyle('E'.$r)->getNumberFormat()->setFormatCode('#,##0');
-        $sheet->getStyle('A'.$r.':E'.$r)->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
 
         // Activity log
         if (function_exists('log_activity')) {
@@ -306,13 +293,12 @@ if ($_POST) {
                 $deskripsi = trim($_POST['deskripsi']);
                 // map form field `tanggal_perawatan` to DB column `tanggal_perawatan`
                 $tanggal_perawatan = $_POST['tanggal_perawatan'] ?? ($_POST['jadwal_tanggal'] ?? null);
-                $estimasi_biaya = (float)$_POST['estimasi_biaya'];
                 $prioritas = $_POST['prioritas'];
                 $teknisi_id = !empty($_POST['teknisi_id']) ? (int)$_POST['teknisi_id'] : null;
                 
-                // insert into actual column name `tanggal_perawatan`
-                $stmt = $mysqli->prepare("INSERT INTO jadwal_perawatan (kendaraan_id, jenis_perawatan, deskripsi, tanggal_perawatan, estimasi_biaya, prioritas, teknisi_id, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 'Terjadwal', ?)");
-                $stmt->bind_param('isssdsii', $kendaraan_id, $jenis_perawatan, $deskripsi, $tanggal_perawatan, $estimasi_biaya, $prioritas, $teknisi_id, $current_user_id);
+                // insert into actual column name `tanggal_perawatan` (estimasi_biaya removed)
+                $stmt = $mysqli->prepare("INSERT INTO jadwal_perawatan (kendaraan_id, jenis_perawatan, deskripsi, tanggal_perawatan, prioritas, teknisi_id, status, created_by) VALUES (?, ?, ?, ?, ?, ?, 'Terjadwal', ?)");
+                $stmt->bind_param('issssii', $kendaraan_id, $jenis_perawatan, $deskripsi, $tanggal_perawatan, $prioritas, $teknisi_id, $current_user_id);
                 
                 if ($stmt->execute()) {
                     // Log aktivitas penambahan jadwal (menggunakan log_activity)
@@ -344,12 +330,13 @@ if ($_POST) {
                 }
                 $status = $_POST['status'];
                 $tanggal_perawatan = $_POST['tanggal_perawatan'] ?? null;
-                $biaya_aktual = $_POST['biaya_aktual'] ? (float)$_POST['biaya_aktual'] : null;
+                // biaya_aktual removed from input handling
                 $keterangan = trim($_POST['keterangan'] ?? '');
                 
                 if ($status === 'Selesai') {
-                    $stmt = $mysqli->prepare("UPDATE jadwal_perawatan SET status = ?, tanggal_perawatan = ?, biaya_aktual = ?, keterangan = ?, tanggal_selesai = NOW(), updated_by = ? WHERE id = ?");
-                    $stmt->bind_param('ssdsii', $status, $tanggal_perawatan, $biaya_aktual, $keterangan, $current_user_id, $id);
+                    // Do not persist biaya_aktual; remove from UPDATE
+                    $stmt = $mysqli->prepare("UPDATE jadwal_perawatan SET status = ?, tanggal_perawatan = ?, keterangan = ?, tanggal_selesai = NOW(), updated_by = ? WHERE id = ?");
+                    $stmt->bind_param('sssii', $status, $tanggal_perawatan, $keterangan, $current_user_id, $id);
                 } else {
                     $stmt = $mysqli->prepare("UPDATE jadwal_perawatan SET status = ?, keterangan = ?, updated_by = ? WHERE id = ?");
                     $stmt->bind_param('ssii', $status, $keterangan, $current_user_id, $id);
@@ -359,9 +346,7 @@ if ($_POST) {
                     // Log aktivitas pembaruan status jadwal (menggunakan log_activity)
                     $logMsg = "Memperbarui status jadwal perawatan ID: $id menjadi $status";
                     if (!empty($tanggal_perawatan)) { $logMsg .= " pada $tanggal_perawatan"; }
-                    if ($status === 'Selesai' && $biaya_aktual !== null) {
-                        $logMsg .= " (biaya aktual: " . number_format((float)$biaya_aktual, 0, ',', '.') . ")";
-                    }
+                    // biaya_aktual intentionally not logged or persisted
                     log_activity('UPDATE_JADWAL_STATUS', $logMsg);
                     // If status set to Selesai, show SweetAlert and redirect to riwayat (history)
                     if ($status === 'Selesai') {
@@ -473,7 +458,6 @@ $sort_map = [
     'status' => 'status_display',
     'prioritas' => 'jp.prioritas',
     'teknisi' => 'teknisi_nama',
-    'biaya' => 'biaya_sort',
     'total' => 'agg.total_perawatan'
 ];
 $order_by = 'jp.tanggal_perawatan DESC';
@@ -486,7 +470,7 @@ $sql = "SELECT jp.*, k.no_reg, k.merk, k.tipe, t.nama_lengkap as teknisi_nama,
                WHEN jp.status = 'Terjadwal' AND jp.tanggal_perawatan < CURDATE() THEN 'Terlambat'
                ELSE jp.status
            END as status_display,
-           COALESCE(jp.biaya_aktual, jp.estimasi_biaya, 0) AS biaya_sort,
+           0 AS biaya_sort,
            COALESCE(agg.total_perawatan, 0) AS total_perawatan
     FROM jadwal_perawatan jp
     JOIN kendaraan k ON jp.kendaraan_id = k.id
@@ -757,7 +741,7 @@ function sort_link($label, $key, $currentSort, $currentDir) {
                             <th>Deskripsi</th>
                             <th>Status</th>
                             <th>Teknisi</th>
-                            <th>Biaya</th>
+                            <th>Catatan</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -769,10 +753,7 @@ function sort_link($label, $key, $currentSort, $currentDir) {
                                 <td><span class="badge bg-<?= getStatusBadge($hist['status']) ?>"><?= htmlspecialchars($hist['status']) ?></span></td>
                                 <td><?= htmlspecialchars($hist['teknisi_nama'] ?? $hist['nama_lengkap'] ?? '-') ?></td>
                                 <td>
-                                    <small class="text-muted">Est:</small> Rp <?= number_format($hist['estimasi_biaya'] ?: 0) ?>
-                                    <?php if ($hist['biaya_aktual']): ?>
-                                        <br><strong class="text-success">Act: Rp <?= number_format($hist['biaya_aktual']) ?></strong>
-                                    <?php endif; ?>
+                                    <?= nl2br(htmlspecialchars($hist['keterangan'] ?? '-')) ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -790,7 +771,7 @@ function sort_link($label, $key, $currentSort, $currentDir) {
                             <th><?= sort_link('Status','status', $sort, $dir) ?></th>
                             <th><?= sort_link('Prioritas','prioritas', $sort, $dir) ?></th>
                             <th><?= sort_link('Teknisi','teknisi', $sort, $dir) ?></th>
-                            <th><?= sort_link('Biaya','biaya', $sort, $dir) ?></th>
+                            <th>Info</th>
                             <th><?= sort_link('Total Perawatan','total', $sort, $dir) ?></th>
                             <th>Aksi</th>
                         </tr>
@@ -829,12 +810,7 @@ function sort_link($label, $key, $currentSort, $currentDir) {
                                 <td>
                                     <?= $row['teknisi_nama'] ? htmlspecialchars($row['teknisi_nama']) : '<small class="text-muted">Belum ditentukan</small>' ?>
                                 </td>
-                                <td>
-                                    <small class="text-muted">Est:</small> Rp <?= number_format($row['estimasi_biaya'] ?: 0) ?>
-                                    <?php if ($row['biaya_aktual']): ?>
-                                        <br><strong class="text-success">Rp <?= number_format($row['biaya_aktual']) ?></strong>
-                                    <?php endif; ?>
-                                </td>
+                                <td>-</td>
                                 <td>
                                     <?= (int)($row['total_perawatan'] ?? 0) ?>
                                 </td>
@@ -1027,10 +1003,7 @@ function sort_link($label, $key, $currentSort, $currentDir) {
                             <input type="date" name="tanggal_perawatan" class="form-control" required>
                         </div>
                         
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">Estimasi Biaya</label>
-                            <input type="number" name="estimasi_biaya" class="form-control" step="0.01" placeholder="0">
-                        </div>
+                        <!-- Estimasi Biaya input removed -->
                         
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Prioritas</label>
@@ -1094,10 +1067,7 @@ function sort_link($label, $key, $currentSort, $currentDir) {
                         <input type="date" name="tanggal_perawatan" class="form-control">
                     </div>
                     
-                    <div class="mb-3" id="biaya_group" style="display:none;">
-                        <label class="form-label">Biaya Aktual</label>
-                        <input type="number" name="biaya_aktual" class="form-control" step="0.01" placeholder="0">
-                    </div>
+                    <!-- Biaya Aktual input removed -->
                     
                     <div class="mb-3">
                         <label class="form-label">Keterangan</label>
@@ -1174,15 +1144,12 @@ document.getElementById('status_select').addEventListener('change', toggleStatus
 function toggleStatusFields() {
     const status = document.getElementById('status_select').value;
     const tanggalGroup = document.getElementById('tanggal_group');
-    const biayaGroup = document.getElementById('biaya_group');
     
     if (status === 'Selesai') {
         tanggalGroup.style.display = 'block';
-        biayaGroup.style.display = 'block';
         tanggalGroup.querySelector('input').required = true;
     } else {
         tanggalGroup.style.display = 'none';
-        biayaGroup.style.display = 'none';
         tanggalGroup.querySelector('input').required = false;
     }
 }

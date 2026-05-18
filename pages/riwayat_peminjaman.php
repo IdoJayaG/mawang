@@ -231,7 +231,7 @@ function getStatusBadge($status) {
                     <div class="detail-value">
                         <?php $estimasi_km = $detail_data['estimasi_km'] ?? null; $estimasi_bbm = $detail_data['estimasi_bbm'] ?? null; ?>
                         <strong>KM:</strong> <?= is_numeric($estimasi_km) ? number_format($estimasi_km) . ' km' : '-' ?><br>
-                        <strong>BBM:</strong> <?= is_numeric($estimasi_bbm) ? 'Rp ' . number_format($estimasi_bbm) : '-' ?>
+                        <strong>BBM:</strong> -
                     </div>
                 </div>
                 

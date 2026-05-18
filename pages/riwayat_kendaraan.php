@@ -1,7 +1,7 @@
 <?php
 require_once 'includes/auth.php';
 require_login();
-require_role('user');
+require_role(['user','driver']);
 
 $user_id = get_current_user_id();
 $kendaraan_id = isset($_GET['kendaraan_id']) ? intval($_GET['kendaraan_id']) : 0;

@@ -37,12 +37,12 @@ if ($_POST) {
                 $jenis_perawatan = trim($_POST['jenis_perawatan']);
                 $deskripsi = trim($_POST['deskripsi']);
                 $jadwal_tanggal = $_POST['jadwal_tanggal'];
-                $estimasi_biaya = (float)$_POST['estimasi_biaya'];
+                // estimasi_biaya removed
                 $prioritas = $_POST['prioritas'];
                 $teknisi_id = !empty($_POST['teknisi_id']) ? (int)$_POST['teknisi_id'] : null;
                 
-                $stmt = $mysqli->prepare("INSERT INTO jadwal_perawatan (kendaraan_id, jenis_perawatan, deskripsi, jadwal_tanggal, estimasi_biaya, prioritas, teknisi_id, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 'Terjadwal', ?)");
-                $stmt->bind_param('isssdsii', $kendaraan_id, $jenis_perawatan, $deskripsi, $jadwal_tanggal, $estimasi_biaya, $prioritas, $teknisi_id, $current_user_id);
+                $stmt = $mysqli->prepare("INSERT INTO jadwal_perawatan (kendaraan_id, jenis_perawatan, deskripsi, jadwal_tanggal, prioritas, teknisi_id, status, created_by) VALUES (?, ?, ?, ?, ?, ?, 'Terjadwal', ?)");
+                $stmt->bind_param('issssii', $kendaraan_id, $jenis_perawatan, $deskripsi, $jadwal_tanggal, $prioritas, $teknisi_id, $current_user_id);
                 
                 if ($stmt->execute()) {
                     $msg = '<div class="alert alert-success">Jadwal perawatan berhasil ditambahkan!</div>';
@@ -70,12 +70,13 @@ if ($_POST) {
                 }
                 $status = $_POST['status'];
                 $tanggal_perawatan = $_POST['tanggal_perawatan'] ?? null;
-                $biaya_aktual = $_POST['biaya_aktual'] ? (float)$_POST['biaya_aktual'] : null;
+                // biaya_aktual removed from input handling
                 $keterangan = trim($_POST['keterangan'] ?? '');
                 
                 if ($status === 'Selesai') {
-                    $stmt = $mysqli->prepare("UPDATE jadwal_perawatan SET status = ?, tanggal_perawatan = ?, biaya_aktual = ?, keterangan = ?, tanggal_selesai = NOW(), updated_by = ? WHERE id = ?");
-                    $stmt->bind_param('ssdsii', $status, $tanggal_perawatan, $biaya_aktual, $keterangan, $current_user_id, $id);
+                    // Do not persist biaya_aktual; remove from UPDATE
+                    $stmt = $mysqli->prepare("UPDATE jadwal_perawatan SET status = ?, tanggal_perawatan = ?, keterangan = ?, tanggal_selesai = NOW(), updated_by = ? WHERE id = ?");
+                    $stmt->bind_param('sssii', $status, $tanggal_perawatan, $keterangan, $current_user_id, $id);
                 } else {
                     $stmt = $mysqli->prepare("UPDATE jadwal_perawatan SET status = ?, keterangan = ?, updated_by = ? WHERE id = ?");
                     $stmt->bind_param('ssii', $status, $keterangan, $current_user_id, $id);

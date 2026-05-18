@@ -51,64 +51,12 @@ if (!$kendaraan) {
     exit;
 }
 
-// Check if user has access to this vehicle (schema-aware; no dependency on pengguna_kendaraan)
-if (in_array(strtolower((string)$current_role), ['user', 'driver'], true)) {
-    $has_access = false;
-    $user_account_id = (int)($_SESSION['user_id'] ?? 0);
-    $pengguna_id = 0;
-    // Fetch pengguna_id from user_account
-    if ($st = $mysqli->prepare("SELECT pengguna_id FROM user_account WHERE id = ?")) {
-        $st->bind_param('i', $user_account_id);
-        $st->execute();
-        $row = $st->get_result()->fetch_assoc();
-        $pengguna_id = (int)($row['pengguna_id'] ?? 0);
-        $st->close();
-    }
-
-    // 1) Check peminjaman_kendaraan linkage
-    if (table_exists_generic($mysqli, 'peminjaman_kendaraan')) {
-        $cols = [];
-        if ($resCols = $mysqli->query("SHOW COLUMNS FROM peminjaman_kendaraan")) {
-            while ($r = $resCols->fetch_assoc()) { $cols[] = $r['Field']; }
-            $resCols->free_result();
-        }
-        $borrower_col = null;
-        foreach (['peminjam_id','pemohon_id','user_id','pengguna_id'] as $c) { if (in_array($c, $cols, true)) { $borrower_col = $c; break; } }
-        if ($borrower_col && in_array('kendaraan_id', $cols, true)) {
-            // Bind to correct id type
-            $bind_id = in_array($borrower_col, ['pengguna_id'], true) ? $pengguna_id : $user_account_id;
-            $sql = "SELECT 1 FROM peminjaman_kendaraan WHERE {$borrower_col} = ? AND kendaraan_id = ? LIMIT 1";
-            if ($st = $mysqli->prepare($sql)) {
-                $st->bind_param('ii', $bind_id, $id);
-                $st->execute();
-                if ($st->get_result()->num_rows > 0) { $has_access = true; }
-                $st->close();
-            }
-        }
-    }
-
-    // 2) Check surat_tugas linkage
-    if (!$has_access && table_exists_generic($mysqli, 'surat_tugas')) {
-        $cols = [];
-        if ($resCols = $mysqli->query("SHOW COLUMNS FROM surat_tugas")) {
-            while ($r = $resCols->fetch_assoc()) { $cols[] = $r['Field']; }
-            $resCols->free_result();
-        }
-        if (in_array('pengguna_id', $cols, true) && in_array('kendaraan_id', $cols, true)) {
-            $sql = "SELECT 1 FROM surat_tugas WHERE pengguna_id = ? AND kendaraan_id = ? LIMIT 1";
-            if ($st = $mysqli->prepare($sql)) {
-                $st->bind_param('ii', $pengguna_id, $id);
-                $st->execute();
-                if ($st->get_result()->num_rows > 0) { $has_access = true; }
-                $st->close();
-            }
-        }
-    }
-
-    if (!$has_access) {
-        header('Location: index.php?page=403');
-        exit;
-    }
+// Access policy: restrict `user` role to vehicles they are permitted to access
+if (get_current_role() === 'user' && !can_access_vehicle((int)$id)) {
+    echo '<div class="page-header"><h1><i class="fas fa-car"></i> Akses Ditolak</h1></div>';
+    echo '<div class="alert alert-danger">Anda tidak memiliki akses ke kendaraan ini.</div>';
+    echo '<a href="index.php?page=list_kendaraan" class="btn btn-secondary">Kembali ke Daftar Kendaraan</a>';
+    exit;
 }
 
 // Get usage history
@@ -444,7 +392,7 @@ if (!function_exists('get_status_badge')) {
                                 <th>Tanggal</th>
                                 <th>Jenis Perawatan</th>
                                 <th>Keterangan</th>
-                                <th>Biaya</th>
+                                <!-- Biaya removed from maintenance history -->
                                 <th>KM Service</th>
                                 <th>Mekanik</th>
                             </tr>
@@ -461,13 +409,7 @@ if (!function_exists('get_status_badge')) {
                                     </span>
                                 </td>
                                     <td><?= htmlspecialchars($maintenance['keterangan'] ?: '-') ?></td>
-                                    <td>
-                                        <?php if ($maintenance['biaya']): ?>
-                                            Rp <?= number_format($maintenance['biaya']) ?>
-                                        <?php else: ?>
-                                            -
-                                        <?php endif; ?>
-                                    </td>
+                                    <!-- Biaya removed from maintenance history -->
                                     <td><?= $maintenance['km_saat_perawatan'] ? number_format($maintenance['km_saat_perawatan']) . ' km' : '-' ?></td>
                                     <td><?= htmlspecialchars($maintenance['mekanik'] ?: '-') ?></td>
                                 </tr>

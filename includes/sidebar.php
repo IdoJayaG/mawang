@@ -27,16 +27,21 @@
         $current_page = $_GET['page'] ?? '';
         ?>
         
-        <!-- Menu untuk semua pengunjung (termasuk guest) -->
-        <?php if (in_array($current_role, ['user', 'driver'], true)): ?>
-            <li><a href="index.php?page=home" class="<?= (!isset($_GET['page']) || $_GET['page'] == 'home') ? 'active' : '' ?>">
-                <i class="fas fa-home"></i><span>Beranda</span>
-            </a></li>
-        <?php else: ?>
-            <li><a href="index.php" class="<?= (!isset($_GET['page']) || $_GET['page'] == 'home') ? 'active' : '' ?>">
-                <i class="fas fa-home"></i><span>Beranda</span>
-            </a></li>
-        <?php endif; ?>
+        <?php
+        // Unified Dashboard link per role — replace legacy 'Beranda' link so sidebar shows role-specific dashboard
+        $dashboard_map = [
+            'admin' => 'dashboard_admin',
+            'operator' => 'dashboard_operator',
+            'pimpinan' => 'dashboard_pimpinan',
+            'user' => 'dashboard_user',
+            'driver' => 'dashboard_driver',
+            'guest' => 'home'
+        ];
+        $dash_page = $dashboard_map[$current_role] ?? 'dashboard_user';
+        ?>
+        <li><a href="index.php?page=<?= $dash_page ?>" class="<?= ($current_page == $dash_page) ? 'active' : '' ?>">
+            <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
+        </a></li>
         
         <?php if ($current_role === 'guest'): ?>
             <!-- Menu khusus guest -->
@@ -49,9 +54,6 @@
             
         <?php elseif ($current_role === 'driver'): ?>
             <!-- Menu untuk Driver (akses setara operator, data tetap dibatasi kendaraan driver) -->
-            <li><a href="index.php?page=dashboard_user" class="<?= ($current_page == 'dashboard_user') ? 'active' : '' ?>">
-                <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
-            </a></li>
             <li class="has-submenu <?= in_array($current_page, ['kendaraan', 'log_bahan_bakar', 'map_kendaraan']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-car"></i><span>Kendaraan</span>
@@ -93,19 +95,16 @@
 
         <?php elseif ($current_role === 'user'): ?>
             <!-- Menu untuk User -->
-            <li><a href="index.php?page=dashboard_user" class="<?= ($current_page == 'dashboard_user') ? 'active' : '' ?>">
-                <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
-            </a></li>
 
-            <li class="has-submenu <?= in_array($current_page, ['kendaraan_saya', 'list_kendaraan', 'log_bahan_bakar']) ? 'active' : '' ?>">
+            <li class="has-submenu <?= in_array($current_page, ['list_kendaraan', 'map_kendaraan']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-car"></i><span>Kendaraan</span>
                     <i class="fas fa-chevron-down submenu-arrow"></i>
                 </a>
                 <ul class="submenu">
                     <li><a href="index.php?page=list_kendaraan" class="<?= ($current_page == 'list_kendaraan') ? 'active' : '' ?>">List Kendaraan</a></li>
-                    <li><a href="index.php?page=kendaraan_saya" class="<?= ($current_page == 'kendaraan_saya') ? 'active' : '' ?>">Kendaraan Saya</a></li>
-                    <li><a href="index.php?page=log_bahan_bakar" class="<?= ($current_page == 'log_bahan_bakar') ? 'active' : '' ?>">Log BBM</a></li>
+                    <li><a href="index.php?page=form_peminjaman" class="<?= ($current_page == 'form_peminjaman') ? 'active' : '' ?>">Pengajuan Peminjaman</a></li>
+                    <li><a href="index.php?page=map_kendaraan" class="<?= ($current_page == 'map_kendaraan') ? 'active' : '' ?>">Peta Kendaraan</a></li>
                 </ul>
             </li>
 
@@ -115,15 +114,15 @@
             <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">
                 <i class="fas fa-file-signature"></i><span>Pengajuan Surat Tugas</span>
             </a></li>
+            <li><a href="index.php?page=riwayat_peminjaman" class="<?= ($current_page == 'riwayat_peminjaman') ? 'active' : '' ?>">
+                <i class="fas fa-history"></i><span>Riwayat Peminjaman</span>
+            </a></li>
             <li><a class="btn-logout" href="logout.php">
                 <i class="fas fa-sign-out-alt"></i><span>Logout</span>
             </a></li>
 
         <?php elseif ($current_role === 'pimpinan'): ?>
             <!-- Menu untuk Pimpinan -->
-            <li><a href="index.php?page=dashboard_pimpinan" class="<?= ($current_page == 'dashboard_pimpinan') ? 'active' : '' ?>">
-                <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
-            </a></li>
             <li><a href="index.php?page=persetujuan_peminjaman" class="<?= ($current_page == 'persetujuan_peminjaman') ? 'active' : '' ?>">
                 <i class="fas fa-clipboard-check"></i><span>Persetujuan Peminjaman</span>
             </a></li>
@@ -191,9 +190,6 @@
             </a></li>
             
         <?php elseif ($current_role === 'admin'): ?>
-            <li><a href="index.php?page=dashboard_admin" class="<?= ($current_page == 'dashboard_admin') ? 'active' : '' ?>">
-                <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
-            </a></li>
 
     <li class="has-submenu <?= in_array($current_page, ['kendaraan', 'pengguna_kendaraan']) ? 'active' : (($current_page=='dashboard_admin'||$current_page=='') ? '' : '') ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">

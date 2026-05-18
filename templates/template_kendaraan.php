@@ -1,6 +1,6 @@
 <?php
 // Dynamic Excel template generator for kendaraan import
-// Headers: no_rangka,no_mesin,no_reg,merk,tipe,tahun_pembuatan,warna,jenis,bahan_bakar,satker,penanggung_jawab,kondisi,status_kendaraan
+// Headers: no_rangka,no_mesin,no_reg,merk,tipe,tahun_pembuatan,warna,bahan_bakar,satker,kondisi,status_kendaraan
 
 $autoload = dirname(__DIR__) . '/vendor/autoload.php';
 if (file_exists($autoload)) { require_once $autoload; }
@@ -10,8 +10,8 @@ if (!class_exists('PhpOffice\\PhpSpreadsheet\\Spreadsheet')) {
     header('Content-Type: text/csv');
     header('Content-Disposition: attachment; filename="template_kendaraan.csv"');
     $out = fopen('php://output', 'w');
-    fputcsv($out, ['no_rangka','no_mesin','no_reg','merk','tipe','tahun_pembuatan','warna','jenis','bahan_bakar','satker','penanggung_jawab','kondisi','status_kendaraan']);
-    fputcsv($out, ['MH8XXX1234567890','1NZ-1234567','REG-001','TOYOTA','AVANZA','2022','HITAM','Roda 4','Pertalite','SPBT KEMHAN CAWANG','Kepala SPBT Kemhan Cawang','Baik','Operasional']);
+    fputcsv($out, ['no_rangka','no_mesin','no_reg','merk','tipe','tahun_pembuatan','warna','bahan_bakar','satker','kondisi','status_kendaraan']);
+    fputcsv($out, ['MH8XXX1234567890','1NZ-1234567','REG-001','TOYOTA','AVANZA','2022','HITAM','Pertalite','SPBT KEMHAN CAWANG','Baik','Operasional']);
     fclose($out); exit;
 }
 
@@ -22,19 +22,19 @@ use PhpOffice\PhpSpreadsheet\Style\Fill;
 
 $spreadsheet = new Spreadsheet();
 $sheet = $spreadsheet->getActiveSheet();
-$headers = ['no_rangka','no_mesin','no_reg','merk','tipe','tahun_pembuatan','warna','jenis','bahan_bakar','satker','penanggung_jawab','kondisi','status_kendaraan'];
+$headers = ['no_rangka','no_mesin','no_reg','merk','tipe','tahun_pembuatan','warna','bahan_bakar','satker','kondisi','status_kendaraan'];
 $col = 'A';
 foreach ($headers as $h) { $sheet->setCellValue($col.'1', $h); $col++; }
 
-$sheet->getStyle('A1:M1')->getFont()->setBold(true);
-$sheet->getStyle('A1:M1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-$sheet->getStyle('A1:M1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE8EEF7');
+$sheet->getStyle('A1:K1')->getFont()->setBold(true);
+$sheet->getStyle('A1:K1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+$sheet->getStyle('A1:K1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE8EEF7');
 
 $sheet->fromArray([
-    ['MH8XXX1234567890','1NZ-1234567','REG-001','TOYOTA','AVANZA','2022','HITAM','Roda 4','Pertalite','SPBT KEMHAN CAWANG','Kepala SPBT Kemhan Cawang','Baik','Operasional']
+    ['MH8XXX1234567890','1NZ-1234567','REG-001','TOYOTA','AVANZA','2022','HITAM','Pertalite','SPBT KEMHAN CAWANG','Baik','Operasional']
 ], null, 'A2');
 
-foreach (range('A','M') as $c) { $sheet->getColumnDimension($c)->setAutoSize(true); }
+foreach (range('A','K') as $c) { $sheet->getColumnDimension($c)->setAutoSize(true); }
 
 // Ensure clean output to prevent invalid extension warnings
 if (function_exists('ini_get') && function_exists('ini_set') && ini_get('zlib.output_compression')) {

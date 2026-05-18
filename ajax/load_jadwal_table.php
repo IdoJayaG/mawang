@@ -4,13 +4,61 @@ require_once dirname(__DIR__) . '/includes/auth.php';
 $current_role = get_current_role();
 $can_crud = can_admin();
 $can_notify_driver = in_array($current_role, ['admin', 'pimpinan'], true);
+$where = ["j.status != 'Selesai'"]; 
+$params = []; $types = '';
 
-$query = "SELECT j.*, k.no_polisi, k.no_reg, k.merk, k.tipe 
-         FROM jadwal_perawatan j 
-         LEFT JOIN kendaraan k ON j.kendaraan_id = k.id 
-         WHERE j.status != 'Selesai' 
-         ORDER BY j.tanggal_perawatan ASC, j.prioritas DESC";
-$result = $mysqli->query($query);
+// If current user is a driver, restrict to vehicles they are responsible for / have access to
+if ($current_role === 'driver' && ($current_user_id = get_current_user_id())) {
+    // Prefer kendaraan.pengguna_id when present
+    if (function_exists('db_table_columns') && in_array('pengguna_id', db_table_columns('kendaraan') ?: [], true)) {
+        $where[] = 'k.pengguna_id = ?';
+        $params[] = $current_user_id;
+        $types .= 'i';
+    } else {
+        // Fallback: allow if there's an active surat_tugas or peminjaman_kendaraan referencing this user, or if jadwal was created by the user
+        $exists_clauses = [];
+        if (function_exists('db_table_exists') && db_table_exists('surat_tugas')) {
+            $exists_clauses[] = "EXISTS (SELECT 1 FROM surat_tugas s2 WHERE s2.kendaraan_id = k.id AND s2.pengguna_id = ? AND s2.status IN ('Disetujui','Dalam Perjalanan'))";
+            $params[] = $current_user_id; $types .= 'i';
+        }
+        if (function_exists('db_table_exists') && db_table_exists('peminjaman_kendaraan')) {
+            $appCol = function_exists('pk_applicant_column') ? pk_applicant_column() : null;
+            $bindVal = function_exists('pk_applicant_bind_value') ? pk_applicant_bind_value($appCol, (int)$current_user_id) : null;
+            if ($appCol && $bindVal) {
+                $exists_clauses[] = "EXISTS (SELECT 1 FROM peminjaman_kendaraan pk2 WHERE pk2.kendaraan_id = k.id AND pk2.`{$appCol}` = ? AND LOWER(pk2.status) IN ('approved','ongoing'))";
+                $params[] = $bindVal; $types .= 'i';
+            }
+        }
+        if (!empty($exists_clauses)) {
+            $where[] = '(' . implode(' OR ', $exists_clauses) . ')';
+        } else {
+            // Last resort: jadwal created by this pengguna
+            $where[] = 'j.created_by = ?';
+            $params[] = $current_user_id; $types .= 'i';
+        }
+    }
+}
+
+$where_sql = 'WHERE ' . implode(' AND ', $where);
+$sql = "SELECT j.*, k.no_polisi, k.no_reg, k.merk, k.tipe FROM jadwal_perawatan j LEFT JOIN kendaraan k ON j.kendaraan_id = k.id $where_sql ORDER BY j.tanggal_perawatan ASC, j.prioritas DESC";
+
+if (!empty($params)) {
+    $stmt = $mysqli->prepare($sql);
+    if ($stmt) {
+        $bind = [];
+        $bind[] = & $types;
+        for ($i = 0; $i < count($params); $i++) { $bind[] = & $params[$i]; }
+        call_user_func_array([$stmt, 'bind_param'], $bind);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $stmt->close();
+    } else {
+        // fallback to non-filtered query if prepare fails
+        $result = $mysqli->query("SELECT j.*, k.no_polisi, k.no_reg, k.merk, k.tipe FROM jadwal_perawatan j LEFT JOIN kendaraan k ON j.kendaraan_id = k.id WHERE j.status != 'Selesai' ORDER BY j.tanggal_perawatan ASC, j.prioritas DESC");
+    }
+} else {
+    $result = $mysqli->query($sql);
+}
 $no = 1;
 
 if ($result && $result->num_rows > 0):
@@ -66,7 +114,7 @@ if ($result && $result->num_rows > 0):
 <tr <?= $is_overdue ? 'class="table-danger"' : '' ?>>
     <td><?= $no++ ?></td>
     <td>
-        <strong><?= htmlspecialchars($row['no_polisi']) ?> <?= !empty($row['no_reg']) ? "<small class=\"text-muted\">(Reg: " . htmlspecialchars($row['no_reg']) . ")</small>" : '' ?></strong><br>
+        <strong><?= htmlspecialchars($row['no_reg']) ?> </strong><br>
         <small class="text-muted"><?= htmlspecialchars($row['merk'] . ' ' . $row['tipe']) ?></small>
     </td>
     <td>
@@ -92,13 +140,7 @@ if ($result && $result->num_rows > 0):
     <td>
         <?= !empty($row['bengkel']) ? htmlspecialchars($row['bengkel']) : '<span class="text-muted">-</span>' ?>
     </td>
-    <td>
-        <?php if (isset($row['estimasi_biaya']) && floatval($row['estimasi_biaya']) > 0): ?>
-            Rp <?= number_format($row['estimasi_biaya']) ?>
-        <?php else: ?>
-            <span class="text-muted">-</span>
-        <?php endif; ?>
-    </td>
+    <!-- Estimasi Biaya column removed per privacy request -->
     <td>
         <?php if ($can_crud): ?>
             <select class="form-control form-control-sm status-dropdown" data-id="<?= $row['id'] ?>">
@@ -143,34 +185,24 @@ if ($result && $result->num_rows > 0):
     <?php if ($can_crud || $can_notify_driver): ?>
     <td>
         <div class="btn-group" role="group">
-            <a href="?page=jadwal_perawatan&action=view&id=<?= $row['id'] ?>" class="btn btn-sm btn-outline-info" title="Detail">
-                <i class="fas fa-eye"></i>
-            </a>
-
+            <a href="?page=jadwal_perawatan&action=view&id=<?= $row['id'] ?>" class="btn btn-sm btn-outline-info" title="Lihat Detail"><i class="fas fa-eye"></i></a>
             <?php if ($can_crud): ?>
-                <a href="?page=jadwal_perawatan&action=edit&id=<?= $row['id'] ?>" class="btn btn-sm btn-outline-primary" title="Edit">
-                    <i class="fas fa-edit"></i>
-                </a>
-                <a href="index.php?page=jadwal_perawatan&action=delete&id=<?= $row['id'] ?>" 
-                   class="btn btn-sm btn-outline-danger" title="Hapus"
-                   onclick="return confirm('Yakin ingin menghapus jadwal perawatan ini?')">
-                    <i class="fas fa-trash"></i>
-                </a>
-
-            <?php endif; ?>
-
-            <?php if ($can_notify_driver): ?>
-                <form method="POST" action="?page=jadwal_perawatan" style="display:inline-block; margin:0;">
-                    <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
-                    <input type="hidden" name="action" value="notify_driver_routine">
-                    <input type="hidden" name="jadwal_id" value="<?= (int)$row['id'] ?>">
-                    <input type="hidden" name="interval_bulan" value="3">
-                    <button type="submit" class="btn btn-sm btn-outline-warning" title="Notifikasi Driver 3 Bulanan">
-                        <i class="fas fa-bell"></i>
-                    </button>
-                </form>
+                <a href="?page=jadwal_perawatan&action=edit&id=<?= $row['id'] ?>" class="btn btn-sm btn-outline-primary" title="Edit"><i class="fas fa-edit"></i></a>
+                <?php if (can_admin()): ?>
+                    <a href="index.php?page=jadwal_perawatan&action=delete&id=<?= $row['id'] ?>" class="btn btn-sm btn-outline-danger" title="Hapus" onclick="return confirm('Yakin ingin menghapus jadwal perawatan ini?')"><i class="fas fa-trash"></i></a>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
+
+        <?php if ($can_notify_driver): ?>
+            <form method="POST" action="?page=jadwal_perawatan" style="display:inline-block; margin-left:6px;">
+                <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
+                <input type="hidden" name="action" value="notify_driver_routine">
+                <input type="hidden" name="jadwal_id" value="<?= (int)$row['id'] ?>">
+                <input type="hidden" name="interval_bulan" value="3">
+                <button type="submit" class="btn btn-sm btn-outline-warning" title="Notifikasi Driver 3 Bulanan"><i class="fas fa-bell"></i></button>
+            </form>
+        <?php endif; ?>
     </td>
     <?php endif; ?>
 </tr>
@@ -179,7 +211,7 @@ if ($result && $result->num_rows > 0):
 else: 
 ?>
 <tr>
-    <td colspan="<?= ($can_crud || $can_notify_driver) ? '9' : '8' ?>" class="text-center text-muted">
+    <td colspan="<?= ($can_crud || $can_notify_driver) ? '8' : '7' ?>" class="text-center text-muted">
         Belum ada jadwal perawatan
     </td>
 </tr>

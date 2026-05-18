@@ -1,2 +1,2 @@
-no_rangka,no_mesin,no_reg,merk,tipe,tahun_pembuatan,warna,jenis,bahan_bakar,satker,penanggung_jawab,kondisi,status_kendaraan
-MH8XXX1234567890,1NZ-1234567,REG-001,TOYOTA,AVANZA,2022,HITAM,Roda 4,Bensin,PUSINFOLAHTA,Kapusinfolahta TNI,Baik,Operasional
+no_rangka,no_mesin,no_reg,merk,tipe,tahun_pembuatan,warna,bahan_bakar,satker,kondisi,status_kendaraan
+MH8XXX1234567890,1NZ-1234567,REG-001,TOYOTA,AVANZA,2022,HITAM,Bensin,PUSINFOLAHTA,Baik,Operasional

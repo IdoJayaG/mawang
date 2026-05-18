@@ -110,11 +110,6 @@ if ($_POST) {
                 ? (int)$_POST['km_kembali']
                 : ((isset($_POST['km_target']) && $_POST['km_target'] !== '') ? (int)$_POST['km_target'] : null);
             $km_saat_perawatan = $_POST['km_saat_perawatan'] ? (int)$_POST['km_saat_perawatan'] : null;
-            $estimasi_biaya = (isset($_POST['estimasi_biaya']) && $_POST['estimasi_biaya'] !== '') ? (float)$_POST['estimasi_biaya'] : 0;
-            // biaya_aktual defaults to estimasi_biaya if not explicitly provided/edited
-            $biaya_aktual = (isset($_POST['biaya_aktual']) && $_POST['biaya_aktual'] !== '')
-                ? (float)$_POST['biaya_aktual']
-                : ((isset($_POST['estimasi_biaya']) && $_POST['estimasi_biaya'] !== '') ? (float)$_POST['estimasi_biaya'] : null);
             // Banyaknya & Satuan (qty and unit) — default banyaknya to 1 if empty for safer persistence
             $banyaknya = (isset($_POST['banyaknya']) && $_POST['banyaknya'] !== '') ? (float)$_POST['banyaknya'] : 1;
             $satuan = trim($_POST['satuan'] ?? '');
@@ -178,10 +173,10 @@ if ($_POST) {
                 }
             }
 
-            // Persist including quantity (banyaknya) and unit (satuan)
-            $stmt = $mysqli->prepare("INSERT INTO jadwal_perawatan (kendaraan_id, jenis_perawatan, deskripsi, bengkel, tanggal_perawatan, km_kembali, km_saat_perawatan, estimasi_biaya, biaya_aktual, banyaknya, satuan, prioritas, keterangan, created_by, teknisi_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            // Types: i,kendaraan_id; s,jenis; s,deskripsi; s,bengkel; s,tanggal_perawatan; i,km_kembali; i,km_saat_perawatan; d,estimasi; d,biaya_aktual; d,banyaknya; s,satuan; s,prioritas; s,keterangan; i,created_by; i,teknisi_id
-            $stmt->bind_param('issssiidddsssii', $kendaraan_id, $jenis_perawatan, $deskripsi, $bengkel, $tanggal_perawatan, $km_kembali, $km_saat_perawatan, $estimasi_biaya, $biaya_aktual, $banyaknya, $satuan, $prioritas, $keterangan, $current_user_id, $teknisi_id);
+            // Persist including quantity (banyaknya) and unit (satuan); estimasi/biaya fields removed
+            $stmt = $mysqli->prepare("INSERT INTO jadwal_perawatan (kendaraan_id, jenis_perawatan, deskripsi, bengkel, tanggal_perawatan, km_kembali, km_saat_perawatan, banyaknya, satuan, prioritas, keterangan, created_by, teknisi_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            // Types: i,kendaraan_id; s,jenis; s,deskripsi; s,bengkel; s,tanggal_perawatan; i,km_kembali; i,km_saat_perawatan; d,banyaknya; s,satuan; s,prioritas; s,keterangan; i,created_by; i,teknisi_id
+            $stmt->bind_param('issssiidsssii', $kendaraan_id, $jenis_perawatan, $deskripsi, $bengkel, $tanggal_perawatan, $km_kembali, $km_saat_perawatan, $banyaknya, $satuan, $prioritas, $keterangan, $current_user_id, $teknisi_id);
             
             if ($stmt->execute()) {
                 // If the scheduled date is today, update kendaraan status to Perbaikan/Maintenance
@@ -220,11 +215,6 @@ if ($_POST) {
                 ? (int)$_POST['km_kembali']
                 : ((isset($_POST['km_target']) && $_POST['km_target'] !== '') ? (int)$_POST['km_target'] : null);
             $km_saat_perawatan = $_POST['km_saat_perawatan'] ? (int)$_POST['km_saat_perawatan'] : null;
-            $estimasi_biaya = (isset($_POST['estimasi_biaya']) && $_POST['estimasi_biaya'] !== '') ? (float)$_POST['estimasi_biaya'] : 0;
-            // biaya_aktual defaults to estimasi_biaya if not explicitly provided/edited
-            $biaya_aktual = (isset($_POST['biaya_aktual']) && $_POST['biaya_aktual'] !== '')
-                ? (float)$_POST['biaya_aktual']
-                : ((isset($_POST['estimasi_biaya']) && $_POST['estimasi_biaya'] !== '') ? (float)$_POST['estimasi_biaya'] : null);
             // Banyaknya & Satuan (qty and unit) — default banyaknya to 1 if empty
             $banyaknya = (isset($_POST['banyaknya']) && $_POST['banyaknya'] !== '') ? (float)$_POST['banyaknya'] : 1;
             $satuan = trim($_POST['satuan'] ?? '');
@@ -232,10 +222,10 @@ if ($_POST) {
             $status = $_POST['status'];
             $prioritas = $_POST['prioritas'];
             $tanggal_selesai = $_POST['tanggal_selesai'] ?: null;
-            // If status is being set to Selesai, require tanggal_selesai and biaya_aktual
-                if (strtolower($status) === 'selesai') {
-                if (empty($tanggal_selesai) || $biaya_aktual === null) {
-                    $msg = '<div class="alert alert-danger">Untuk menandai selesai, harap isi Tanggal Selesai dan Biaya Aktual.</div>';
+            // If status is being set to Selesai, require tanggal_selesai
+            if (strtolower($status) === 'selesai') {
+                if (empty($tanggal_selesai)) {
+                    $msg = '<div class="alert alert-danger">Untuk menandai selesai, harap isi Tanggal Selesai.</div>';
                     goto end_post;
                 }
             }
@@ -279,9 +269,9 @@ if ($_POST) {
             }
 
             // Update jadwal_perawatan (tetap gunakan kendaraan_id sebagai foreign key), termasuk banyaknya dan satuan
-            $stmt = $mysqli->prepare("UPDATE jadwal_perawatan SET kendaraan_id=?, jenis_perawatan=?, deskripsi=?, bengkel=?, tanggal_perawatan=?, km_kembali=?, km_saat_perawatan=?, estimasi_biaya=?, status=?, prioritas=?, tanggal_selesai=?, biaya_aktual=?, banyaknya=?, satuan=?, keterangan=?, teknisi_id=?, updated_by=? WHERE id=?");
-            // Types: i,s,s,s,s,i,i,d,s,s,s,d,d,s,s,i,i,i
-            $stmt->bind_param('issssiidsssddssiii', $kendaraan_id, $jenis_perawatan, $deskripsi, $bengkel, $tanggal_perawatan, $km_kembali, $km_saat_perawatan, $estimasi_biaya, $status, $prioritas, $tanggal_selesai, $biaya_aktual, $banyaknya, $satuan, $keterangan, $teknisi_id, $current_user_id, $jadwal_id);
+            $stmt = $mysqli->prepare("UPDATE jadwal_perawatan SET kendaraan_id=?, jenis_perawatan=?, deskripsi=?, bengkel=?, tanggal_perawatan=?, km_kembali=?, km_saat_perawatan=?, status=?, prioritas=?, tanggal_selesai=?, banyaknya=?, satuan=?, keterangan=?, teknisi_id=?, updated_by=? WHERE id=?");
+            // Types: i,s,s,s,s,i,i,s,s,s,d,s,s,i,i,i
+            $stmt->bind_param('issssiisssdssiii', $kendaraan_id, $jenis_perawatan, $deskripsi, $bengkel, $tanggal_perawatan, $km_kembali, $km_saat_perawatan, $status, $prioritas, $tanggal_selesai, $banyaknya, $satuan, $keterangan, $teknisi_id, $current_user_id, $jadwal_id);
             
             if ($stmt->execute()) {
                 // Ambil no_reg berdasarkan kendaraan_id agar operasi selanjutnya menggunakan no_reg
@@ -366,6 +356,34 @@ if (($action === 'edit' || $action === 'view') && $jadwal_id) {
     $result = $stmt->get_result();
     $jadwal_data = $result->fetch_assoc();
     $stmt->close();
+
+    // If current user is a driver, ensure they have access to the kendaraan for this jadwal
+    if ($jadwal_data && $current_role === 'driver') {
+        $kendaraan_id_check = isset($jadwal_data['kendaraan_id']) ? (int)$jadwal_data['kendaraan_id'] : 0;
+        $allowed = false;
+        if ($kendaraan_id_check > 0) {
+            if (function_exists('can_access_vehicle') && can_access_vehicle($kendaraan_id_check)) {
+                $allowed = true;
+            }
+            // Fallback: check kendaraan.pengguna_id if column exists
+            if (!$allowed && function_exists('db_table_columns') && in_array('pengguna_id', db_table_columns('kendaraan') ?: [], true)) {
+                $g = $mysqli->prepare("SELECT pengguna_id FROM kendaraan WHERE id = ? LIMIT 1");
+                if ($g) {
+                    $g->bind_param('i', $kendaraan_id_check);
+                    $g->execute();
+                    $g->bind_result($pengguna_id_row);
+                    $g->fetch();
+                    $g->close();
+                    if ((int)$pengguna_id_row === (int)$current_user_id) { $allowed = true; }
+                }
+            }
+        }
+        if (!$allowed) {
+            $msg = '<div class="alert alert-danger">Anda tidak memiliki akses ke jadwal perawatan tersebut.</div>';
+            $action = 'list';
+            $jadwal_data = null;
+        }
+    }
 }
 
 // Get vehicles for dropdown
@@ -434,7 +452,7 @@ if (!empty($_SESSION['swal'])): ?>
                                     <th>Jenis Perawatan</th>
                                     <th>Tanggal Perawatan</th>
                                     <th>Bengkel</th>
-                                    <th>Estimasi Biaya</th>
+                                    <!-- Estimasi Biaya column removed -->
                                     <th>Status</th>
                                     <th>Prioritas</th>
                                     <?php if ($can_crud || $can_notify_driver): ?>
@@ -538,15 +556,7 @@ if (!empty($_SESSION['swal'])): ?>
                          placeholder="Contoh: 14500">
                                 </div>
                             </div>
-                            <div class="col-md-4">
-                                <div class="form-group">
-                                    <label for="estimasi_biaya">Estimasi Biaya</label>
-                     <input type="number" name="estimasi_biaya" id="estimasi_biaya" 
-                         class="form-control" step="1"
-                         value="<?= isset($jadwal_data) ? htmlspecialchars($jadwal_data['estimasi_biaya'] ?? '') : '' ?>"
-                         placeholder="Contoh: 500000">
-                                </div>
-                            </div>
+                            <!-- Estimasi Biaya input removed -->
                         </div>
 
                         <div class="row">
@@ -595,14 +605,7 @@ if (!empty($_SESSION['swal'])): ?>
                                                value="<?= isset($jadwal_data) ? $jadwal_data['tanggal_selesai'] : '' ?>">
                                     </div>
                                 </div>
-                                <div class="col-md-3">
-                                    <div class="form-group">
-                                        <label for="biaya_aktual">Biaya Aktual</label>
-                                        <input type="number" name="biaya_aktual" id="biaya_aktual" 
-                                            class="form-control" step="0.01"
-                                            value="<?= isset($jadwal_data) ? htmlspecialchars(($jadwal_data['biaya_aktual'] ?? ($jadwal_data['estimasi_biaya'] ?? ''))) : '' ?>">
-                                    </div>
-                                </div>
+                                <!-- Biaya Aktual input removed -->
                                 <div class="col-md-3">
                                     <div class="form-group">
                                         <label for="prioritas">Prioritas</label>
@@ -691,8 +694,7 @@ if (!empty($_SESSION['swal'])): ?>
                         <tr><th>Satuan</th><td><?= htmlspecialchars($jadwal_data['satuan'] ?? '-') ?></td></tr>
                         <tr><th>KM Kembali</th><td><?= !empty($jadwal_data['km_kembali']) ? number_format($jadwal_data['km_kembali']) . ' KM' : '-' ?></td></tr>
                         <tr><th>KM Saat Perawatan</th><td><?= !empty($jadwal_data['km_saat_perawatan']) ? number_format($jadwal_data['km_saat_perawatan']) . ' KM' : '-' ?></td></tr>
-                        <tr><th>Estimasi Biaya</th><td><?= !empty($jadwal_data['estimasi_biaya']) ? 'Rp ' . number_format($jadwal_data['estimasi_biaya']) : '-' ?></td></tr>
-                        <tr><th>Biaya Aktual</th><td><?= !empty($jadwal_data['biaya_aktual']) ? 'Rp ' . number_format($jadwal_data['biaya_aktual']) : '-' ?></td></tr>
+                        <!-- Estimasi Biaya and Biaya Aktual removed from detail view -->
                         <tr><th>Status</th><td><?= htmlspecialchars($jadwal_data['status'] ?? '-') ?></td></tr>
                         <tr><th>Prioritas</th><td><?= htmlspecialchars($jadwal_data['prioritas'] ?? '-') ?></td></tr>
                         <tr><th>Teknisi</th><td><?= htmlspecialchars($jadwal_data['teknisi_name'] ?? ($jadwal_data['teknisi_id'] ?? '-')) ?></td></tr>
@@ -778,15 +780,13 @@ $(function(){
         });
     }
 
-    // Client-side: when status is Selesai, require tanggal_selesai and biaya_aktual
+    // Client-side: when status is Selesai, require tanggal_selesai
     function toggleSelesaiRequirements() {
         var status = $('#status').val();
         if (status && status.toLowerCase() === 'selesai') {
             $('#tanggal_selesai').prop('required', true);
-            $('#biaya_aktual').prop('required', true);
         } else {
             $('#tanggal_selesai').prop('required', false);
-            $('#biaya_aktual').prop('required', false);
         }
     }
     $('#status').on('change', toggleSelesaiRequirements);

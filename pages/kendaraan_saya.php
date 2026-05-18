@@ -1,7 +1,7 @@
 <?php
 require_once 'includes/auth.php';
 require_login();
-require_role('user');
+require_role(['user','driver']);
 
 $user_id = get_current_user_id();
 $today = date('Y-m-d');
@@ -225,7 +225,7 @@ if (!empty($has_st_tbl)) {
                                 </div>
                             </div>
                             <div class="card-footer bg-light p-3 border-top d-flex gap-2">
-                                <a href="index.php?page=kendaraan_detail_user&id=<?= (int)$row['id'] ?>" class="btn btn-primary btn-sm flex-fill"><i class="fas fa-eye me-1"></i> Lihat Kendaraan</a>
+                                <a href="index.php?page=kendaraan_detail&id=<?= (int)$row['id'] ?>" class="btn btn-primary btn-sm flex-fill"><i class="fas fa-eye me-1"></i> Lihat Kendaraan</a>
                                 <a href="index.php?page=surat_tugas&action=view&id=<?= (int)$row['surat_id'] ?>" class="btn btn-outline-secondary btn-sm flex-fill"><i class="fas fa-file-alt me-1"></i> Lihat Surat</a>
                             </div>
                         </div>

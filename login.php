@@ -66,7 +66,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #154a6b 0%, #5b8aa8 100%);
+            background-image: url('assets/images/bg.png'), linear-gradient(135deg, #154a6b 0%, #5b8aa8 100%);
+            background-size: cover, auto;
+            background-position: center center, center;
+            background-repeat: no-repeat, no-repeat;
             min-height: 100vh;
             display: flex;
             align-items: center;

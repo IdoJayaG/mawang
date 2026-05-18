@@ -38,8 +38,8 @@ $repair_result = $mysqli->query("
 // Calculate total maintenance cost
 $cost_result = $mysqli->query("
     SELECT 
-        COALESCE(SUM(jp.biaya), 0) as total_perawatan,
-        COALESCE(SUM(rp.biaya_perbaikan), 0) as total_perbaikan
+        0 as total_perawatan,
+        0 as total_perbaikan
     FROM kendaraan k
     LEFT JOIN jadwal_perawatan jp ON k.id = jp.kendaraan_id
     LEFT JOIN riwayat_perbaikan rp ON k.id = rp.kendaraan_id
@@ -53,7 +53,7 @@ $trend_result = $mysqli->query("
     SELECT 
         DATE_FORMAT(tanggal_perawatan, '%Y-%m') as bulan,
         COUNT(*) as jumlah_perawatan,
-        SUM(biaya) as total_biaya
+        0 as total_biaya
     FROM jadwal_perawatan
     WHERE kendaraan_id = $kendaraan_id
     AND tanggal_perawatan >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
@@ -177,8 +177,8 @@ $trend_result = $mysqli->query("
                                     </div>
                                     <div class="col-md-3">
                                         <div class="stats-card text-center p-3 mb-3">
-                                            <h3 class="mb-1">Rp <?php echo number_format($total_cost, 0, ',', '.'); ?></h3>
-                                            <small>Total Biaya</small>
+                                            <h3 class="mb-1">-</h3>
+                                            <small>Total (disembunyikan)</small>
                                         </div>
                                     </div>
                                     <div class="col-md-3">
@@ -307,13 +307,8 @@ $trend_result = $mysqli->query("
                                                         <strong><?php echo htmlspecialchars($item['data']['teknisi_nama'] ?: 'Tidak tercatat'); ?></strong>
                                                     </div>
                                                     <div class="col-md-4">
-                                                        <small class="text-muted">Biaya:</small><br>
-                                                        <strong class="text-primary">
-                                                            Rp <?php 
-                                                            $cost = $item['type'] === 'maintenance' ? $item['data']['biaya'] : $item['data']['biaya_perbaikan'];
-                                                            echo number_format($cost ?: 0, 0, ',', '.'); 
-                                                            ?>
-                                                        </strong>
+                                                        <small class="text-muted">Catatan:</small><br>
+                                                        <strong class="text-primary">-</strong>
                                                     </div>
                                                     <div class="col-md-4">
                                                         <small class="text-muted">Status:</small><br>

@@ -1,6 +1,10 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
-require_admin();
+// Allow drivers to access their own laporan; require at least 'user' role
+require_user();
+// Current session role/id for later logic
+$current_role = get_current_role();
+$current_user_id = get_current_user_id();
 
 // Routing
 $action = $_GET['action'] ?? 'list';
@@ -103,6 +107,17 @@ if ($action === 'export_excel') {
     $stmtE->close();
 
     $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    // Preload today's surat_tugas for drivers for quick action checks
+    $surat_map = [];
+    if ($current_role === 'driver' && $current_user_id && db_table_exists('surat_tugas')) {
+      $today = date('Y-m-d');
+      $stQ = $mysqli->prepare("SELECT id, kendaraan_id, status, tanggal_berangkat FROM surat_tugas WHERE pengguna_id = ? AND DATE(tanggal_berangkat) = ? AND status IN ('Disetujui','Dalam Perjalanan')");
+      $stQ->bind_param('is', $current_user_id, $today);
+      $stQ->execute();
+      $stRes = $stQ->get_result();
+      while ($s = $stRes->fetch_assoc()) { $surat_map[(int)$s['kendaraan_id']] = $s; }
+      $stQ->close();
+    }
     $sheet = $spreadsheet->getActiveSheet();
     $sheet->setTitle('Laporan');
 
@@ -316,11 +331,114 @@ if ($action === 'lookup_pengguna') {
 
 // Handle POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!validate_csrf_token($_POST['csrf_token'] ?? '')) {
-        http_response_code(400);
-        echo 'Invalid CSRF token';
-        exit;
+  if (!validate_csrf_token($_POST['csrf_token'] ?? '')) {
+    http_response_code(400);
+    echo 'Invalid CSRF token';
+    exit;
+  }
+  // Driver actions: start/finish surat_tugas, or save edit to laporan
+  if (!empty($_POST['start_surat_id'])) {
+    $sid = (int)$_POST['start_surat_id'];
+    if ($sid > 0 && db_table_exists('surat_tugas')) {
+      $st = $mysqli->prepare("SELECT pengguna_id, status FROM surat_tugas WHERE id = ? LIMIT 1");
+      $st->bind_param('i', $sid);
+      $st->execute();
+      $srow = $st->get_result()->fetch_assoc();
+      $st->close();
+      if ($srow && ((int)$srow['pengguna_id'] === (int)$current_user_id || can_admin())) {
+        $newStatus = 'Dalam Perjalanan';
+        $up = $mysqli->prepare("UPDATE surat_tugas SET status = ?, updated_at = NOW() WHERE id = ?");
+        $up->bind_param('si', $newStatus, $sid);
+        $up->execute();
+        $up->close();
+        if (function_exists('log_activity')) log_activity('SURAT_START', "Surat tugas id={$sid} set to Dalam Perjalanan oleh pengguna {$current_user_id}");
+      }
     }
+    header('Location: index.php?page=laporan_perjalanan');
+    exit;
+  }
+  if (!empty($_POST['finish_surat_id'])) {
+    $sid = (int)$_POST['finish_surat_id'];
+    if ($sid > 0 && db_table_exists('surat_tugas')) {
+      $st = $mysqli->prepare("SELECT id, kendaraan_id, pengguna_id, tanggal_berangkat, tanggal_kembali, nomor_surat, tujuan, keperluan, laporan_perjalanan, status FROM surat_tugas WHERE id = ? LIMIT 1");
+      $st->bind_param('i', $sid);
+      $st->execute();
+      $srow = $st->get_result()->fetch_assoc();
+      $st->close();
+      if ($srow && ((int)$srow['pengguna_id'] === (int)$current_user_id || can_admin())) {
+        $newStatus = 'Selesai';
+        $up = $mysqli->prepare("UPDATE surat_tugas SET status = ?, updated_at = NOW() WHERE id = ?");
+        $up->bind_param('si', $newStatus, $sid);
+        $up->execute();
+        $up->close();
+        if (function_exists('log_activity')) log_activity('SURAT_FINISH', "Surat tugas id={$sid} set to Selesai oleh pengguna {$current_user_id}");
+        // Ensure a laporan_perjalanan exists for this surat (tanggal_berangkat)
+        $lp_id = null;
+        $tanggal = $srow['tanggal_berangkat'] ?? null;
+        if ($tanggal) {
+          $chk = $mysqli->prepare("SELECT id FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? LIMIT 1");
+          $chk->bind_param('is', $srow['kendaraan_id'], $tanggal);
+          $chk->execute();
+          $rowc = $chk->get_result()->fetch_assoc();
+          $chk->close();
+          if ($rowc && !empty($rowc['id'])) {
+            $lp_id = (int)$rowc['id'];
+          } else {
+            // create a minimal laporan_perjalanan row
+            $uraian = trim($srow['laporan_perjalanan'] ?? $srow['keperluan'] ?? $srow['nomor_surat'] ?? ('Surat Tugas ' . ($srow['id'] ?? '')));
+            $route = $srow['tujuan'] ?? '';
+            if ($ins = $mysqli->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, NULL, NOW())")) {
+              $ins->bind_param('siiss', $tanggal, $srow['kendaraan_id'], $srow['pengguna_id'], $uraian, $route);
+              if ($ins->execute()) {
+                $lp_id = (int)$mysqli->insert_id;
+              }
+              $ins->close();
+            }
+          }
+        }
+        if ($lp_id) {
+          header('Location: index.php?page=laporan_perjalanan&action=edit&id=' . $lp_id);
+          exit;
+        }
+      }
+    }
+    header('Location: index.php?page=laporan_perjalanan');
+    exit;
+  }
+  if (!empty($_POST['edit_id'])) {
+    $edit_id = (int)$_POST['edit_id'];
+    $tanggal = trim($_POST['tanggal'] ?? '');
+    $kendaraan_id = (int)($_POST['kendaraan_id'] ?? 0);
+    $pengguna_id = (int)($_POST['pengguna_id'] ?? 0);
+    $uraian = trim($_POST['uraian_kegiatan'] ?? '');
+    $route = trim($_POST['route'] ?? '');
+    $jarak_in = trim($_POST['jarak_km'] ?? '');
+    $jarak_val = ($jarak_in === '' ? null : (float)$jarak_in);
+    // Permission: drivers may only edit reports for vehicles they are responsible for
+    $allowed = false;
+    if (can_admin()) $allowed = true;
+    else if ($current_role === 'driver' && $current_user_id) {
+      // ensure kendaraan.pengguna_id or laporan.pengguna_id equals current user
+      $stchk = $mysqli->prepare("SELECT lp.pengguna_id, k.pengguna_id AS kend_pengguna FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id WHERE lp.id = ? LIMIT 1");
+      $stchk->bind_param('i', $edit_id);
+      $stchk->execute();
+      $stchk_row = $stchk->get_result()->fetch_assoc();
+      $stchk->close();
+      if ($stchk_row && ((int)$stchk_row['pengguna_id'] === (int)$current_user_id || (int)$stchk_row['kend_pengguna'] === (int)$current_user_id)) $allowed = true;
+    }
+    if ($allowed) {
+      if ($jarak_val === null) {
+        $upq = $mysqli->prepare("UPDATE laporan_perjalanan SET tanggal = ?, kendaraan_id = ?, pengguna_id = ?, uraian_kegiatan = ?, route = ?, jarak_km = NULL, updated_at = NOW() WHERE id = ?");
+        $upq->bind_param('siissi', $tanggal, $kendaraan_id, $pengguna_id, $uraian, $route, $edit_id);
+      } else {
+        $upq = $mysqli->prepare("UPDATE laporan_perjalanan SET tanggal = ?, kendaraan_id = ?, pengguna_id = ?, uraian_kegiatan = ?, route = ?, jarak_km = ?, updated_at = NOW() WHERE id = ?");
+        $upq->bind_param('siissdi', $tanggal, $kendaraan_id, $pengguna_id, $uraian, $route, $jarak_val, $edit_id);
+      }
+      if ($upq) { $ok = $upq->execute(); $upq->close(); if ($ok && function_exists('log_activity')) log_activity('UPDATE_LAPORAN', "Update laporan id={$edit_id} oleh pengguna {$current_user_id}"); }
+    }
+    header('Location: index.php?page=laporan_perjalanan&updated=1');
+    exit;
+  }
   if ($action === 'create') {
     // Create new laporan perjalanan
     $tanggal = trim($_POST['tanggal'] ?? '');
@@ -463,6 +581,19 @@ if ($action === 'list') {
     if ($where === '') $where = ' WHERE 1=1';
     $where .= ' AND lp.tanggal >= ? AND lp.tanggal < ?';
     $params[] = $bulan_start; $params[] = $bulan_end; $types .= 'ss';
+  }
+
+  // Role filter: drivers see only kendaraan they are responsible for
+  if ($current_role === 'driver' && $current_user_id) {
+    $hasPenggunaCol = function_exists('db_table_columns') && in_array('pengguna_id', (array)db_table_columns('kendaraan'), true);
+    if ($where === '') $where = ' WHERE ';
+    else $where .= ' AND ';
+    if ($hasPenggunaCol) {
+      $where .= 'k.pengguna_id = ?';
+    } else {
+      $where .= 'lp.pengguna_id = ?';
+    }
+    $params[] = $current_user_id; $types .= 'i';
   }
 
   // Count
@@ -644,6 +775,112 @@ if ($action === 'list') {
   })();
 </script>
 
+<?php elseif ($action === 'edit'): ?>
+<?php
+  $edit_id = (int)($_GET['id'] ?? 0);
+  if ($edit_id <= 0) {
+    echo '<div class="alert alert-danger">Laporan tidak ditemukan.</div>';
+  } else {
+    $stmtE = $mysqli->prepare("SELECT lp.*, k.no_reg, k.no_polisi FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id WHERE lp.id = ? LIMIT 1");
+    $stmtE->bind_param('i', $edit_id);
+    $stmtE->execute();
+    $lp = $stmtE->get_result()->fetch_assoc();
+    $stmtE->close();
+    if (!$lp) {
+      echo '<div class="alert alert-danger">Laporan tidak ditemukan.</div>';
+    } else {
+      // If driver, attempt to mark associated surat_tugas as 'Dalam Perjalanan' for today
+      if ($current_role === 'driver' && db_table_exists('surat_tugas')) {
+        $today = date('Y-m-d');
+        $stq = $mysqli->prepare("SELECT id, status FROM surat_tugas WHERE kendaraan_id = ? AND pengguna_id = ? AND DATE(tanggal_berangkat) = ? LIMIT 1");
+        $stq->bind_param('iis', $lp['kendaraan_id'], $current_user_id, $today);
+        $stq->execute();
+        $stres = $stq->get_result()->fetch_assoc();
+        $stq->close();
+        if ($stres && strtolower(trim($stres['status'] ?? '')) !== 'dalam perjalanan') {
+          $up = $mysqli->prepare("UPDATE surat_tugas SET status = 'Dalam Perjalanan', updated_at = NOW() WHERE id = ?");
+          $up->bind_param('i', $stres['id']);
+          $up->execute();
+          $up->close();
+          if (function_exists('log_activity')) log_activity('SURAT_START', "Surat tugas id={$stres['id']} set to Dalam Perjalanan oleh pengguna {$current_user_id}");
+        }
+      }
+      // Fetch dropdowns for kendaraan and pengguna (reuse create logic)
+      $kendaraan_opts = [];
+      $resK = $mysqli->query("SELECT id, no_reg, no_polisi, merk, tipe, bahan_bakar FROM kendaraan ORDER BY COALESCE(no_reg, no_polisi), merk");
+      if ($resK) { while ($k = $resK->fetch_assoc()) $kendaraan_opts[] = $k; }
+      $pengguna_opts = [];
+      $resP = $mysqli->query("SELECT id, nama_lengkap, pangkat, nrp_nip, jabatan FROM pengguna WHERE status_aktif = 'Aktif' ORDER BY nama_lengkap");
+      if ($resP) { while ($p = $resP->fetch_assoc()) $pengguna_opts[] = $p; }
+      $pengguna_tamudi_opts = [];
+      $resT = $mysqli->query("SELECT id, nama_lengkap, pangkat, nrp_nip, jabatan FROM pengguna WHERE status_aktif = 'Aktif' AND LOWER(COALESCE(jabatan,'')) LIKE '%tamudi%' ORDER BY nama_lengkap");
+      if ($resT) { while ($t = $resT->fetch_assoc()) $pengguna_tamudi_opts[] = $t; }
+      $tanggal_val = htmlspecialchars($lp['tanggal'] ?? date('Y-m-d'));
+      $uraian_val = htmlspecialchars($lp['uraian_kegiatan'] ?? '');
+      $route_val = htmlspecialchars($lp['route'] ?? '');
+      $jarak_val_in = htmlspecialchars($lp['jarak_km'] ?? '');
+    }
+  }
+?>
+<?php if (!empty($lp)): ?>
+<div class="card">
+  <div class="card-header"><h3 class="m-0"><i class="fas fa-edit me-1"></i> Edit Laporan Perjalanan</h3></div>
+  <div class="card-body">
+    <form method="post" action="?page=laporan_perjalanan&action=edit&id=<?= (int)$edit_id ?>" class="row g-3">
+      <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>" />
+      <input type="hidden" name="edit_id" value="<?= (int)$edit_id ?>" />
+      <div class="col-md-3">
+        <label class="form-label">Tanggal *</label>
+        <input type="date" name="tanggal" class="form-control" required value="<?= $tanggal_val ?>" />
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Kendaraan (No.Reg) *</label>
+        <select name="kendaraan_id" id="kendaraan_id" class="form-select" required>
+          <option value="">-- Pilih Kendaraan --</option>
+          <?php foreach ($kendaraan_opts as $k): $id=(int)$k['id']; $label = trim(($k['no_reg'] ?: $k['no_polisi']) . ' - ' . $k['merk'] . ($k['tipe']?' '.$k['tipe']:'')); $fuel=strtolower(trim((string)($k['bahan_bakar'] ?? ''))); ?>
+            <option value="<?= $id ?>" data-fuel="<?= htmlspecialchars($fuel) ?>" <?= ((int)$lp['kendaraan_id'] === $id)?'selected':'' ?>><?= htmlspecialchars($label) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label">Pengemudi (Pengguna) *</label>
+        <select name="pengguna_id" id="pengguna_id" class="form-select" required>
+          <option value="">-- Pilih Pengguna --</option>
+          <?php if (!empty($pengguna_tamudi_opts)): ?>
+            <optgroup label="Pengguna - Tamudi">
+              <?php foreach ($pengguna_tamudi_opts as $p): $id=(int)$p['id']; $label = $p['nama_lengkap'] . ' - ' . trim(($p['pangkat']?:'') . ' ' . ($p['nrp_nip']?:'')); ?>
+                <option value="<?= $id ?>" <?= ((int)$lp['pengguna_id'] === $id)?'selected':'' ?>><?= htmlspecialchars($label) ?></option>
+              <?php endforeach; ?>
+            </optgroup>
+          <?php endif; ?>
+          <optgroup label="Semua Pengguna">
+            <?php foreach ($pengguna_opts as $p): $id=(int)$p['id']; $label = $p['nama_lengkap'] . ' - ' . trim(($p['pangkat']?:'') . ' ' . ($p['nrp_nip']?:'')); ?>
+              <option value="<?= $id ?>" <?= ((int)$lp['pengguna_id'] === $id)?'selected':'' ?>><?= htmlspecialchars($label) ?></option>
+            <?php endforeach; ?>
+          </optgroup>
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Uraian Kegiatan *</label>
+        <input type="text" name="uraian_kegiatan" class="form-control" required value="<?= $uraian_val ?>" />
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Route *</label>
+        <input type="text" name="route" class="form-control" required value="<?= $route_val ?>" />
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Jarak (km)</label>
+        <input type="number" step="1" min="0" name="jarak_km" class="form-control" value="<?= $jarak_val_in ?>" />
+      </div>
+      <div class="col-12 d-flex justify-content-between mt-2">
+        <a href="?page=laporan_perjalanan" class="btn btn-secondary"><i class="fas fa-arrow-left me-1"></i> Kembali</a>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-save me-1"></i> Simpan Perubahan</button>
+      </div>
+    </form>
+  </div>
+</div>
+<?php endif; ?>
+
 <?php else: ?>
 <div class="content">
   <!-- Filters (match placement/style from Riwayat Perawatan) -->
@@ -693,6 +930,7 @@ if ($action === 'list') {
                 <th>Uraian Kegiatan</th>
                 <th>Route</th>
                 <th>Jarak (km)</th>
+                <th>Aksi</th>
                 <th>BBM (L)</th>
             </tr>
             </thead>
@@ -708,7 +946,21 @@ if ($action === 'list') {
                 <td><?= htmlspecialchars($r['merk'] . ($r['tipe']? ' ' . $r['tipe'] : '')) ?></td>
                 <td><?= htmlspecialchars($r['uraian_kegiatan']) ?></td>
                 <td><?= htmlspecialchars($r['route']) ?></td>
-                <td><?= htmlspecialchars($r['jarak_km']) ?> Km</td>
+                <td><?= htmlspecialchars($r['jarak_km'] ?? '') ?> Km</td>
+                <td>
+                  <?php if ($current_role === 'driver' && isset($surat_map[(int)$r['kendaraan_id']])): $st = $surat_map[(int)$r['kendaraan_id']]; ?>
+                    <a href="?page=laporan_perjalanan&action=edit&id=<?= (int)$r['id'] ?>" class="btn btn-sm btn-outline-primary me-1"><i class="fas fa-edit"></i> Edit</a>
+                    <form method="post" style="display:inline" class="d-inline" onsubmit="return confirm('Selesaikan perjalanan?');">
+                      <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
+                      <input type="hidden" name="finish_surat_id" value="<?= (int)$st['id'] ?>">
+                      <button class="btn btn-sm btn-success" type="submit" title="Selesaikan Perjalanan"><i class="fas fa-check"></i></button>
+                    </form>
+                  <?php elseif (can_admin()): ?>
+                    <a href="?page=laporan_perjalanan&action=edit&id=<?= (int)$r['id'] ?>" class="btn btn-sm btn-outline-primary"><i class="fas fa-edit"></i> Edit</a>
+                  <?php else: ?>
+                    -
+                  <?php endif; ?>
+                </td>
                 <td><span class="badge bg-info text-dark"><?= $bbm !== null ? number_format($bbm, 0) : '-' ?> L</span></td>
                 </tr>
             <?php endforeach; endif; ?>

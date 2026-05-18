@@ -31,6 +31,14 @@ if ($vehicle_id) {
         exit;
     }
 
+    // Driver restriction: only allow viewing vehicle page if driver can access the vehicle
+    if ($current_role === 'driver' && $current_user_id && !can_access_vehicle($vid)) {
+        echo '<div class="page-header"><h1>Riwayat Perbaikan Kendaraan</h1></div>';
+        echo '<div class="alert alert-danger">Anda tidak memiliki hak untuk melihat riwayat perbaikan kendaraan ini.</div>';
+        echo '<a href="index.php?page=riwayat_perbaikan" class="btn btn-secondary">&larr; Kembali</a>';
+        exit;
+    }
+
     $rep_stmt = $conn->prepare("SELECT rp.*, p.nama_lengkap AS created_by_name FROM riwayat_perbaikan rp LEFT JOIN pengguna p ON rp.created_by = p.id WHERE rp.kendaraan_id = ? ORDER BY rp.tanggal_perbaikan DESC");
     $vehicle_repairs_all = [];
     if ($rep_stmt) {
@@ -59,6 +67,17 @@ if ($vehicle_id) {
         echo '<a href="index.php?page=riwayat_perbaikan" class="btn btn-secondary">&larr; Kembali</a>';
         exit;
     }
+
+// Driver restriction: only allow viewing this repair if they can access the vehicle
+if ($current_role === 'driver' && $current_user_id) {
+    $vehIdCheck = isset($repair['kendaraan_id']) ? (int)$repair['kendaraan_id'] : 0;
+    if ($vehIdCheck <= 0 || !can_access_vehicle($vehIdCheck)) {
+        echo '<div class="page-header"><h1>Detail Perbaikan</h1></div>';
+        echo '<div class="alert alert-danger">Anda tidak memiliki hak untuk melihat detail perbaikan ini.</div>';
+        echo '<a href="index.php?page=riwayat_perbaikan" class="btn btn-secondary">&larr; Kembali</a>';
+        exit;
+    }
+}
 }
 ?>
 
@@ -89,9 +108,6 @@ if ($vehicle_id) {
                             <th>Jenis</th>
                             <th>Nama Barang</th>
                             <th>Banyaknya</th>
-                            <th>Harga</th>
-                            <th>Jumlah</th>
-                            <th>Total (Rp)</th>
                             <th>Status</th>
                             <th>Aksi</th>
                         </tr>
@@ -99,9 +115,9 @@ if ($vehicle_id) {
                     <tbody>
                         <?php if (count($vehicle_repairs_all) > 0): foreach ($vehicle_repairs_all as $i => $r): ?>
                             <?php
-                                // compute first item and totals
-                                $sumItem = 0.0; $firstNama='-'; $firstQty='-'; $firstHarga='-'; $firstJumlah='-';
-                                if ($its = $conn->prepare('SELECT nama_barang, qty, satuan, harga FROM riwayat_perbaikan_items WHERE perbaikan_id = ? ORDER BY urutan ASC, id ASC')) {
+                                // compute first item (name and qty only)
+                                $firstNama='-'; $firstQty='-';
+                                if ($its = $conn->prepare('SELECT nama_barang, qty, satuan FROM riwayat_perbaikan_items WHERE perbaikan_id = ? ORDER BY urutan ASC, id ASC')) {
                                     $its->bind_param('i', $r['id']);
                                     $its->execute();
                                     $res = $its->get_result();
@@ -113,12 +129,8 @@ if ($vehicle_id) {
                                         if (!empty($it0['satuan'])) { $qtyLabel .= ' ' . (string)$it0['satuan']; }
                                         $firstNama = (string)$it0['nama_barang'];
                                         $firstQty = $qtyLabel;
-                                        $firstHarga = (float)$it0['harga'] > 0 ? 'Rp ' . number_format((float)$it0['harga']) : '-';
-                                        $firstJumlah = 'Rp ' . number_format(((float)$it0['qty']) * ((float)$it0['harga']));
-                                        foreach ($rows as $it) { $sumItem += ((float)$it['qty']) * ((float)$it['harga']); }
                                     }
                                 }
-                                $total_tampil = $sumItem > 0 ? $sumItem : (float)($r['biaya'] ?? 0);
                             ?>
                             <tr>
                                 <td><?= $i + 1 ?></td>
@@ -126,9 +138,6 @@ if ($vehicle_id) {
                                 <td><?= htmlspecialchars((string)($r['jenis_perbaikan'] ?? '-')) ?></td>
                                 <td><?= htmlspecialchars($firstNama) ?></td>
                                 <td><?= htmlspecialchars($firstQty) ?></td>
-                                <td><?= htmlspecialchars($firstHarga) ?></td>
-                                <td><?= htmlspecialchars($firstJumlah) ?></td>
-                                <td><?= ($total_tampil > 0) ? 'Rp ' . number_format($total_tampil) : '-' ?></td>
                                 <td><?= htmlspecialchars((string)($r['status'] ?? '-')) ?></td>
                                 <td>
                                     <a href="index.php?page=riwayat_perbaikan_detail&id=<?= $r['id'] ?>" class="btn btn-sm btn-primary"><i class="fas fa-eye"></i></a>
@@ -136,7 +145,7 @@ if ($vehicle_id) {
                                 </td>
                             </tr>
                         <?php endforeach; else: ?>
-                            <tr><td colspan="10" class="text-center">Belum ada riwayat perbaikan untuk kendaraan ini.</td></tr>
+                            <tr><td colspan="7" class="text-center">Belum ada riwayat perbaikan untuk kendaraan ini.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -212,8 +221,8 @@ if ($vehicle_id) {
                 if ($res) { $items = $res->fetch_all(MYSQLI_ASSOC); }
                 $stmt->close();
             }
+            // Price removed from detail view
             $grand = 0.0;
-            foreach ($items as $it) { $grand += ((float)$it['qty']) * ((float)$it['harga']); }
             ?>
             <div class="table-responsive">
                 <table class="table table-bordered table-sm mb-0">
@@ -221,14 +230,11 @@ if ($vehicle_id) {
                         <tr>
                             <th style="width:40px;">NO</th>
                             <th>NAMA BARANG</th>
-                            <th style="width:160px;">BANYAKNYA</th>
-                            <th style="width:160px;">HARGA</th>
-                            <th style="width:180px;">JUMLAH</th>
+                            <th style="width:200px;">BANYAKNYA</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (!empty($items)): foreach ($items as $idx => $it): ?>
-                            <?php $jumlah = ((float)$it['qty']) * ((float)$it['harga']); ?>
                             <tr>
                                 <td><?= $idx + 1 ?></td>
                                 <td><?= htmlspecialchars((string)($it['nama_barang'] ?? '-')) ?></td>
@@ -236,20 +242,17 @@ if ($vehicle_id) {
                                     <?= htmlspecialchars((string)($it['qty'] ?? 0)) ?>
                                     <?= !empty($it['satuan']) ? htmlspecialchars(' ' . (string)$it['satuan']) : '' ?>
                                 </td>
-                                <td><?= (float)$it['harga'] > 0 ? 'Rp ' . number_format((float)$it['harga']) : '-' ?></td>
-                                <td><?= $jumlah > 0 ? 'Rp ' . number_format($jumlah) : '-' ?></td>
                             </tr>
                         <?php endforeach; else: ?>
                             <tr>
-                                <td colspan="5" class="text-center text-muted">Tidak ada rincian barang</td>
+                                <td colspan="3" class="text-center text-muted">Tidak ada rincian barang</td>
                             </tr>
                         <?php endif; ?>
                     </tbody>
                     <tfoot>
                         <tr>
-                            <th colspan="4" class="text-right">TOTAL</th>
-                            <?php $tampilTotal = $grand > 0 ? $grand : (float)($repair['biaya'] ?? 0); ?>
-                            <th><?= $tampilTotal > 0 ? 'Rp ' . number_format($tampilTotal) : '-' ?></th>
+                            <th colspan="2" class="text-right">TOTAL</th>
+                            <th><?= '-' ?></th>
                         </tr>
                     </tfoot>
                 </table>

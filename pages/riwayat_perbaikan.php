@@ -13,6 +13,7 @@ if ($current_role === 'guest') {
 }
 
 $can_crud = can_operate(); // operator dan admin
+$can_add = $can_crud || in_array($current_role, ['user','driver'], true);
 $can_view = is_logged_in();
 
 $action = $_GET['action'] ?? 'list';
@@ -37,7 +38,7 @@ if ($action === 'export_excel') {
             $rp = $stmt->get_result()->fetch_assoc();
             $stmt->close();
             if (!$rp) { header('Location: index.php?page=riwayat_perbaikan'); exit; }
-            $its = $conn->prepare('SELECT nama_barang, qty, satuan, harga FROM riwayat_perbaikan_items WHERE perbaikan_id = ? ORDER BY urutan ASC, id ASC');
+            $its = $conn->prepare('SELECT nama_barang, qty, satuan FROM riwayat_perbaikan_items WHERE perbaikan_id = ? ORDER BY urutan ASC, id ASC');
             $items = [];
             if ($its) { $its->bind_param('i', $singleId); $its->execute(); $items = $its->get_result()->fetch_all(MYSQLI_ASSOC); $its->close(); }
 
@@ -55,32 +56,28 @@ if ($action === 'export_excel') {
             $sheet->setCellValue('A2',$info);
             $sheet->getStyle('A2')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
-            // Widths
+            // Widths (price columns removed)
             $sheet->getColumnDimension('A')->setWidth(12);
             $sheet->getColumnDimension('B')->setWidth(40);
             $sheet->getColumnDimension('C')->setWidth(16);
             $sheet->getColumnDimension('D')->setWidth(18);
-            $sheet->getColumnDimension('E')->setWidth(18);
 
-            // Table header as requested
-            $sheet->fromArray([['NO','NAMA BARANG','BANYAKNYA','HARGA','JUMLAH']], NULL, 'A4');
-            // Subheader numeric row under the header to match the provided sample (1..5)
-            $sheet->fromArray([[1,2,3,4,5]], NULL, 'A5');
-            $sheet->getStyle('A4:E4')->getFont()->setBold(true);
-            $sheet->getStyle('A4:E5')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+            // Table header (removed price columns)
+            $sheet->fromArray([['NO','NAMA BARANG','BANYAKNYA','SATUAN']], NULL, 'A4');
+            // Subheader numeric row under the header
+            $sheet->fromArray([[1,2,3,4]], NULL, 'A5');
+            $sheet->getStyle('A4:D4')->getFont()->setBold(true);
+            $sheet->getStyle('A4:D5')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
             $r = 6; $no = 1; $grand = 0.0;
             if (!empty($items)) {
                 foreach ($items as $it) {
                     $qtyLabel = (string)($it['qty'] ?? 0);
                     if (!empty($it['satuan'])) { $qtyLabel .= ' '. $it['satuan']; }
-                    $jumlah = ((float)$it['qty']) * ((float)$it['harga']);
-                    $grand += $jumlah;
                     $sheet->setCellValueExplicit('A'.$r, $no++, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
                     $sheet->setCellValue('B'.$r, (string)$it['nama_barang']);
                     $sheet->setCellValue('C'.$r, $qtyLabel);
-                    $sheet->setCellValue('D'.$r, (float)$it['harga']);
-                    $sheet->setCellValue('E'.$r, $jumlah);
+                    $sheet->setCellValue('D'.$r, (string)($it['satuan'] ?? ''));
                     $r++;
                 }
             } else {
@@ -88,22 +85,15 @@ if ($action === 'export_excel') {
                 $sheet->setCellValueExplicit('A'.$r, 1, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
                 $sheet->setCellValue('B'.$r, (string)($rp['catatan'] ?? $rp['deskripsi'] ?? ''));
                 $sheet->setCellValue('C'.$r, '-');
-                $sheet->setCellValue('D'.$r, (float)($rp['biaya'] ?? 0));
-                $sheet->setCellValue('E'.$r, (float)($rp['biaya'] ?? 0));
-                $grand = (float)($rp['biaya'] ?? 0);
+                $sheet->setCellValue('D'.$r, '');
+                $sheet->setCellValue('E'.$r, '');
+                $grand = 0.0;
                 $r++;
             }
 
             // Borders and number formats
-            $sheet->getStyle('A4:E'.($r-1))->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
-            $sheet->getStyle('D6:E'.($r-1))->getNumberFormat()->setFormatCode('#,##0');
+            $sheet->getStyle('A4:D'.($r-1))->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
             $sheet->getStyle('A6:A'.($r-1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
-
-            // Grand total row
-            $sheet->setCellValue('D'.$r, 'TOTAL');
-            $sheet->setCellValue('E'.$r, $grand);
-            $sheet->getStyle('A'.$r.':E'.$r)->getFont()->setBold(true);
-            $sheet->getStyle('E'.$r)->getNumberFormat()->setFormatCode('#,##0');
 
             // Activity log: export single repair
             if (function_exists('log_activity')) {
@@ -174,6 +164,19 @@ if ($action === 'export_excel') {
                 $q="%$keyword%"; $p=array_merge($p,[$q,$q,$q,$q,$q]); $t.='sssss';
             }
             if ($kendaraan_id) { $where[]='rp.kendaraan_id = ?'; $p[]=$kendaraan_id; $t.='i'; }
+            // Drivers should only see repairs for vehicles they are responsible for
+            if ($current_role === 'driver' && $current_user_id) {
+                if (function_exists('db_table_columns') && in_array('pengguna_id', db_table_columns('kendaraan') ?: [], true)) {
+                    $where[] = 'k.pengguna_id = ?';
+                    $p[] = $current_user_id;
+                    $t .= 'i';
+                } else {
+                    // Fallback: restrict to repairs created by this user if kendaraan.pengguna_id not present
+                    $where[] = 'rp.created_by = ?';
+                    $p[] = $current_user_id;
+                    $t .= 'i';
+                }
+            }
             if (!$export_all && !empty($tahun_multi)) {
                 // YEAR IN (?, ?, ...)
                 $ph = implode(',', array_fill(0, count($tahun_multi), '?'));
@@ -193,17 +196,16 @@ if ($action === 'export_excel') {
             $sheet = $spreadsheet->getActiveSheet();
             $sheet->setTitle('Riwayat Perbaikan');
 
-            // Column widths similar to sample
+            // Column widths similar to sample (price columns removed)
             $sheet->getColumnDimension('A')->setWidth(6);
             $sheet->getColumnDimension('B')->setWidth(44);
             $sheet->getColumnDimension('C')->setWidth(16);
             $sheet->getColumnDimension('D')->setWidth(18);
-            $sheet->getColumnDimension('E')->setWidth(18);
 
-            // Header row like in the image
-            $sheet->fromArray([[ 'NO', 'NAMA BARANG', 'BANYAKNYA', 'HARGA', 'JUMLAH' ]], null, 'A1');
-            $sheet->getStyle('A1:E1')->getFont()->setBold(true);
-            $sheet->getStyle('A1:E1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+            // Header row (price columns removed)
+            $sheet->fromArray([[ 'NO', 'NAMA BARANG', 'BANYAKNYA', 'SATUAN' ]], null, 'A1');
+            $sheet->getStyle('A1:D1')->getFont()->setBold(true);
+            $sheet->getStyle('A1:D1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
             // Group repairs by no_reg (fallback to no_polisi) so each kendaraan shows once
             $groups = [];
@@ -224,7 +226,7 @@ if ($action === 'export_excel') {
                 }
 
                 // Fetch items for this repair
-                $its = $conn->prepare('SELECT nama_barang, qty, satuan, harga FROM riwayat_perbaikan_items WHERE perbaikan_id = ? ORDER BY urutan ASC, id ASC');
+                $its = $conn->prepare('SELECT nama_barang, qty, satuan FROM riwayat_perbaikan_items WHERE perbaikan_id = ? ORDER BY urutan ASC, id ASC');
                 $items = [];
                 if ($its) { $its->bind_param('i', $rp['id']); $its->execute(); $items = $its->get_result()->fetch_all(MYSQLI_ASSOC); $its->close(); }
                 if (!empty($items)) {
@@ -234,17 +236,15 @@ if ($action === 'export_excel') {
                             'nama' => (string)($it['nama_barang'] ?? ''),
                             'qty' => (float)($it['qty'] ?? 0),
                             'satuan' => (string)($it['satuan'] ?? ''),
-                            'harga' => (float)($it['harga'] ?? 0),
                         ];
                     }
                 } else {
-                    // No items: fallback to one line from description/catatan with biaya
+                    // No items: fallback to one line from description/catatan
                     $groups[$key]['items'][] = [
                         'tanggal' => (string)($rp['tanggal_perbaikan'] ?? ''),
                         'nama' => (string)($rp['catatan'] ?? $rp['deskripsi'] ?? $rp['jenis_perbaikan'] ?? '-'),
                         'qty' => 0,
                         'satuan' => '',
-                        'harga' => (float)($rp['biaya'] ?? 0),
                     ];
                 }
             }
@@ -288,12 +288,9 @@ if ($action === 'export_excel') {
                     $qtyLabel = '';
                     if (!empty($it['qty'])) { $qtyLabel = (string)$it['qty']; }
                     if (!empty($it['satuan'])) { $qtyLabel = trim(($qtyLabel !== '' ? $qtyLabel.' ' : '').(string)$it['satuan']); }
-                    $jumlah = ((float)$it['qty']) * ((float)$it['harga']);
-                    $grand += (float)$jumlah;
                     $sheet->setCellValue('B'.$r, (string)$it['nama']);
                     $sheet->setCellValue('C'.$r, $qtyLabel !== '' ? $qtyLabel : '-');
-                    $sheet->setCellValue('D'.$r, (float)$it['harga']);
-                    $sheet->setCellValue('E'.$r, (float)$jumlah);
+                    $sheet->setCellValue('D'.$r, (string)($it['satuan'] ?? ''));
                     $r++;
                 }
 
@@ -303,17 +300,8 @@ if ($action === 'export_excel') {
 
             // Apply borders for all used rows (skip trailing extra blank if no groups)
             $lastDataRow = max(2, $r - 1);
-            $sheet->getStyle('A1:E'.$lastDataRow)->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
-            // Number formats
-            $sheet->getStyle('D2:E'.$lastDataRow)->getNumberFormat()->setFormatCode('#,##0');
+            $sheet->getStyle('A1:D'.$lastDataRow)->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
             $sheet->getStyle('A2:A'.$lastDataRow)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
-
-            // Grand total row
-            $sheet->setCellValue('D'.$r, 'Total');
-            $sheet->setCellValue('E'.$r, $grand);
-            $sheet->getStyle('A'.$r.':E'.$r)->getFont()->setBold(true);
-            $sheet->getStyle('E'.$r)->getNumberFormat()->setFormatCode('#,##0');
-            $sheet->getStyle('A'.$r.':E'.$r)->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
 
             // Activity log: export list
             if (function_exists('log_activity')) {
@@ -367,11 +355,26 @@ if ($action === 'export_excel') {
 
 // Handle form submissions
 if ($_POST) {
-    if (!validate_csrf_token($_POST['csrf_token'] ?? '')) {
+    $debug_log_file = __DIR__ . '/../logs/debug_perbaikan.log';
+    $dbg = [];
+    $dbg[] = date('Y-m-d H:i:s') . " [riwayat_perbaikan POST] user={$current_user_id} role={$current_role} action={$action}";
+    $csrf_token_post = $_POST['csrf_token'] ?? '';
+    $csrf_ok = function_exists('validate_csrf_token') ? validate_csrf_token($csrf_token_post) : false;
+    $dbg[] = 'CSRF present=' . (!empty($csrf_token_post) ? '1' : '0') . ' ok=' . ($csrf_ok ? '1' : '0');
+    file_put_contents($debug_log_file, implode("\n", $dbg) . "\n", FILE_APPEND);
+
+    if (!$csrf_ok) {
         $msg = '<div class="alert alert-danger">Token keamanan tidak valid!</div>';
     } else {
-    if ($action === 'add' && $can_crud) {
+    if ($action === 'add' && $can_add) {
             $kendaraan_id = (int)$_POST['kendaraan_id'];
+            // Non-operator users (driver/user) may only add repairs for vehicles
+            // they have access to (assigned pengguna, active surat/peminjaman, etc.)
+            $vehicle_access_allowed = can_operate() || can_access_vehicle($kendaraan_id);
+            file_put_contents($debug_log_file, "Vehicle check: kendaraan_id={$kendaraan_id} access_allowed=" . ($vehicle_access_allowed ? '1' : '0') . "\n", FILE_APPEND);
+            if (!$vehicle_access_allowed) {
+                $msg = '<div class="alert alert-danger">Anda tidak memiliki hak untuk menambahkan riwayat perbaikan untuk kendaraan ini.</div>';
+            } else {
             // Optional pengguna/teknisi selection (maps to string column `teknisi`)
             $teknisi = null;
             $teknisi_user_id = isset($_POST['teknisi_user_id']) && $_POST['teknisi_user_id'] !== '' ? (int)$_POST['teknisi_user_id'] : null;
@@ -423,21 +426,15 @@ if ($_POST) {
                 $item_nama = $_POST['item_nama'] ?? [];
                 $item_qty = $_POST['item_qty'] ?? [];
                 $item_satuan = $_POST['item_satuan'] ?? [];
-                $item_harga = $_POST['item_harga'] ?? [];
-                $biaya = 0.0;
-                if (is_array($item_nama)) {
-                    foreach ($item_nama as $i => $nm) {
-                        $qty = isset($item_qty[$i]) ? (float)$item_qty[$i] : 0;
-                        $harga_item = isset($item_harga[$i]) ? (float)$item_harga[$i] : 0;
-                        $biaya += $qty * $harga_item;
-                    }
-                }
+                // item_harga removed from flows; do not read prices from POST
+                $biaya = 0.0; // cost intentionally not calculated/stored
                 $stmt = $conn->prepare("INSERT INTO riwayat_perbaikan (kendaraan_id, tanggal_perbaikan, jenis_perbaikan, deskripsi, bengkel, biaya, teknisi, status, km_perbaikan, spare_parts, catatan, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 // Types: i = kendaraan_id, s = tanggal_perbaikan, s = jenis_perbaikan, s = deskripsi, s = bengkel, d = biaya, s = teknisi, s = status, i = km_saat_perbaikan, s = spare_parts, s = catatan, i = created_by
                 $stmt->bind_param('issssdssissi', $kendaraan_id, $tanggal_perbaikan, $jenis_perbaikan, $deskripsi, $bengkel, $biaya, $teknisi, $status_db, $km_perbaikan, $spare_parts, $catatan, $current_user_id);
 
                 if ($stmt->execute()) {
                     $new_id = $stmt->insert_id;
+                    file_put_contents($debug_log_file, "Insert OK new_id={$new_id}\n", FILE_APPEND);
                     // Insert only non-empty rows
                     if (!empty($item_nama) && is_array($item_nama)) {
                         $insItem = $conn->prepare("INSERT INTO riwayat_perbaikan_items (perbaikan_id, nama_barang, qty, satuan, harga, urutan) VALUES (?,?,?,?,?,?)");
@@ -448,7 +445,8 @@ if ($_POST) {
                                 if ($nm === '') continue;
                                 $qty = isset($item_qty[$i]) ? (float)$item_qty[$i] : 0;
                                 $sat = isset($item_satuan[$i]) ? trim((string)$item_satuan[$i]) : null;
-                                $harga_item = isset($item_harga[$i]) ? (float)$item_harga[$i] : 0;
+                                // Do not persist harga; default to 0
+                                $harga_item = 0.0;
                                 $urut = (int)$i + 1;
                                 // types: i (perbaikan_id), s(nama), d(qty), s(satuan), d(harga), i(urutan)
                                 $insItem->bind_param('isdsdi', $new_id, $nm, $qty, $sat, $harga_item, $urut);
@@ -497,6 +495,7 @@ if ($_POST) {
                     header('Location: index.php?page=riwayat_perbaikan');
                     exit();
                 } else {
+                    file_put_contents($debug_log_file, "Insert FAILED error=" . $stmt->error . "\n", FILE_APPEND);
                     if (strpos($stmt->error, 'foreign key constraint') !== false) {
                         $msg = '<div class="alert alert-danger">Error: Data kendaraan tidak valid atau telah dihapus!</div>';
                     } else {
@@ -505,7 +504,7 @@ if ($_POST) {
                 }
                 $stmt->close();
             }
-            
+            }
     } elseif ($action === 'edit' && $can_crud && $perbaikan_id) {
             $kendaraan_id = (int)$_POST['kendaraan_id'];
             // Optional pengguna/teknisi selection (maps to string column `teknisi`)
@@ -554,15 +553,8 @@ if ($_POST) {
                 $item_nama = $_POST['item_nama'] ?? [];
                 $item_qty = $_POST['item_qty'] ?? [];
                 $item_satuan = $_POST['item_satuan'] ?? [];
-                $item_harga = $_POST['item_harga'] ?? [];
-                $biaya = 0.0;
-                if (is_array($item_nama)) {
-                    foreach ($item_nama as $i => $nm) {
-                        $qty = isset($item_qty[$i]) ? (float)$item_qty[$i] : 0;
-                        $harga_item = isset($item_harga[$i]) ? (float)$item_harga[$i] : 0;
-                        $biaya += $qty * $harga_item;
-                    }
-                }
+                // item_harga removed from flows; do not read prices from POST
+                $biaya = 0.0; // cost intentionally not calculated/stored
                 // Map to DB columns: km_saat_perbaikan, spare_parts, catatan
                 $stmt = $conn->prepare("UPDATE riwayat_perbaikan SET kendaraan_id=?, tanggal_perbaikan=?, jenis_perbaikan=?, deskripsi=?, bengkel=?, biaya=?, teknisi=?, status=?, km_perbaikan=?, spare_parts=?, catatan=?, updated_by=? WHERE id=?");
                 // Types: i, s, s, s, s, d, s, s, i, s, s, i, i
@@ -581,7 +573,8 @@ if ($_POST) {
                                 if ($nm === '') continue;
                                 $qty = isset($item_qty[$i]) ? (float)$item_qty[$i] : 0;
                                 $sat = isset($item_satuan[$i]) ? trim((string)$item_satuan[$i]) : null;
-                                $harga_item = isset($item_harga[$i]) ? (float)$item_harga[$i] : 0;
+                                // Do not persist harga; default to 0
+                                $harga_item = 0.0;
                                 $urut = (int)$i + 1;
                                 $insItem->bind_param('isdsdi', $perbaikan_id, $nm, $qty, $sat, $harga_item, $urut);
                                 $insItem->execute();
@@ -699,7 +692,7 @@ if (($action === 'edit' || $action === 'view') && $perbaikan_id) {
 
     // Fetch line items for editing
     if ($action === 'edit' && $edit_data) {
-        $it = $conn->prepare("SELECT id, nama_barang, qty, satuan, harga FROM riwayat_perbaikan_items WHERE perbaikan_id = ? ORDER BY urutan ASC, id ASC");
+        $it = $conn->prepare("SELECT id, nama_barang, qty, satuan FROM riwayat_perbaikan_items WHERE perbaikan_id = ? ORDER BY urutan ASC, id ASC");
         if ($it) {
             $it->bind_param('i', $perbaikan_id);
             $it->execute();
@@ -759,6 +752,59 @@ if ($can_crud) {
     $vehicles_stmt->execute();
     $vehicles = $vehicles_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $vehicles_stmt->close();
+} elseif ($can_add) {
+    // Build union of kendaraan the current user can access: surat_tugas, peminjaman_kendaraan, peminjaman_terjadwal, and assigned pengguna_id
+    $subqueries = [];
+    $types_v = '';
+    $params_v = [];
+
+    // surat_tugas
+    if (function_exists('db_table_exists') && db_table_exists('surat_tugas')) {
+        $subqueries[] = "SELECT s.kendaraan_id FROM surat_tugas s WHERE s.pengguna_id = ? AND s.status IN ('Disetujui','Dalam Perjalanan')";
+        $types_v .= 'i'; $params_v[] = $current_user_id;
+    }
+
+    // peminjaman_kendaraan
+    if (function_exists('db_table_exists') && db_table_exists('peminjaman_kendaraan')) {
+        $appCol = function_exists('pk_applicant_column') ? pk_applicant_column() : null;
+        $bindVal = function_exists('pk_applicant_bind_value') ? pk_applicant_bind_value($appCol, (int)$current_user_id) : null;
+        if ($appCol && $bindVal) {
+            $subqueries[] = "SELECT p.kendaraan_id FROM peminjaman_kendaraan p WHERE p.`{$appCol}` = ? AND LOWER(p.status) IN ('approved','ongoing')";
+            $types_v .= 'i'; $params_v[] = $bindVal;
+        }
+    }
+
+    // peminjaman_terjadwal if exists
+    try {
+        $t = $conn->query("SHOW TABLES LIKE 'peminjaman_terjadwal'");
+        $has_pt_tbl = $t && $t->num_rows > 0; if ($t) $t->free_result();
+    } catch (mysqli_sql_exception $e) { $has_pt_tbl = false; }
+    if (!empty($has_pt_tbl)) {
+        $subqueries[] = "SELECT pt.kendaraan_id FROM peminjaman_terjadwal pt WHERE pt.pemohon_id = ? AND LOWER(pt.status) = 'approved'";
+        $types_v .= 'i'; $params_v[] = $current_user_id;
+    }
+
+    // kendaraan assigned via pengguna_id
+    if (function_exists('db_table_columns') && in_array('pengguna_id', db_table_columns('kendaraan') ?: [], true)) {
+        $subqueries[] = "SELECT id FROM kendaraan WHERE pengguna_id = ?";
+        $types_v .= 'i'; $params_v[] = $current_user_id;
+    }
+
+    if (!empty($subqueries)) {
+        $in_sql = implode(' UNION ', $subqueries);
+        $sql_v = "SELECT DISTINCT k.id, k.no_reg, k.no_polisi, k.merk, k.tipe FROM kendaraan k WHERE k.id IN ($in_sql) ORDER BY k.no_reg, k.no_polisi";
+        $vstmt = $conn->prepare($sql_v);
+        if ($vstmt) {
+            // dynamic bind
+            $bind = [];
+            $bind[] = & $types_v;
+            for ($i = 0; $i < count($params_v); $i++) { $bind[] = & $params_v[$i]; }
+            call_user_func_array([$vstmt, 'bind_param'], $bind);
+            $vstmt->execute();
+            $vehicles = $vstmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $vstmt->close();
+        }
+    }
 }
 
     // Get teknisi/users for dropdown (searchable like jadwal_perawatan)
@@ -827,6 +873,20 @@ if ($kendaraan_id) {
     $where_conditions[] = "rp.kendaraan_id = ?";
     $params[] = (int)$kendaraan_id;
     $param_types .= 'i';
+}
+
+// Drivers should only see repairs for vehicles they are responsible for
+if ($current_role === 'driver' && $current_user_id) {
+    if (function_exists('db_table_columns') && in_array('pengguna_id', db_table_columns('kendaraan') ?: [], true)) {
+        $where_conditions[] = 'k.pengguna_id = ?';
+        $params[] = $current_user_id;
+        $param_types .= 'i';
+    } else {
+        // Fallback: restrict to repairs created by this user if kendaraan.pengguna_id not present
+        $where_conditions[] = 'rp.created_by = ?';
+        $params[] = $current_user_id;
+        $param_types .= 'i';
+    }
 }
 
 $where_sql = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
@@ -898,7 +958,7 @@ $total_pages = ceil($total_records / $limit);
 <div class="page-header">
     <h1><i class="fas fa-wrench"></i> Riwayat Perbaikan Kendaraan</h1>
     <div class="header-actions">
-        <?php if ($can_crud && $action === 'list'): ?>
+        <?php if ($can_add && $action === 'list'): ?>
             <a href="index.php?page=riwayat_perbaikan&action=add" class="btn btn-success">
                 <i class="fas fa-plus"></i> Tambah Riwayat
             </a>
@@ -958,7 +1018,7 @@ if (!function_exists('sort_link')) {
 }
 ?>
 
-<?php if ($can_crud && $action === 'add'): ?>
+<?php if ($can_add && $action === 'add'): ?>
     <div class="card">
         <div class="card-header">
             <h3><i class="fas fa-plus"></i> Tambah Riwayat Perbaikan</h3>
@@ -973,9 +1033,9 @@ if (!function_exists('sort_link')) {
                         <select id="kendaraan_id" name="kendaraan_id" class="form-control" required>
                             <option value="">Pilih Kendaraan</option>
                             <?php foreach ($vehicles as $vehicle): ?>
-                                <?php $label = htmlspecialchars(($vehicle['no_polisi'] ?? '') . ' - ' . ($vehicle['merk'] ?? '') . ' ' . ($vehicle['tipe'] ?? '')); ?>
-                                <option value="<?= $vehicle['id'] ?>" data-no_reg="<?= htmlspecialchars($vehicle['no_reg'] ?? '') ?>" <?= ($kendaraan_id == $vehicle['id']) ? 'selected' : '' ?>>
-                                    <?= $label ?>
+                                <?php $label = htmlspecialchars(($vehicle['no_reg'] ?? '') . ' - ' . ($vehicle['merk'] ?? '') . ' ' . ($vehicle['tipe'] ?? '')); ?>
+                                    <option value="<?= $vehicle['id'] ?>" data-no_reg="<?= htmlspecialchars($vehicle['no_reg'] ?? '') ?>" <?= ($kendaraan_id == $vehicle['id']) ? 'selected' : '' ?>>
+                                        <?= $label ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -1030,8 +1090,7 @@ if (!function_exists('sort_link')) {
                     </div>
                 </div>
                 
-                <!-- Hidden biaya to sync with items total -->
-                <input type="hidden" id="biaya" name="biaya" value="">
+                <!-- biaya removed from form -->
                 
                 <div class="form-row">
                     <div class="form-group">
@@ -1053,9 +1112,7 @@ if (!function_exists('sort_link')) {
                             <tr>
                                 <th style="width:60px">No</th>
                                 <th>Nama Barang/Jasa</th>
-                                <th style="width:140px">Banyaknya</th>
-                                <th style="width:160px">Harga Satuan (Rp)</th>
-                                <th style="width:160px">Jumlah (Rp)</th>
+                                <th style="width:220px">Banyaknya / Satuan</th>
                                 <th style="width:80px">Aksi</th>
                             </tr>
                         </thead>
@@ -1069,18 +1126,9 @@ if (!function_exists('sort_link')) {
                                         <input type="text" name="item_satuan[]" class="form-control" style="max-width:80px" placeholder="Unit">
                                     </div>
                                 </td>
-                                <td><input type="number" name="item_harga[]" class="form-control harga" min="0" placeholder="0"></td>
-                                <td><input type="text" class="form-control jumlah" readonly></td>
                                 <td><button type="button" class="btn btn-danger btn-sm remove-row">Hapus</button></td>
                             </tr>
                         </tbody>
-                        <tfoot>
-                            <tr>
-                                <td colspan="4" class="text-end"><strong>Total</strong></td>
-                                <td><input type="text" id="items-total" class="form-control" readonly></td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
                     </table>
                 </div>
                 <button type="button" id="add-item-row" class="btn btn-outline-primary btn-sm"><i class="fas fa-plus"></i> Tambah Baris</button>
@@ -1112,7 +1160,7 @@ if (!function_exists('sort_link')) {
                         <select id="kendaraan_id" name="kendaraan_id" class="form-control" required>
                             <option value="">Pilih Kendaraan</option>
                             <?php foreach ($vehicles as $vehicle): ?>
-                                <?php $label = htmlspecialchars(($vehicle['no_polisi'] ?? '') . ' - ' . ($vehicle['merk'] ?? '') . ' ' . ($vehicle['tipe'] ?? '')); ?>
+                                <?php $label = htmlspecialchars(($vehicle['no_reg'] ?? '') . ' - ' . ($vehicle['merk'] ?? '') . ' ' . ($vehicle['tipe'] ?? '')); ?>
                                 <option value="<?= $vehicle['id'] ?>" data-no_reg="<?= htmlspecialchars($vehicle['no_reg'] ?? '') ?>" <?= ($edit_data['kendaraan_id'] == $vehicle['id']) ? 'selected' : '' ?>>
                                     <?= $label ?>
                                 </option>
@@ -1178,8 +1226,7 @@ if (!function_exists('sort_link')) {
                     </div>
                 </div>
                 
-                <!-- Hidden biaya to sync with items total -->
-                <input type="hidden" id="biaya" name="biaya" value="<?= htmlspecialchars((string)($edit_data['biaya'] ?? '')) ?>">
+                <!-- biaya removed from form -->
                 
                 <div class="form-row">
                     <div class="form-group">
@@ -1202,8 +1249,7 @@ if (!function_exists('sort_link')) {
                                 <th style="width:60px">No</th>
                                 <th>Nama Barang/Jasa</th>
                                 <th style="width:140px">Banyaknya</th>
-                                <th style="width:160px">Harga Satuan (Rp)</th>
-                                <th style="width:160px">Jumlah (Rp)</th>
+                                <th style="width:120px">Satuan</th>
                                 <th style="width:80px">Aksi</th>
                             </tr>
                         </thead>
@@ -1215,11 +1261,9 @@ if (!function_exists('sort_link')) {
                                 <td>
                                     <div class="input-group">
                                         <input type="number" name="item_qty[]" class="form-control qty" min="0" value="<?= (float)$it['qty'] ?>">
-                                        <input type="text" name="item_satuan[]" class="form-control" style="max-width:80px" value="<?= htmlspecialchars((string)($it['satuan'] ?? '')) ?>">
                                     </div>
                                 </td>
-                                <td><input type="number" name="item_harga[]" class="form-control harga" min="0" value="<?= (float)$it['harga'] ?>"></td>
-                                <td><input type="text" class="form-control jumlah" readonly></td>
+                                <td><input type="text" name="item_satuan[]" class="form-control" style="max-width:100px" value="<?= htmlspecialchars((string)($it['satuan'] ?? '')) ?>"></td>
                                 <td><button type="button" class="btn btn-danger btn-sm remove-row">Hapus</button></td>
                             </tr>
                             <?php endforeach; else: ?>
@@ -1229,22 +1273,13 @@ if (!function_exists('sort_link')) {
                                 <td>
                                     <div class="input-group">
                                         <input type="number" name="item_qty[]" class="form-control qty" min="0" placeholder="0">
-                                        <input type="text" name="item_satuan[]" class="form-control" style="max-width:80px" placeholder="Unit">
                                     </div>
                                 </td>
-                                <td><input type="number" name="item_harga[]" class="form-control harga" min="0" placeholder="0"></td>
-                                <td><input type="text" class="form-control jumlah" readonly></td>
+                                <td><input type="text" name="item_satuan[]" class="form-control" style="max-width:100px" placeholder="Unit"></td>
                                 <td><button type="button" class="btn btn-danger btn-sm remove-row">Hapus</button></td>
                             </tr>
                             <?php endif; ?>
                         </tbody>
-                        <tfoot>
-                            <tr>
-                                <td colspan="4" class="text-end"><strong>Total</strong></td>
-                                <td><input type="text" id="items-total" class="form-control" readonly></td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
                     </table>
                 </div>
                 <button type="button" id="add-item-row" class="btn btn-outline-primary btn-sm"><i class="fas fa-plus"></i> Tambah Baris</button>
@@ -1341,86 +1376,72 @@ if (!function_exists('sort_link')) {
         <!-- Full per-repair list (kept from previous implementation) -->
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0">Daftar Perbaikan Keseluruhan</h5>
+                <div class="d-flex align-items-center justify-content-between">
+                    <h5 class="mb-0">Daftar Perbaikan Keseluruhan</h5>
+                    <div class="ms-3" style="min-width:200px;max-width:360px;width:100%;">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text bg-white"><i class="fas fa-search text-muted"></i></span>
+                            <input type="text" class="form-control live-table-search" placeholder="Ketik untuk mencari..." data-live-target="#repairsTable" autocomplete="off" />
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
-                    <table class="table">
+                    <table id="repairsTable" class="table">
                         <thead>
                             <tr>
                                 <th>No</th>
-                                    <th><?= sort_link('Tanggal','tanggal', $sort, $dir) ?></th>
-                                    <th><?= sort_link('Kendaraan','no_reg', $sort, $dir) ?></th>
-                                    <th><?= sort_link('Jenis Perbaikan','jenis', $sort, $dir) ?></th>
-                                    <th><?= sort_link('Kerusakan','kerusakan', $sort, $dir) ?></th>
-                                    <th>Nama Barang</th>
-                                    <th>Banyaknya</th>
-                                    <th>Harga</th>
-                                    <th>Jumlah</th>
-                                    <th><?= sort_link('Total (Rp)','biaya', $sort, $dir) ?></th>
-                                    <th><?= sort_link('Status','status', $sort, $dir) ?></th>
+                                <th><?= sort_link('Tanggal','tanggal', $sort, $dir) ?></th>
+                                <th><?= sort_link('Kendaraan','no_reg', $sort, $dir) ?></th>
+                                <th><?= sort_link('Jenis Perbaikan','jenis', $sort, $dir) ?></th>
+                                <th><?= sort_link('Kerusakan','kerusakan', $sort, $dir) ?></th>
+                                <th>Nama Barang</th>
+                                <th style="width:220px">Banyaknya / Satuan</th>
+                                <th>Status</th>
                                 <th>Aksi</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if (count($repairs) > 0): ?>
-                                <?php $no = ($page - 1) * $limit + 1; foreach ($repairs as $repair): ?>
-                                    <?php
-                                        $repair['jenis_perbaikan'] = (string)($repair['jenis_perbaikan'] ?? '');
-                                        $repair['deskripsi_kerusakan'] = (string)($repair['deskripsi'] ?? '');
-                                        $repair['keterangan'] = (string)($repair['keterangan'] ?? '');
-                                        // Fetch items for this repair to display inline and compute total
-                                        $sumItem = 0.0; $firstNama='-'; $firstQty='-'; $firstHarga='-'; $firstJumlah='-';
-                                        if ($its = $conn->prepare('SELECT nama_barang, qty, satuan, harga FROM riwayat_perbaikan_items WHERE perbaikan_id = ? ORDER BY urutan ASC, id ASC')) {
-                                            $its->bind_param('i', $repair['id']);
-                                            $its->execute();
-                                            $res = $its->get_result();
-                                            $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
-                                            $its->close();
-                                            if (!empty($rows)) {
-                                                $it0 = $rows[0];
-                                                $qtyLabel = (string)($it0['qty'] ?? 0);
-                                                if (!empty($it0['satuan'])) { $qtyLabel .= ' ' . (string)$it0['satuan']; }
-                                                $firstNama = (string)$it0['nama_barang'];
-                                                $firstQty = $qtyLabel;
-                                                $firstHarga = (float)$it0['harga'] > 0 ? 'Rp ' . number_format((float)$it0['harga']) : '-';
-                                                $firstJumlah = 'Rp ' . number_format(((float)$it0['qty']) * ((float)$it0['harga']));
-                                                foreach ($rows as $it) {
-                                                    $sumItem += ((float)$it['qty']) * ((float)$it['harga']);
-                                                }
-                                            }
+                            <?php if (!empty($repairs)): foreach ($repairs as $i => $repair): ?>
+                                <?php
+                                    $firstNama = '-'; $firstQty = '';
+                                    $itStmt = $conn->prepare('SELECT nama_barang, qty, satuan FROM riwayat_perbaikan_items WHERE perbaikan_id = ? ORDER BY urutan ASC, id ASC LIMIT 1');
+                                    if ($itStmt) {
+                                        $itStmt->bind_param('i', $repair['id']);
+                                        $itStmt->execute();
+                                        $firstIt = $itStmt->get_result()->fetch_assoc();
+                                        $itStmt->close();
+                                        if ($firstIt) {
+                                            $firstNama = (string)($firstIt['nama_barang'] ?? '-');
+                                            $firstQty = trim(((string)($firstIt['qty'] ?? '')) . ' ' . ((string)($firstIt['satuan'] ?? '')));
                                         }
-                                        $total_dari_items = $sumItem;
-                                        $total_tampil = $total_dari_items > 0 ? $total_dari_items : (float)($repair['biaya'] ?? 0);
-                                    ?>
-                                    <tr>
-                                        <td><?= $no++ ?></td>
-                                        <td><?= date('d/m/Y', strtotime($repair['tanggal_perbaikan'])) ?></td>
-                                        <td>
-                                            <div class="vehicle-info">
-                                                <strong><?= htmlspecialchars((string)($repair['no_reg'] ?? '')) ?></strong>
-                                                <br><small class="text-muted"><?= htmlspecialchars((string)($repair['merk'] ?? '')) ?> <?= htmlspecialchars((string)($repair['tipe'] ?? '')) ?></small>
-                                            </div>
-                                        </td>
-                                        <td><span class="badge badge-light text-dark"><?= htmlspecialchars($repair['jenis_perbaikan'] ?: '-') ?></span></td>
-                                        <td><div class="text-truncate text-truncate-custom" title="<?= htmlspecialchars($repair['deskripsi_kerusakan'] ?: '-') ?>"><?= htmlspecialchars($repair['deskripsi_kerusakan'] ?: '-') ?></div></td>
-                                        <td><?= htmlspecialchars($firstNama) ?></td>
-                                        <td><?= htmlspecialchars($firstQty) ?></td>
-                                        <td><?= htmlspecialchars($firstHarga) ?></td>
-                                        <td><?= htmlspecialchars($firstJumlah) ?></td>
-                                        <td><?= ($total_tampil > 0) ? 'Rp ' . number_format($total_tampil) : '-' ?></td>
-                                        <td><?= render_repair_status_badge($repair['status'] ?? '') ?></td>
-                                        <td>
-                                            <div class="btn-group" role="group">
-                                                <a href="index.php?page=riwayat_perbaikan_detail&id=<?= $repair['id'] ?>" class="btn btn-sm btn-outline-info" title="Lihat Detail"><i class="fas fa-eye"></i></a>
-                                                <?php if ($can_crud): ?><a href="index.php?page=riwayat_perbaikan&action=edit&id=<?= $repair['id'] ?>" class="btn btn-sm btn-outline-primary" title="Edit"><i class="fas fa-edit"></i></a><?php endif; ?>
-                                                <?php if (can_admin()): ?><a href="index.php?page=riwayat_perbaikan&action=delete&id=<?= $repair['id'] ?>" class="btn btn-sm btn-outline-danger" title="Hapus" onclick="return confirm('Yakin ingin menghapus riwayat perbaikan ini?')"><i class="fas fa-trash"></i></a><?php endif; ?>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <tr><td colspan="12" class="text-center">Belum ada riwayat perbaikan.</td></tr>
+                                    }
+                                ?>
+                                <tr>
+                                    <td><?= ($offset ?? 0) + $i + 1 ?></td>
+                                    <td><?= !empty($repair['tanggal_perbaikan']) ? date('d/m/Y', strtotime($repair['tanggal_perbaikan'])) : '-' ?></td>
+                                    <td>
+                                        <div class="vehicle-info">
+                                            <strong><?= htmlspecialchars((string)($repair['no_reg'] ?? ($repair['no_polisi'] ?? ''))) ?></strong>
+                                            <br><small class="text-muted"><?= htmlspecialchars((string)($repair['merk'] ?? '')) ?> <?= htmlspecialchars((string)($repair['tipe'] ?? '')) ?></small>
+                                        </div>
+                                    </td>
+                                    <td><span class="text-muted"><?= htmlspecialchars($repair['jenis_perbaikan'] ?? '-') ?></span></td>
+                                    <td><div class="text-truncate text-truncate-custom" title="<?= htmlspecialchars($repair['deskripsi'] ?? $repair['deskripsi_kerusakan'] ?? '-') ?>"><?= htmlspecialchars($repair['deskripsi'] ?? $repair['deskripsi_kerusakan'] ?? '-') ?></div></td>
+                                    <td><?= htmlspecialchars($firstNama) ?></td>
+                                    <td><?= htmlspecialchars($firstQty ?: '-') ?></td>
+                                    <td><?= render_repair_status_badge($repair['status'] ?? '') ?></td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <a href="index.php?page=riwayat_perbaikan_detail&id=<?= $repair['id'] ?>" class="btn btn-sm btn-outline-info" title="Lihat Detail"><i class="fas fa-eye"></i></a>
+                                            <?php if ($can_crud): ?><a href="index.php?page=riwayat_perbaikan&action=edit&id=<?= $repair['id'] ?>" class="btn btn-sm btn-outline-primary" title="Edit"><i class="fas fa-edit"></i></a><?php endif; ?>
+                                            <?php if (can_admin()): ?><a href="index.php?page=riwayat_perbaikan&action=delete&id=<?= $repair['id'] ?>" class="btn btn-sm btn-outline-danger" title="Hapus" onclick="return confirm('Yakin ingin menghapus riwayat perbaikan ini?')"><i class="fas fa-trash"></i></a><?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; else: ?>
+                                <tr><td colspan="9" class="text-center">Belum ada riwayat perbaikan.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -1481,7 +1502,7 @@ if (!function_exists('sort_link')) {
 
             $agg_sql = "SELECT k.id, k.no_polisi, k.no_reg, k.merk, k.tipe,
                                COUNT(rp.id) AS total_perbaikan,
-                               COALESCE(SUM(rp.biaya),0) AS total_biaya,
+                               0 AS total_biaya,
                                MAX(rp.tanggal_perbaikan) AS terakhir_tanggal
                         FROM kendaraan k
                         LEFT JOIN riwayat_perbaikan rp ON rp.kendaraan_id = k.id
@@ -1522,7 +1543,7 @@ if (!function_exists('sort_link')) {
                                 <th><?= sort_link('Merk / Tipe','merk', $sort, $dir) ?></th>
                                 <th><?= sort_link('Terakhir Perbaikan','terakhir', $sort, $dir) ?></th>
                                 <th><?= sort_link('Total Perbaikan','total', $sort, $dir) ?></th>
-                                <th><?= sort_link('Total Biaya','biaya', $sort, $dir) ?></th>
+                                
                                 <th>Aksi</th>
                             </tr>
                         </thead>
@@ -1536,7 +1557,7 @@ if (!function_exists('sort_link')) {
                                     <td><?= htmlspecialchars((string)($v['merk'] ?? '-')) ?> <?= htmlspecialchars((string)($v['tipe'] ?? '')) ?></td>
                                     <td><?= !empty($v['terakhir_tanggal']) ? date('d/m/Y', strtotime($v['terakhir_tanggal'])) : '-' ?></td>
                                     <td><?= (int)$v['total_perbaikan'] ?></td>
-                                    <td><?= ($v['total_biaya'] > 0) ? 'Rp ' . number_format($v['total_biaya']) : '-' ?></td>
+                                    <td>-</td>
                                     <td>
                                         <a href="index.php?page=riwayat_perbaikan_detail&kendaraan_id=<?= $v['id'] ?>" class="btn btn-primary" title="Lihat Riwayat"><i class="fas fa-list"></i> Lihat</a>
                                         <?php if ($can_crud): ?><a href="index.php?page=riwayat_perbaikan&kendaraan_id=<?= $v['id'] ?>&action=add" class="btn btn-success" title="Tambah Perbaikan"><i class="fas fa-plus"></i></a><?php endif; ?>
@@ -1743,45 +1764,23 @@ if (!function_exists('sort_link')) {
 
 <?php if ($action === 'add' || ($action === 'edit' && $can_crud)): ?>
 <script>
-// Lightweight dynamic item rows and totals
+// Lightweight dynamic item rows (prices removed)
 (function(){
     const tbl = document.getElementById('items-table');
     if (!tbl) return;
     const tbody = tbl.querySelector('tbody');
-    const totalEl = document.getElementById('items-total');
-    const biayaEl = document.getElementById('biaya');
 
     function renumber(){
         tbody.querySelectorAll('tr').forEach((tr,idx)=>{
             const no = tr.querySelector('.row-no'); if(no) no.textContent = String(idx+1);
         });
     }
-    function recalcRow(tr){
-        const qty = parseFloat(tr.querySelector('.qty')?.value||'0')||0;
-        const harga = parseFloat(tr.querySelector('.harga')?.value||'0')||0;
-        const jumlah = qty*harga;
-        const jEl = tr.querySelector('.jumlah'); if (jEl) jEl.value = isFinite(jumlah)? jumlah.toLocaleString('id-ID') : '';
-    }
-    function recalcTotal(){
-        let total = 0;
-        tbody.querySelectorAll('tr').forEach(tr=>{
-            const qty = parseFloat(tr.querySelector('.qty')?.value||'0')||0;
-            const harga = parseFloat(tr.querySelector('.harga')?.value||'0')||0;
-            total += qty*harga;
-        });
-        if (totalEl) totalEl.value = total.toLocaleString('id-ID');
-        if (biayaEl) biayaEl.value = total>0 ? total.toFixed(2) : biayaEl.value; // sync to main biaya when items present
-    }
     function bind(tr){
-        tr.querySelectorAll('.qty,.harga').forEach(inp=>{
-            inp.addEventListener('input', ()=>{ recalcRow(tr); recalcTotal(); });
-        });
         const btn = tr.querySelector('.remove-row');
-        if (btn) btn.addEventListener('click', ()=>{ tr.remove(); renumber(); recalcTotal(); });
+        if (btn) btn.addEventListener('click', ()=>{ tr.remove(); renumber(); });
     }
     // bind existing
-    tbody.querySelectorAll('tr').forEach(tr=>{ bind(tr); recalcRow(tr); });
-    recalcTotal();
+    tbody.querySelectorAll('tr').forEach(tr=>{ bind(tr); });
 
     document.getElementById('add-item-row')?.addEventListener('click', ()=>{
         const tr = document.createElement('tr');
@@ -1794,11 +1793,9 @@ if (!function_exists('sort_link')) {
                     <input type="text" name="item_satuan[]" class="form-control" style="max-width:80px" placeholder="Unit">
                 </div>
             </td>
-            <td><input type="number" name="item_harga[]" class="form-control harga" min="0" placeholder="0"></td>
-            <td><input type="text" class="form-control jumlah" readonly></td>
             <td><button type="button" class="btn btn-danger btn-sm remove-row">Hapus</button></td>`;
         tbody.appendChild(tr);
-        renumber(); bind(tr); recalcRow(tr); recalcTotal();
+        renumber(); bind(tr);
     });
 })();
 </script>

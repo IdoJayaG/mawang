@@ -20,8 +20,7 @@ $current_user = get_logged_in_user();
 // initialize defaults to avoid undefined index notices when queries fail
 $stats_kendaraan = [
     'total' => 0,
-    'by_status' => [],
-    'by_jenis' => []
+    'by_status' => []
 ];
 
 // Total kendaraan
@@ -35,12 +34,6 @@ if ($result) {
 $result = $mysqli->query("SELECT status_kendaraan, COUNT(*) as jumlah FROM kendaraan GROUP BY status_kendaraan");
 while ($row = $result->fetch_assoc()) {
     $stats_kendaraan['by_status'][$row['status_kendaraan']] = $row['jumlah'];
-}
-
-// Kendaraan berdasarkan jenis
-$result = $mysqli->query("SELECT jenis, COUNT(*) as jumlah FROM kendaraan GROUP BY jenis");
-while ($row = $result->fetch_assoc()) {
-    $stats_kendaraan['by_jenis'][$row['jenis']] = $row['jumlah'];
 }
 
 // Statistik Peminjaman
@@ -182,19 +175,8 @@ function getStatusBadge($status) {
     </div>
 
     <!-- Charts Row -->
-    <div class="row mb-4">
-        <div class="col-lg-6 mb-3">
-            <div class="card shadow-sm h-100">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Distribusi Kendaraan per Jenis</h5>
-                </div>
-                <div class="card-body">
-                    <div style="height: 250px;">
-                        <canvas id="jenisChart"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
+    </div>
+    <!-- Jenis distribution chart removed (jenis field deprecated) -->
     <!-- Peminjaman Bulan Ini removed for operator view -->
     </div>
 
@@ -329,7 +311,7 @@ function getStatusBadge($status) {
                                     <th>Kendaraan</th>
                                     <th>Jenis Perawatan</th>
                                     <th>Bengkel/Mekanik</th>
-                                    <th>Biaya</th>
+                                    <!-- Biaya removed from recent maintenance -->
                                     <th>Status</th>
                                 </tr>
                             </thead>
@@ -372,14 +354,7 @@ function getStatusBadge($status) {
                                                 <br><span class="badge badge-sm <?= $maintenance['status'] === 'Selesai' ? 'badge-success' : ($maintenance['status'] === 'Ongoing' ? 'badge-warning' : 'badge-secondary') ?>"><?= htmlspecialchars($maintenance['status']) ?></span>
                                             <?php endif; ?>
                                         </td>
-                                        <td>
-                                            <?php $cost = $maintenance['biaya_aktual'] ?? $maintenance['biaya'] ?? 0; ?>
-                                            <?php if ($cost > 0): ?>
-                                                <strong class="text-success">Rp <?= number_format($cost) ?></strong>
-                                            <?php else: ?>
-                                                <span class="text-muted">-</span>
-                                            <?php endif; ?>
-                                        </td>
+                                        <!-- Biaya removed from recent maintenance -->
                                         <td>
                                             <span class="badge badge-success">
                                                 <i class="fas fa-check-circle"></i> <?= htmlspecialchars($maintenance['status']) ?>
@@ -391,7 +366,7 @@ function getStatusBadge($status) {
                                 else: 
                                 ?>
                                     <tr>
-                                        <td colspan="6" class="text-center text-muted py-3">
+                                        <td colspan="5" class="text-center text-muted py-3">
                                             <i class="fas fa-tools"></i> Belum ada riwayat perawatan
                                         </td>
                                     </tr>
@@ -461,36 +436,6 @@ function getStatusBadge($status) {
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-// Chart untuk distribusi kendaraan per jenis
-const jenisData = <?= json_encode($stats_kendaraan['by_jenis'] ?? []) ?>;
-const jenisCtx = document.getElementById('jenisChart').getContext('2d');
-new Chart(jenisCtx, {
-    type: 'doughnut',
-    data: {
-        labels: Object.keys(jenisData),
-        datasets: [{
-            data: Object.values(jenisData),
-            backgroundColor: [
-                '#FF6384',
-                '#36A2EB',
-                '#FFCE56',
-                '#4BC0C0',
-                '#9966FF',
-                '#FF9F40'
-            ]
-        }]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: {
-                position: 'bottom',
-            }
-        }
-    }
-});
-
 // Chart untuk peminjaman bulan ini
 // peminjaman chart removed for operator
 </script>

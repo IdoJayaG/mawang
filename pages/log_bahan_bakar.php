@@ -17,6 +17,7 @@ $action = $_GET['action'] ?? 'list';
 $log_id = $_GET['id'] ?? null;
 $kendaraan_id = $_GET['kendaraan_id'] ?? null;
 $msg = '';
+    
 
 $edit_data = null;
 if ($action === 'edit' && $can_crud && $log_id) {
@@ -40,6 +41,13 @@ if ($action === 'edit' && $can_crud && $log_id) {
 // Time helpers for window filtering
 $now = date('Y-m-d H:i:s');
 $today = date('Y-m-d');
+
+// Detect optional columns to keep queries safe if migration removed them
+$has_harga = function_exists('db_table_columns') && in_array('harga_per_liter', (array)db_table_columns('log_bahan_bakar'), true);
+$has_metode = function_exists('db_table_columns') && in_array('metode_bayar', (array)db_table_columns('log_bahan_bakar'), true);
+
+// Precompute AVG selector to avoid referencing removed column
+$avg_col = $has_harga ? 'AVG(lb.harga_per_liter) as rata_harga,' : 'NULL as rata_harga,';
 
 // Handle file upload
 function uploadPhoto($file, $prefix = '') {
@@ -83,13 +91,11 @@ if ($_POST) {
                 }
                 $tanggal_isi = $_POST['tanggal_isi'];
                 $jumlah_liter = (float)$_POST['jumlah_liter'];
-                $harga_per_liter = (float)$_POST['harga_per_liter'];
                 $km_saat_isi = $_POST['km_saat_isi'] ? (int)$_POST['km_saat_isi'] : null;
                 $spbu = trim($_POST['spbu']);
                 $jenis_bbm = $_POST['jenis_bbm'];
-                $metode_bayar = $_POST['metode_bayar'];
                 $keterangan = trim($_POST['keterangan']);
-                $total_biaya = $jumlah_liter * $harga_per_liter;
+                // biaya/harga dihapus dari input; nilai disimpan terpisah jika perlu melalui migrasi
                 
                 // Upload photos
                 $foto_sebelum = null;
@@ -108,8 +114,8 @@ if ($_POST) {
                     $foto_odometer = uploadPhoto($_FILES['foto_odometer'], 'odometer');
                 }
                 
-                $stmt = $mysqli->prepare("INSERT INTO log_bahan_bakar (kendaraan_id, tanggal_isi, jumlah_liter, harga_per_liter, biaya, km_saat_isi, spbu, jenis_bahan_bakar, metode_bayar, user_id, foto_sebelum_isi, foto_sesudah_isi, foto_odometer, keterangan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param('isddissssissss', $kendaraan_id, $tanggal_isi, $jumlah_liter, $harga_per_liter, $total_biaya, $km_saat_isi, $spbu, $jenis_bbm, $metode_bayar, $current_user_id, $foto_sebelum, $foto_sesudah, $foto_odometer, $keterangan);
+                $stmt = $mysqli->prepare("INSERT INTO log_bahan_bakar (kendaraan_id, tanggal_isi, jumlah_liter, km_saat_isi, spbu, jenis_bahan_bakar, user_id, foto_sebelum_isi, foto_sesudah_isi, foto_odometer, keterangan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param('isdisisssss', $kendaraan_id, $tanggal_isi, $jumlah_liter, $km_saat_isi, $spbu, $jenis_bbm, $current_user_id, $foto_sebelum, $foto_sesudah, $foto_odometer, $keterangan);
                 
                 if ($stmt->execute()) {
                     // Catat aktivitas dan kembali ke halaman daftar log BBM
@@ -132,16 +138,13 @@ if ($_POST) {
                 }
                 $tanggal_isi = $_POST['tanggal_isi'];
                 $jumlah_liter = (float)$_POST['jumlah_liter'];
-                $harga_per_liter = (float)$_POST['harga_per_liter'];
                 $km_saat_isi = $_POST['km_saat_isi'] ? (int)$_POST['km_saat_isi'] : null;
                 $spbu = trim($_POST['spbu']);
                 $jenis_bbm = $_POST['jenis_bbm'];
-                $metode_bayar = $_POST['metode_bayar'];
                 $keterangan = trim($_POST['keterangan']);
-                $total_biaya = $jumlah_liter * $harga_per_liter;
 
-                $stmt = $mysqli->prepare("UPDATE log_bahan_bakar SET kendaraan_id=?, tanggal_isi=?, jumlah_liter=?, harga_per_liter=?, biaya=?, km_saat_isi=?, spbu=?, jenis_bahan_bakar=?, metode_bayar=?, keterangan=? WHERE id=?");
-                $stmt->bind_param('isdddissssi', $kendaraan_id, $tanggal_isi, $jumlah_liter, $harga_per_liter, $total_biaya, $km_saat_isi, $spbu, $jenis_bbm, $metode_bayar, $keterangan, $log_id);
+                $stmt = $mysqli->prepare("UPDATE log_bahan_bakar SET kendaraan_id=?, tanggal_isi=?, jumlah_liter=?, km_saat_isi=?, spbu=?, jenis_bahan_bakar=?, keterangan=? WHERE id=?");
+                $stmt->bind_param('isdisssi', $kendaraan_id, $tanggal_isi, $jumlah_liter, $km_saat_isi, $spbu, $jenis_bbm, $keterangan, $log_id);
 
                 if ($stmt->execute()) {
                     log_activity("EDIT_BBM_LOG", "Memperbarui log BBM ID $log_id untuk kendaraan ID $kendaraan_id");
@@ -186,6 +189,13 @@ if (in_array($current_role, ['user', 'driver'], true)) {
         $subqueries[] = "SELECT pt.kendaraan_id FROM peminjaman_terjadwal pt WHERE pt.pemohon_id = ? AND LOWER(pt.status) = 'approved' AND pt.tanggal_mulai <= ? AND (pt.tanggal_selesai IS NULL OR pt.tanggal_selesai >= ?)";
         $types_v .= 'iss';
         array_push($params_v, $current_user_id, $now, $now);
+    }
+
+    // include vehicles explicitly assigned via kendaraan.pengguna_id if column exists
+    if (function_exists('db_table_columns') && in_array('pengguna_id', db_table_columns('kendaraan') ?: [], true)) {
+        $subqueries[] = "SELECT id FROM kendaraan WHERE pengguna_id = ?";
+        $types_v .= 'i';
+        array_push($params_v, $current_user_id);
     }
 
     $in_sql = implode(' UNION ', $subqueries);
@@ -235,6 +245,13 @@ if (in_array($current_role, ['user', 'driver'], true)) {
         array_push($params_l, $current_user_id, $now, $now);
     }
 
+    // include vehicles explicitly assigned via kendaraan.pengguna_id if column exists
+    if (function_exists('db_table_columns') && in_array('pengguna_id', db_table_columns('kendaraan') ?: [], true)) {
+        $subq[] = "SELECT id FROM kendaraan WHERE pengguna_id = ?";
+        $types_l .= 'i';
+        array_push($params_l, $current_user_id);
+    }
+
     $in_sql = implode(' UNION ', $subq);
     $sql_l = "
         SELECT 
@@ -246,9 +263,8 @@ if (in_array($current_role, ['user', 'driver'], true)) {
             k.foto,
             COUNT(lb.id) as total_pengisian,
             SUM(lb.jumlah_liter) as total_liter,
-            SUM(lb.biaya) as total_biaya,
             MAX(lb.tanggal_isi) as pengisian_terakhir,
-            AVG(lb.harga_per_liter) as rata_harga,
+            " . $avg_col . "
             MAX(lb.km_saat_isi) as km_terakhir
         FROM kendaraan k
         LEFT JOIN log_bahan_bakar lb ON k.id = lb.kendaraan_id
@@ -266,9 +282,11 @@ if (in_array($current_role, ['user', 'driver'], true)) {
         for ($i = 0; $i < count($params_lio); $i++) { $bind[] = & $params_lio[$i]; }
         call_user_func_array([$log_stmt, 'bind_param'], $bind);
     }
+    
+    // (user/driver branch) $log_stmt already prepared above as $sql_l with dynamic bindings
 } else {
     // Operator dan admin melihat semua kendaraan dengan summary BBM
-    $log_stmt = $mysqli->prepare("
+    $log_sql = "
         SELECT 
             k.id as kendaraan_id,
             k.no_reg,
@@ -278,16 +296,16 @@ if (in_array($current_role, ['user', 'driver'], true)) {
             k.foto,
             COUNT(lb.id) as total_pengisian,
             SUM(lb.jumlah_liter) as total_liter,
-            SUM(lb.biaya) as total_biaya,
             MAX(lb.tanggal_isi) as pengisian_terakhir,
-            AVG(lb.harga_per_liter) as rata_harga,
+            " . $avg_col . "
             MAX(lb.km_saat_isi) as km_terakhir
         FROM kendaraan k
         LEFT JOIN log_bahan_bakar lb ON k.id = lb.kendaraan_id
         GROUP BY k.id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.foto
         ORDER BY pengisian_terakhir DESC, k.no_reg, k.no_polisi
         LIMIT ? OFFSET ?
-    ");
+    ";
+    $log_stmt = $mysqli->prepare($log_sql);
     $log_stmt->bind_param('ii', $limit, $offset);
 }
 
@@ -401,13 +419,7 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                                step="0.01" min="0.01" placeholder="0.00" value="<?= htmlspecialchars($edit_data['jumlah_liter'] ?? '') ?>">
                     </div>
                     
-                    <div class="form-group">
-                        <label for="harga_per_liter">
-                            <i class="fas fa-money-bill"></i> Harga per Liter <span class="required">*</span>
-                        </label>
-                        <input type="number" name="harga_per_liter" id="harga_per_liter" required class="form-control" 
-                               step="0.01" min="0.01" placeholder="0.00" value="<?= htmlspecialchars($edit_data['harga_per_liter'] ?? '') ?>">
-                    </div>
+                    <!-- Field 'biaya' dihapus dari formulir sesuai perubahan kebijakan harga -->
                 </div>
                 
                 <div class="form-grid">
@@ -443,14 +455,7 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                     </div>
                     
                     <div class="form-group">
-                        <label for="metode_bayar">
-                            <i class="fas fa-credit-card"></i> Metode Bayar
-                        </label>
-                        <select name="metode_bayar" id="metode_bayar" class="form-control">
-                            <option value="Tunai" <?= (($edit_data['metode_bayar'] ?? '') === 'Tunai') ? 'selected' : '' ?>>Tunai</option>
-                            <option value="Kartu" <?= (($edit_data['metode_bayar'] ?? '') === 'Kartu') ? 'selected' : '' ?>>Kartu</option>
-                            <option value="Transfer" <?= (($edit_data['metode_bayar'] ?? '') === 'Transfer') ? 'selected' : '' ?>>Transfer</option>
-                        </select>
+                        <!-- placeholder to keep layout consistent -->
                     </div>
                 </div>
                 
@@ -493,12 +498,11 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                             <thead class="bg-light">
                                 <tr>
                                     <th width="5%">No</th>
-                                    <th width="25%">Kendaraan</th>
+                                    <th width="30%">Kendaraan</th>
                                     <th width="15%">Total Pengisian</th>
                                     <th width="15%">Total Liter</th>
-                                    <th width="15%">Total Biaya</th>
-                                    <th width="15%">Pengisian Terakhir</th>
-                                    <th width="10%">Aksi</th>
+                                    <th width="20%">Pengisian Terakhir</th>
+                                    <th width="15%">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -524,9 +528,6 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                                             </div>
                                             <div>
                                                 <strong class="text-primary"><?= htmlspecialchars($kendaraan['no_reg'] ?? $kendaraan['no_polisi']) ?></strong>
-                                                <?php if (!empty($kendaraan['no_polisi'])): ?>
-                                                    <br><small class="text-muted">Nopol: <?= htmlspecialchars($kendaraan['no_polisi']) ?></small>
-                                                <?php endif; ?>
                                                 <br><small class="text-muted"><?= htmlspecialchars($kendaraan['merk'] . ' ' . $kendaraan['tipe']) ?></small>
                                             </div>
                                         </div>
@@ -536,12 +537,6 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                                     </td>
                                     <td>
                                         <strong><?= number_format($kendaraan['total_liter'] ?: 0, 2) ?> L</strong>
-                                        <?php if ($kendaraan['rata_harga']): ?>
-                                            <br><small class="text-muted">Rata-rata: Rp <?= number_format($kendaraan['rata_harga'] ?: 0) ?>/L</small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <strong class="text-success">Rp <?= number_format($kendaraan['total_biaya'] ?: 0) ?></strong>
                                         <?php if ($kendaraan['km_terakhir']): ?>
                                             <br><small class="text-muted">KM: <?= number_format($kendaraan['km_terakhir']) ?></small>
                                         <?php endif; ?>
@@ -1146,21 +1141,7 @@ window.onclick = function(event) {
     }
 }
 
-// Auto-calculate total biaya
-document.addEventListener('DOMContentLoaded', function() {
-    const jumlahLiter = document.getElementById('jumlah_liter');
-    const hargaPerLiter = document.getElementById('harga_per_liter');
-    
-    function calculateTotal() {
-        if (jumlahLiter && hargaPerLiter) {
-            const total = parseFloat(jumlahLiter.value || 0) * parseFloat(hargaPerLiter.value || 0);
-            // Bisa ditambahkan field total_biaya jika diperlukan
-        }
-    }
-    
-    if (jumlahLiter) jumlahLiter.addEventListener('input', calculateTotal);
-    if (hargaPerLiter) hargaPerLiter.addEventListener('input', calculateTotal);
-});
+// Removed legacy auto-calculation of biaya/harga
 </script>
 
 

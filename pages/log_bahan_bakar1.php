@@ -24,17 +24,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $stmt = $pdo->prepare("
                     INSERT INTO log_bahan_bakar 
-                    (kendaraan_id, tanggal_isi, jumlah_liter, harga_per_liter, 
-                     total_harga, jenis_bbm, odometer, catatan, created_by) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (kendaraan_id, tanggal_isi, jumlah_liter, jenis_bbm, odometer, catatan, created_by) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 ");
                 
                 $stmt->execute([
                     $_POST['kendaraan_id'],
                     $_POST['tanggal_isi'],
                     $_POST['jumlah_liter'],
-                    $_POST['harga_per_liter'],
-                    $_POST['total_harga'],
                     $_POST['jenis_bbm'],
                     $_POST['odometer'],
                     $_POST['catatan'] ?? '',
@@ -59,8 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("
                     UPDATE log_bahan_bakar 
                     SET kendaraan_id = ?, tanggal_isi = ?, jumlah_liter = ?, 
-                        harga_per_liter = ?, total_harga = ?, jenis_bbm = ?, 
-                        odometer = ?, catatan = ?, updated_by = ?, updated_at = NOW()
+                        jenis_bbm = ?, odometer = ?, catatan = ?, updated_by = ?, updated_at = NOW()
                     WHERE id = ?
                 ");
                 
@@ -68,8 +64,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_POST['kendaraan_id'],
                     $_POST['tanggal_isi'],
                     $_POST['jumlah_liter'],
-                    $_POST['harga_per_liter'],
-                    $_POST['total_harga'],
                     $_POST['jenis_bbm'],
                     $_POST['odometer'],
                     $_POST['catatan'] ?? '',
@@ -202,8 +196,8 @@ if ($action === 'list') {
                                                         <th>Kendaraan</th>
                                                         <th>Jenis BBM</th>
                                                         <th>Jumlah (L)</th>
-                                                        <th>Harga/L</th>
-                                                        <th>Total</th>
+                                                    
+                                                        
                                                         <th>Odometer</th>
                                                         <th>Aksi</th>
                                                     </tr>
@@ -215,8 +209,8 @@ if ($action === 'list') {
                                                         <td><?php echo htmlspecialchars($log['nomor_polisi']); ?></td>
                                                         <td><?php echo htmlspecialchars($log['jenis_bbm']); ?></td>
                                                         <td><?php echo number_format($log['jumlah_liter'], 2); ?></td>
-                                                        <td>Rp <?php echo number_format($log['harga_per_liter']); ?></td>
-                                                        <td>Rp <?php echo number_format($log['total_harga']); ?></td>
+                                                        <td>-</td>
+                                                        <td>-</td>
                                                         <td><?php echo number_format($log['odometer']); ?> km</td>
                                                         <td>
                                                             <div class="btn-group btn-group-sm">
@@ -323,17 +317,7 @@ if ($action === 'list') {
                                                step="0.01" min="0" value="<?php echo $log_data['jumlah_liter'] ?? ''; ?>" required>
                                     </div>
 
-                                    <div class="col-md-6 mb-3">
-                                        <label for="harga_per_liter" class="form-label">Harga per Liter *</label>
-                                        <input type="number" class="form-control" id="harga_per_liter" name="harga_per_liter" 
-                                               min="0" value="<?php echo $log_data['harga_per_liter'] ?? ''; ?>" required>
-                                    </div>
-
-                                    <div class="col-md-6 mb-3">
-                                        <label for="total_harga" class="form-label">Total Harga *</label>
-                                        <input type="number" class="form-control" id="total_harga" name="total_harga" 
-                                               min="0" value="<?php echo $log_data['total_harga'] ?? ''; ?>" required readonly>
-                                    </div>
+                                    
 
                                     <div class="col-md-6 mb-3">
                                         <label for="odometer" class="form-label">Odometer (km) *</label>
@@ -363,23 +347,7 @@ if ($action === 'list') {
         </div>
     </main>
 
-    <script>
-    // Auto calculate total price
-    document.addEventListener('DOMContentLoaded', function() {
-        const jumlahInput = document.getElementById('jumlah_liter');
-        const hargaInput = document.getElementById('harga_per_liter');
-        const totalInput = document.getElementById('total_harga');
-        
-        function calculateTotal() {
-            const jumlah = parseFloat(jumlahInput.value) || 0;
-            const harga = parseFloat(hargaInput.value) || 0;
-            totalInput.value = Math.round(jumlah * harga);
-        }
-        
-        jumlahInput.addEventListener('input', calculateTotal);
-        hargaInput.addEventListener('input', calculateTotal);
-    });
-    </script>
+    
 
     <?php
     render_page_footer();
@@ -424,11 +392,11 @@ if ($action === 'list') {
                                         </tr>
                                         <tr>
                                             <td class="fw-bold">Harga per Liter:</td>
-                                            <td>Rp <?php echo number_format($log_data['harga_per_liter']); ?></td>
+                                            <td>-</td>
                                         </tr>
                                         <tr>
                                             <td class="fw-bold">Total Harga:</td>
-                                            <td>Rp <?php echo number_format($log_data['total_harga']); ?></td>
+                                            <td>-</td>
                                         </tr>
                                         <tr>
                                             <td class="fw-bold">Odometer:</td>

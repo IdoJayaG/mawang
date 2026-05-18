@@ -141,69 +141,77 @@ function render_confirmation_modal() {
     echo "</div>\n";
 }
 
-function get_status_badge($status, $type = 'general') {
-    $status_lower = strtolower($status);
-    
-    switch ($type) {
-        case 'vehicle':
-            switch ($status_lower) {
-                case 'baik': return "<span class='badge badge-success'>Baik</span>";
-                case 'rusak ringan': return "<span class='badge badge-warning'>Rusak Ringan</span>";
-                case 'rusak berat': return "<span class='badge badge-danger'>Rusak Berat</span>";
-                case 'operasional': return "<span class='badge badge-success'>Operasional</span>";
-                case 'perbaikan': return "<span class='badge badge-warning'>Perbaikan</span>";
-                case 'tersedia': return "<span class='badge badge-success'>Tersedia</span>";
-                case 'dipinjam': return "<span class='badge badge-warning'>Dipinjam</span>";
-                default: return "<span class='badge badge-secondary'>{$status}</span>";
-            }
-            
-        case 'maintenance':
-            switch ($status_lower) {
-                case 'terjadwal': return "<span class='badge badge-info'>Terjadwal</span>";
-                case 'dalam proses': return "<span class='badge badge-warning'>Dalam Proses</span>";
-                case 'selesai': return "<span class='badge badge-success'>Selesai</span>";
-                case 'dibatalkan': return "<span class='badge badge-secondary'>Dibatalkan</span>";
-                default: return "<span class='badge badge-secondary'>{$status}</span>";
-            }
-            
-        case 'loan':
-            switch ($status_lower) {
-                case 'pending': return "<span class='badge badge-warning'>Pending</span>";
-                case 'approved': return "<span class='badge badge-success'>Disetujui</span>";
-                case 'ongoing': return "<span class='badge badge-info'>Berlangsung</span>";
-                case 'completed': return "<span class='badge badge-success'>Selesai</span>";
-                case 'cancelled': return "<span class='badge badge-secondary'>Dibatalkan</span>";
-                case 'rejected': return "<span class='badge badge-danger'>Ditolak</span>";
-                default: return "<span class='badge badge-secondary'>{$status}</span>";
-            }
-            
-        default:
-            switch ($status_lower) {
-                case 'aktif': return "<span class='badge badge-success'>Aktif</span>";
-                case 'tidak aktif': return "<span class='badge badge-secondary'>Tidak Aktif</span>";
-                case 'pending': return "<span class='badge badge-warning'>Pending</span>";
-                case 'approved': return "<span class='badge badge-success'>Disetujui</span>";
-                case 'rejected': return "<span class='badge badge-danger'>Ditolak</span>";
-                default: return "<span class='badge badge-secondary'>{$status}</span>";
-            }
+if (!function_exists('get_status_badge')) {
+    function get_status_badge($status, $type = 'general') {
+        $status_lower = strtolower($status);
+        
+        switch ($type) {
+            case 'vehicle':
+                switch ($status_lower) {
+                    case 'baik': return "<span class='badge badge-success'>Baik</span>";
+                    case 'rusak ringan': return "<span class='badge badge-warning'>Rusak Ringan</span>";
+                    case 'rusak berat': return "<span class='badge badge-danger'>Rusak Berat</span>";
+                    case 'operasional': return "<span class='badge badge-success'>Operasional</span>";
+                    case 'perbaikan': return "<span class='badge badge-warning'>Perbaikan</span>";
+                    case 'tersedia': return "<span class='badge badge-success'>Tersedia</span>";
+                    case 'dipinjam': return "<span class='badge badge-warning'>Dipinjam</span>";
+                    default: return "<span class='badge badge-secondary'>{$status}</span>";
+                }
+                
+            case 'maintenance':
+                switch ($status_lower) {
+                    case 'terjadwal': return "<span class='badge badge-info'>Terjadwal</span>";
+                    case 'dalam proses': return "<span class='badge badge-warning'>Dalam Proses</span>";
+                    case 'selesai': return "<span class='badge badge-success'>Selesai</span>";
+                    case 'dibatalkan': return "<span class='badge badge-secondary'>Dibatalkan</span>";
+                    default: return "<span class='badge badge-secondary'>{$status}</span>";
+                }
+                
+            case 'loan':
+                switch ($status_lower) {
+                    case 'pending': return "<span class='badge badge-warning'>Pending</span>";
+                    case 'approved': return "<span class='badge badge-success'>Disetujui</span>";
+                    case 'ongoing': return "<span class='badge badge-info'>Berlangsung</span>";
+                    case 'completed': return "<span class='badge badge-success'>Selesai</span>";
+                    case 'cancelled': return "<span class='badge badge-secondary'>Dibatalkan</span>";
+                    case 'rejected': return "<span class='badge badge-danger'>Ditolak</span>";
+                    default: return "<span class='badge badge-secondary'>{$status}</span>";
+                }
+                
+            default:
+                switch ($status_lower) {
+                    case 'aktif': return "<span class='badge badge-success'>Aktif</span>";
+                    case 'tidak aktif': return "<span class='badge badge-secondary'>Tidak Aktif</span>";
+                    case 'pending': return "<span class='badge badge-warning'>Pending</span>";
+                    case 'approved': return "<span class='badge badge-success'>Disetujui</span>";
+                    case 'rejected': return "<span class='badge badge-danger'>Ditolak</span>";
+                    default: return "<span class='badge badge-secondary'>{$status}</span>";
+                }
+        }
     }
-} 
-
-function format_currency($amount) {
-    return 'Rp ' . number_format($amount, 0, ',', '.');
 }
 
-function format_date($date, $format = 'd/m/Y') {
-    if (empty($date) || $date == '0000-00-00' || $date == '0000-00-00 00:00:00') {
-        return '-';
+if (!function_exists('format_currency')) {
+    function format_currency($amount) {
+        return 'Rp ' . number_format($amount, 0, ',', '.');
     }
-    return date($format, strtotime($date));
 }
 
-function format_datetime($datetime, $format = 'd/m/Y H:i') {
-    if (empty($datetime) || $datetime == '0000-00-00 00:00:00') {
-        return '-';
+if (!function_exists('format_date')) {
+    function format_date($date, $format = 'd/m/Y') {
+        if (empty($date) || $date == '0000-00-00' || $date == '0000-00-00 00:00:00') {
+            return '-';
+        }
+        return date($format, strtotime($date));
     }
-    return date($format, strtotime($datetime));
+}
+
+if (!function_exists('format_datetime')) {
+    function format_datetime($datetime, $format = 'd/m/Y H:i') {
+        if (empty($datetime) || $datetime == '0000-00-00 00:00:00') {
+            return '-';
+        }
+        return date($format, strtotime($datetime));
+    }
 }
 ?>

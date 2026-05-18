@@ -44,8 +44,10 @@ if (empty($page)) {
             $page = 'dashboard_pimpinan';
             break;
         case 'user':
-        case 'driver':
             $page = 'dashboard_user';
+            break;
+        case 'driver':
+            $page = 'dashboard_driver';
             break;
         default:
             $page = 'home';

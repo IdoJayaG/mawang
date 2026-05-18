@@ -1,0 +1,8 @@
+[2026-05-16 05:05:36] Preparing surat_tugas SQL; hasDriverCol=0
+[2026-05-16 05:05:36] SQL: SELECT s.id, s.nomor_surat, s.tanggal_berangkat, s.tujuan, s.keperluan, s.kendaraan_id, s.pengguna_id, k.no_reg, k.no_polisi FROM surat_tugas s LEFT JOIN kendaraan k ON s.kendaraan_id = k.id WHERE DATE(tanggal_berangkat) = ? AND (status IS NULL OR LOWER(status) NOT IN ('selesai','dibatalkan')) AND (s.pengguna_id = ? OR k.pengguna_id = ?)
+[2026-05-16 05:05:36] Bind params: [tomorrow=2026-05-17, pengguna_id=56 (pengguna), pengguna_id=56 (kendaraan.pengguna_id)]
+[2026-05-16 05:05:36] Result rows: 0
+[2026-05-16 05:05:39] Preparing surat_tugas SQL; hasDriverCol=0
+[2026-05-16 05:05:39] SQL: SELECT s.id, s.nomor_surat, s.tanggal_berangkat, s.tujuan, s.keperluan, s.kendaraan_id, s.pengguna_id, k.no_reg, k.no_polisi FROM surat_tugas s LEFT JOIN kendaraan k ON s.kendaraan_id = k.id WHERE DATE(tanggal_berangkat) = ? AND (status IS NULL OR LOWER(status) NOT IN ('selesai','dibatalkan')) AND (s.pengguna_id = ? OR k.pengguna_id = ?)
+[2026-05-16 05:05:39] Bind params: [tomorrow=2026-05-17, pengguna_id=56 (pengguna), pengguna_id=56 (kendaraan.pengguna_id)]
+[2026-05-16 05:05:39] Result rows: 0

@@ -39,10 +39,14 @@ $logs_stmt->bind_param('i', $kendaraan_id);
 $logs_stmt->execute();
 $logs = $logs_stmt->get_result();
 $logs_stmt->close();
+
+// Detect optional columns
+$has_harga = function_exists('db_table_columns') && in_array('harga_per_liter', (array)db_table_columns('log_bahan_bakar'), true);
+$has_metode = function_exists('db_table_columns') && in_array('metode_bayar', (array)db_table_columns('log_bahan_bakar'), true);
 ?>
 
 <div class="page-header">
-    <h1><i class="fas fa-gas-pump"></i> Detail Log BBM - <?= htmlspecialchars($vehicle['no_polisi']) ?> <?= !empty($vehicle['no_reg']) ? '<small class="text-muted">(Reg: ' . htmlspecialchars($vehicle['no_reg']) . ')</small>' : '' ?></h1>
+    <h1><i class="fas fa-gas-pump"></i> Detail Log BBM - <?= htmlspecialchars($vehicle['no_polisi']) ?> </h1>
     <div class="header-actions">
         <a href="index.php?page=log_bahan_bakar" class="btn btn-outline">&larr; Kembali</a>
         <?php if (can_operate() || in_array($current_role, ['user', 'driver'], true)): ?>
@@ -56,15 +60,12 @@ $logs_stmt->close();
         <div class="table-responsive">
             <table class="table table-striped table-hover">
                 <thead>
-                    <tr>
+                        <tr>
                         <th>#</th>
                         <th>Tanggal & Waktu</th>
                         <th>Jumlah (L)</th>
-                        <th>Harga/L</th>
-                        <th>Total Biaya</th>
                         <th>KM Saat Isi</th>
                         <th>SPBU</th>
-                        <th>Metode</th>
                         <th>User</th>
                         <th>Keterangan</th>
                         <?php if (can_operate() || in_array($current_role, ['user', 'driver'], true)): ?>
@@ -78,11 +79,8 @@ $logs_stmt->close();
                             <td><?= $i++ ?></td>
                             <td><?= !empty($row['tanggal_isi']) ? date('d/m/Y H:i', strtotime($row['tanggal_isi'])) : '-' ?></td>
                             <td><?= number_format($row['jumlah_liter'], 2) ?></td>
-                            <td>Rp <?= number_format($row['harga_per_liter'], 2) ?></td>
-                            <td>Rp <?= number_format($row['biaya'], 2) ?></td>
                             <td><?= $row['km_saat_isi'] ? number_format($row['km_saat_isi']) : '-' ?></td>
                             <td><?= htmlspecialchars($row['spbu']) ?></td>
-                            <td><?= htmlspecialchars($row['metode_bayar']) ?></td>
                             <td><?= htmlspecialchars($row['user_name'] ?? '-') ?></td>
                             <td><?= htmlspecialchars($row['keterangan']) ?></td>
                             <?php if (can_operate() || in_array($current_role, ['user', 'driver'], true)): ?>
@@ -94,7 +92,7 @@ $logs_stmt->close();
                             <?php endif; ?>
                         </tr>
                     <?php endwhile; else: ?>
-                        <tr><td colspan="<?= (can_operate() || in_array($current_role, ['user', 'driver'], true)) ? '11' : '10' ?>" class="text-center">Belum ada log BBM untuk kendaraan ini.</td></tr>
+                        <tr><td colspan="<?= (can_operate() || in_array($current_role, ['user', 'driver'], true)) ? '8' : '7' ?>" class="text-center">Belum ada log BBM untuk kendaraan ini.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
