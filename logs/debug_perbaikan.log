@@ -6,3 +6,7 @@ Insert OK new_id=22
 CSRF present=1 ok=1
 Vehicle check: kendaraan_id=123 access_allowed=1
 Insert OK new_id=23
+2026-05-19 06:15:21 [riwayat_perbaikan POST] user=83 role=driver action=add
+CSRF present=1 ok=1
+Vehicle check: kendaraan_id=77 access_allowed=1
+Insert OK new_id=24

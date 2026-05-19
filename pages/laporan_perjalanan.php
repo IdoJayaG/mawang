@@ -340,7 +340,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!empty($_POST['start_surat_id'])) {
     $sid = (int)$_POST['start_surat_id'];
     if ($sid > 0 && db_table_exists('surat_tugas')) {
-      $st = $mysqli->prepare("SELECT pengguna_id, status FROM surat_tugas WHERE id = ? LIMIT 1");
+      $st = $mysqli->prepare("SELECT id, kendaraan_id, pengguna_id, tanggal_berangkat, nomor_surat, tujuan, keperluan, laporan_perjalanan, status FROM surat_tugas WHERE id = ? LIMIT 1");
       $st->bind_param('i', $sid);
       $st->execute();
       $srow = $st->get_result()->fetch_assoc();
@@ -352,6 +352,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $up->execute();
         $up->close();
         if (function_exists('log_activity')) log_activity('SURAT_START', "Surat tugas id={$sid} set to Dalam Perjalanan oleh pengguna {$current_user_id}");
+
+        // Ensure a laporan_perjalanan exists for this surat (use tanggal_berangkat); create if missing.
+        $lp_id = null;
+        $tanggal = $srow['tanggal_berangkat'] ?? null;
+        if ($tanggal) {
+          $chk = $mysqli->prepare("SELECT id FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? LIMIT 1");
+          $chk->bind_param('is', $srow['kendaraan_id'], $tanggal);
+          $chk->execute();
+          $rowc = $chk->get_result()->fetch_assoc();
+          $chk->close();
+          if ($rowc && !empty($rowc['id'])) {
+            $lp_id = (int)$rowc['id'];
+          } else {
+            $uraian = trim($srow['laporan_perjalanan'] ?? $srow['keperluan'] ?? $srow['nomor_surat'] ?? ('Surat Tugas ' . ($srow['id'] ?? '')));
+            $route = $srow['tujuan'] ?? '';
+            if ($ins = $mysqli->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, NULL, NOW())")) {
+              $ins->bind_param('siiss', $tanggal, $srow['kendaraan_id'], $srow['pengguna_id'], $uraian, $route);
+              if ($ins->execute()) {
+                $lp_id = (int)$mysqli->insert_id;
+              }
+              $ins->close();
+            }
+          }
+        }
+        if ($lp_id) {
+          header('Location: index.php?page=laporan_perjalanan&action=edit&id=' . $lp_id);
+          exit;
+        }
       }
     }
     header('Location: index.php?page=laporan_perjalanan');
@@ -545,6 +573,159 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Location: index.php?page=laporan_perjalanan');
     exit;
   }
+}
+
+// List view data only when listing
+// Driver-assigned surat list (sidebar target)
+if ($action === 'assigned') {
+  if ($current_role !== 'driver' || !$current_user_id) {
+    header('Location: index.php'); exit;
+  }
+  // Fetch surat_tugas assigned to this driver
+  $stmt = $mysqli->prepare("SELECT st.id, st.nomor_surat, st.tanggal_berangkat, st.tanggal_kembali, st.kendaraan_id, st.pengguna_id, st.tujuan, st.status, k.no_reg, k.no_polisi, k.merk, k.tipe FROM surat_tugas st JOIN kendaraan k ON st.kendaraan_id = k.id WHERE st.pengguna_id = ? ORDER BY st.tanggal_berangkat ASC LIMIT 100");
+  $stmt->bind_param('i', $current_user_id);
+  $stmt->execute();
+  $assigned = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+  $stmt->close();
+
+  ?>
+  <div class="page-header">
+    <h1><i class="fas fa-route"></i> Surat Tugas - Tugas Saya</h1>
+  </div>
+  <div class="card">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th>Tanggal Berangkat</th>
+              <th>Nomor Surat</th>
+              <th>Kendaraan</th>
+              <th>Tujuan</th>
+              <th>Status</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+          <?php if (empty($assigned)): ?>
+            <tr><td colspan="6" class="text-center text-muted">Belum ada surat tugas</td></tr>
+          <?php else: foreach ($assigned as $s):
+            $today = date('Y-m-d');
+            $editable = ($s['tanggal_berangkat'] !== null && $today >= $s['tanggal_berangkat']);
+            $vehLabel = htmlspecialchars(($s['no_reg'] ?: $s['no_polisi']) . ' - ' . $s['merk'] . ($s['tipe'] ? ' '.$s['tipe'] : ''));
+            ?>
+            <tr>
+              <td><?= htmlspecialchars($s['tanggal_berangkat']) ?></td>
+              <td><?= htmlspecialchars($s['nomor_surat']) ?></td>
+              <td><?= $vehLabel ?></td>
+              <td><?= htmlspecialchars($s['tujuan']) ?></td>
+              <td><?= htmlspecialchars($s['status']) ?></td>
+              <td>
+                <?php if ($editable): ?>
+                  <form method="post" style="display:inline" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
+                    <input type="hidden" name="start_surat_id" value="<?= (int)$s['id'] ?>">
+                    <button class="btn btn-sm btn-primary" type="submit"><i class="fas fa-edit"></i> Edit</button>
+                  </form>
+                <?php else: ?>
+                  <button class="btn btn-sm btn-secondary" disabled><i class="fas fa-edit"></i> Edit</button>
+                <?php endif; ?>
+                <a href="?page=laporan_perjalanan&action=detail_surat&surat_id=<?= (int)$s['id'] ?>" class="btn btn-sm btn-outline-info ms-1"><i class="fas fa-map-marker-alt"></i> Detail</a>
+              </td>
+            </tr>
+          <?php endforeach; endif; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <?php
+  exit;
+}
+
+// Detail view for a surat (show map with tracking since LP creation)
+if ($action === 'detail_surat') {
+  $surat_id = (int)($_GET['surat_id'] ?? 0);
+  if ($surat_id <= 0) { echo '<div class="alert alert-danger">Surat tidak ditemukan</div>'; exit; }
+  $stmt = $mysqli->prepare("SELECT st.*, k.no_reg, k.no_polisi, k.merk, k.tipe, k.locator FROM surat_tugas st JOIN kendaraan k ON st.kendaraan_id = k.id WHERE st.id = ? LIMIT 1");
+  $stmt->bind_param('i', $surat_id);
+  $stmt->execute();
+  $s = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if (!$s) { echo '<div class="alert alert-danger">Surat tidak ditemukan</div>'; exit; }
+
+  // find related laporan_perjalanan (use created_at as start time)
+  $lp_start = null; $lp_id = null;
+  $st2 = $mysqli->prepare("SELECT id, created_at FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? ORDER BY created_at ASC LIMIT 1");
+  $st2->bind_param('is', $s['kendaraan_id'], $s['tanggal_berangkat']);
+  $st2->execute();
+  $r2 = $st2->get_result()->fetch_assoc();
+  $st2->close();
+  if ($r2) { $lp_id = (int)$r2['id']; $lp_start = $r2['created_at']; }
+
+  ?>
+  <div class="page-header">
+    <h1><i class="fas fa-map-marked-alt"></i> Detail Surat - <?= htmlspecialchars($s['nomor_surat']) ?></h1>
+    <div class="header-actions">
+      <a class="btn btn-secondary" href="?page=laporan_perjalanan&action=assigned"><i class="fas fa-arrow-left me-1"></i> Kembali</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <div class="row mb-3">
+        <div class="col-md-4"><strong>Tanggal Berangkat:</strong> <?= htmlspecialchars($s['tanggal_berangkat']) ?></div>
+        <div class="col-md-4"><strong>Kendaraan:</strong> <?= htmlspecialchars(($s['no_reg'] ?: $s['no_polisi']) . ' - ' . $s['merk']) ?></div>
+        <div class="col-md-4"><strong>Status:</strong> <?= htmlspecialchars($s['status']) ?></div>
+      </div>
+      <div id="suratTrackMap" style="height:420px; width:100%;"></div>
+      <div class="mt-2" id="trackSummary"></div>
+    </div>
+  </div>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', function(){
+    const mapEl = document.getElementById('suratTrackMap');
+    if (!mapEl) return;
+    const map = L.map('suratTrackMap').setView([-6.200, 106.816], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+
+    const vehicleId = <?= (int)$s['kendaraan_id'] ?>;
+    const dateStr = '<?= htmlspecialchars($s['tanggal_berangkat']) ?>';
+    const lpStart = <?= $lp_start ? json_encode($lp_start) : 'null' ?>;
+
+    fetch(`ajax/traccar_daily_timeline.php?vehicle_id=${vehicleId}&date=${encodeURIComponent(dateStr)}`, { credentials: 'same-origin' })
+      .then(r=>r.json())
+      .then(data => {
+        if (!data.success) {
+          document.getElementById('trackSummary').innerText = data.message || 'Gagal mengambil tracking data dari Traccar.';
+          return;
+        }
+        let points = data.points || [];
+        if (lpStart) {
+          const startTs = Date.parse(lpStart.replace(' ', 'T'));
+          points = points.filter(p => {
+            const t = Date.parse((p.server_time||p.device_time||'').replace(' ', 'T'));
+            return !isNaN(t) && t >= startTs;
+          });
+        }
+        if (!points.length) {
+          document.getElementById('trackSummary').innerText = 'Belum ada data pelacakan untuk periode ini.';
+          return;
+        }
+        const latlngs = points.map(p => [p.lat, p.lon]);
+        const poly = L.polyline(latlngs, { color: 'blue', weight: 4 }).addTo(map);
+        map.fitBounds(poly.getBounds(), { padding: [20,20] });
+        const first = points[0]; const last = points[points.length-1];
+        L.marker([first.lat, first.lon], { icon: L.divIcon({ className: 'start-marker', html: '<i class="fas fa-flag-checkered"></i>' }) }).addTo(map).bindPopup('Start');
+        L.marker([last.lat, last.lon], { icon: L.divIcon({ className: 'current-marker', html: '<i class="fas fa-car"></i>' }) }).addTo(map).bindPopup('Terakhir: ' + (last.server_time || last.device_time || ''));
+        document.getElementById('trackSummary').innerHTML = `<div class="small text-muted">Menampilkan ${points.length} titik dari ${lpStart ? 'mulai '+lpStart : 'awal hari'}</div>`;
+      }).catch(err=>{ document.getElementById('trackSummary').innerText = 'Terjadi kesalahan saat memuat data pelacakan.'; });
+  });
+  </script>
+
+  <?php
+  exit;
 }
 
 // List view data only when listing

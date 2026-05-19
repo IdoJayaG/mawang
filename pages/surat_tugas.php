@@ -1047,7 +1047,14 @@ if ($action === 'edit' && $surat_id && $can_crud) {
 
 // Get vehicles and users for dropdown
 $vehicles = [];
-$vehicles_query = "SELECT id, no_polisi, no_reg, merk, tipe FROM kendaraan ORDER BY COALESCE(no_reg, no_polisi)";
+// Detect optional `pengguna_id` column on `kendaraan` so we can join driver data when present
+$col_check = $conn->query("SHOW COLUMNS FROM kendaraan LIKE 'pengguna_id'");
+$has_pengguna_id = $col_check && $col_check->num_rows > 0;
+if ($has_pengguna_id) {
+    $vehicles_query = "SELECT k.id, k.no_polisi, k.no_reg, k.merk, k.tipe, k.pengguna_id, COALESCE(p.nama_lengkap, '') AS driver_name, COALESCE(p.pangkat, '') AS driver_pangkat FROM kendaraan k LEFT JOIN pengguna p ON k.pengguna_id = p.id ORDER BY COALESCE(k.no_reg, k.no_polisi)";
+} else {
+    $vehicles_query = "SELECT id, no_polisi, no_reg, merk, tipe FROM kendaraan ORDER BY COALESCE(no_reg, no_polisi)";
+}
 $vehicles_result = $conn->query($vehicles_query);
 if ($vehicles_result) {
     $vehicles = $vehicles_result->fetch_all(MYSQLI_ASSOC);
@@ -1221,7 +1228,15 @@ if ($users_result) {
                                         <small class="text-muted"><?= date('d/m/Y', strtotime($row['tanggal_surat'])) ?></small>
                                     </td>
                                         <td>
-                                        <strong><?= vehicle_label($row) ?></strong>
+                                        <?php
+                                            $no_reg = isset($row['no_reg']) ? trim($row['no_reg']) : '';
+                                            $merk = isset($row['merk']) ? trim($row['merk']) : '';
+                                            $kend_label = $no_reg;
+                                            if ($merk !== '') {
+                                                $kend_label .= ($kend_label ? ' - ' : '') . $merk;
+                                            }
+                                        ?>
+                                        <strong><?= htmlspecialchars($kend_label) ?></strong>
                                     </td>
                                     <td>
                                         <strong><?= htmlspecialchars(($row['pangkat'] ? $row['pangkat'] . ' ' : '') . $row['nama_lengkap']) ?></strong>
@@ -1844,11 +1859,21 @@ if ($users_result) {
                                             <select name="kendaraan_id" id="kendaraan_id" class="form-control" required>
                                                 <option value="">Pilih Kendaraan</option>
                                                 <?php foreach ($vehicles as $vehicle): ?>
-                                                        <option value="<?= $vehicle['id'] ?>" data-merk="<?= htmlspecialchars($vehicle['merk'] ?? '') ?>" 
-                                                                <?= (isset($surat_data) && $surat_data['kendaraan_id'] == $vehicle['id']) ? 'selected' : '' ?>>
-                                                            <?= htmlspecialchars(($vehicle['no_reg'] ?? '') !== '' ? $vehicle['no_reg'] : ($vehicle['no_polisi'] ?? '-')) ?><?= !empty($vehicle['no_polisi']) ? ' (Nopol: ' . htmlspecialchars($vehicle['no_polisi']) . ')' : '' ?> - <?= htmlspecialchars(trim(($vehicle['merk'] ?? '') . ' ' . ($vehicle['tipe'] ?? ''))) ?>
-                                                        </option>
-                                                    <?php endforeach; ?>
+                                                    <?php
+                                                        $reg = '';
+                                                        if (!empty($vehicle['no_reg'])) $reg = $vehicle['no_reg'];
+                                                        elseif (!empty($vehicle['no_polisi'])) $reg = $vehicle['no_polisi'];
+                                                        else $reg = '-';
+                                                        $merk = trim(($vehicle['merk'] ?? '') . ' ' . ($vehicle['tipe'] ?? ''));
+                                                        $driver_display = '';
+                                                        if (!empty($vehicle['driver_name'])) {
+                                                            $driver_display = trim(($vehicle['driver_pangkat'] ?? '') . ' ' . $vehicle['driver_name']);
+                                                        }
+                                                    ?>
+                                                    <option value="<?= $vehicle['id'] ?>" data-merk="<?= htmlspecialchars($vehicle['merk'] ?? '') ?>" <?= (isset($surat_data) && $surat_data['kendaraan_id'] == $vehicle['id']) ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($reg) ?> - <?= htmlspecialchars($merk) ?><?= $driver_display ? ' - ' . htmlspecialchars($driver_display) : '' ?>
+                                                    </option>
+                                                <?php endforeach; ?>
                                             </select>
                                         </div>
                                     </div>
@@ -2476,9 +2501,24 @@ document.addEventListener('DOMContentLoaded', function(){
 
     function recalcRouteAndEstimates(){
         // Build promises to ensure lat/lng available for origin and all destinations
-        const originVal = originInput ? (originInput.value || '').trim() : 'SPBT Kemhan Cawang';
+        // If an origin input exists but is empty, fall back to the fixed origin
+        const originVal = (originInput && originInput.value && originInput.value.trim()) ? originInput.value.trim() : 'SPBT Kemhan Cawang';
         const destInputs = Array.from(document.querySelectorAll('.destination-item'));
-        const originPromise = (originInput && originInput.dataset && originInput.dataset.lat && originInput.dataset.lng) ? Promise.resolve({lat: parseFloat(originInput.dataset.lat), lng: parseFloat(originInput.dataset.lng)}) : (originVal ? geocodeAddress(originVal).then(r=>{ if(r){ if (originInput){ originInput.dataset.lat=r.lat; originInput.dataset.lng=r.lon; originInput.dataset.display=r.display_name; } setOriginMarker([parseFloat(r.lat), parseFloat(r.lon)], r.display_name); return {lat: parseFloat(r.lat), lng: parseFloat(r.lon)} } return null; }) : Promise.resolve(null));
+        const originPromise = (originInput && originInput.dataset && originInput.dataset.lat && originInput.dataset.lng)
+            ? Promise.resolve({lat: parseFloat(originInput.dataset.lat), lng: parseFloat(originInput.dataset.lng)})
+            : (originVal ? geocodeAddress(originVal).then(r => {
+                if (r) {
+                    if (originInput) { originInput.dataset.lat = r.lat; originInput.dataset.lng = r.lon; originInput.dataset.display = r.display_name; }
+                    setOriginMarker([parseFloat(r.lat), parseFloat(r.lon)], r.display_name);
+                    return {lat: parseFloat(r.lat), lng: parseFloat(r.lon)};
+                }
+                // geocode failed -> fallback to fixed SPBT Kemhan Cawang coords so routing can proceed
+                console.warn('geocodeAddress failed for origin, using fixed fallback coords');
+                const fallback = { lat: -6.200, lng: 106.816 };
+                if (originInput) { originInput.dataset.lat = fallback.lat; originInput.dataset.lng = fallback.lng; originInput.dataset.display = 'SPBT Kemhan Cawang'; }
+                setOriginMarker([fallback.lat, fallback.lng], 'SPBT Kemhan Cawang');
+                return fallback;
+            }) : Promise.resolve(null));
 
         const destPromises = destInputs.map(inp => {
             const v = inp.value.trim();
@@ -2490,8 +2530,10 @@ document.addEventListener('DOMContentLoaded', function(){
         return Promise.all([originPromise].concat(destPromises)).then(results => {
             const originLatLng = results[0];
             const destLatLngs = results.slice(1).filter(Boolean);
+            console.log('recalcRouteAndEstimates (surat_tugas): origin=', originLatLng, 'dests=', destLatLngs);
             if (!originLatLng || destLatLngs.length === 0) {
                 // Not enough points to route
+                console.log('recalcRouteAndEstimates: not enough points to route');
                 routeDistanceEl.textContent = '-'; routeFuelEl.textContent = '-';
                 if (routingControl) { try{ map.removeControl(routingControl); } catch(e){} routingControl = null; }
                 return;
@@ -2511,33 +2553,109 @@ document.addEventListener('DOMContentLoaded', function(){
                 router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' })
             }).addTo(map);
 
+            // routesfound handler with fallback
+            let routesFoundHandled = false;
             routingControl.on('routesfound', function(e){
+                routesFoundHandled = true;
                 const summary = e.routes && e.routes[0] && e.routes[0].summary;
                 if (!summary) return;
-                const distKm = (summary.totalDistance/1000);
-                const distKmFixed = Math.round(distKm * 100) / 100;
-                routeDistanceEl.textContent = distKmFixed;
-                // Estimasi BBM
+                console.log('OSRM routesfound summary=', summary);
+                const distKmRaw = (summary.totalDistance/1000);
+                const distKmCeil = Math.ceil(distKmRaw);
+                routeDistanceEl.textContent = distKmCeil;
+                // Estimasi BBM: ceil(liters) + 2
                 const rate = getConsumptionRateForSelectedVehicle();
-                const liters = Math.round((distKm / rate) * 100) / 100;
-                routeFuelEl.textContent = liters;
-                // Update form fields
+                const litersRaw = distKmRaw / rate;
+                const litersCeilPlus = Math.ceil(litersRaw) + 2;
+                routeFuelEl.textContent = litersCeilPlus;
+                // Update form fields (prefer numeric values and trigger input)
                 const kmEl = document.getElementById('estimasi_km');
                 const bbmEl = document.getElementById('estimasi_bbm');
-                if (kmEl) kmEl.value = distKmFixed;
-                if (bbmEl) bbmEl.value = liters;
+                if (kmEl) { kmEl.value = distKmCeil; kmEl.dispatchEvent(new Event('input')); }
+                if (bbmEl) { bbmEl.value = litersCeilPlus; bbmEl.dispatchEvent(new Event('input')); }
             });
+
+            // Immediate approximate (straight-line) distance so UI shows values quickly
+            try {
+                function haversine(a, b) {
+                    const R = 6371; // km
+                    const dLat = (b.lat - a.lat) * Math.PI / 180;
+                    const dLon = (b.lng - a.lng) * Math.PI / 180;
+                    const lat1 = a.lat * Math.PI / 180;
+                    const lat2 = b.lat * Math.PI / 180;
+                    const sinHalf = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon/2) * Math.sin(dLon/2);
+                    const c = 2 * Math.atan2(Math.sqrt(sinHalf), Math.sqrt(1 - sinHalf));
+                    return R * c; // km
+                }
+                let totalKm = 0;
+                for (let i = 0; i < waypoints.length - 1; i++) {
+                    const a = waypoints[i];
+                    const b = waypoints[i+1];
+                    if (!a || !b) continue;
+                    totalKm += haversine({lat: a.lat, lng: a.lng}, {lat: b.lat, lng: b.lng});
+                }
+                const distKmCeil = Math.ceil(totalKm);
+                console.log('Immediate straight-line distance (km)=', distKmCeil);
+                routeDistanceEl.textContent = distKmCeil;
+                const rate = getConsumptionRateForSelectedVehicle();
+                const litersCeilPlus = Math.ceil(totalKm / rate) + 2;
+                console.log('Immediate liters (ceil +2)=', litersCeilPlus);
+                routeFuelEl.textContent = litersCeilPlus;
+                const kmEl = document.getElementById('estimasi_km');
+                const bbmEl = document.getElementById('estimasi_bbm');
+                if (kmEl) { kmEl.value = distKmCeil; kmEl.dispatchEvent(new Event('input')); }
+                if (bbmEl) { bbmEl.value = litersCeilPlus; bbmEl.dispatchEvent(new Event('input')); }
+            } catch(e) { console.warn('Immediate routing calculation failed', e); }
 
             // Fit map to route after short delay
             setTimeout(()=>{ try{ if (routingControl && routingControl.getPlan) routingControl.getPlan().setWaypoints(waypoints); } catch(e){} }, 300);
         });
     }
 
-    // Initialize existing destination inputs
+    // Initialize existing destination inputs (add autocomplete + remove handlers)
     Array.from(document.querySelectorAll('.destination-item')).forEach(inp => {
+        const li = inp.closest('li') || inp.parentElement;
+        // ensure suggestion container exists
+        let sugg = li.querySelector('.destination-suggestions');
+        if (!sugg) {
+            sugg = document.createElement('div');
+            sugg.className = 'destination-suggestions list-group';
+            sugg.style.position = 'absolute';
+            sugg.style.left = '0';
+            sugg.style.right = '0';
+            sugg.style.top = '100%';
+            sugg.style.zIndex = '1200';
+            li.style.position = 'relative';
+            li.appendChild(sugg);
+        }
+
+        // wire remove button
+        const removeBtn = li.querySelector('.remove-destination');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', function(){ const m = destMarkers.get(inp); if (m) { try{ map.removeLayer(m); } catch(e){} destMarkers.delete(inp); } li.remove(); recalcRouteAndEstimates(); });
+        } else {
+            const btn = document.createElement('button'); btn.type='button'; btn.className='btn btn-sm btn-danger remove-destination'; btn.innerHTML='&times;'; btn.addEventListener('click', function(){ const m = destMarkers.get(inp); if (m) { try{ map.removeLayer(m); } catch(e){} destMarkers.delete(inp); } li.remove(); recalcRouteAndEstimates(); }); li.appendChild(btn);
+        }
+
+        // input handlers (enter, blur)
         inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); geocodeInputAndSetMarker(inp).then(recalcRouteAndEstimates); } });
-        inp.addEventListener('blur', function(){ if (inp.value.trim()) geocodeInputAndSetMarker(inp).then(recalcRouteAndEstimates); });
-        if (inp.value.trim()) geocodeInputAndSetMarker(inp);
+        inp.addEventListener('blur', function(){ setTimeout(()=>{ if (inp.value.trim()) geocodeInputAndSetMarker(inp).then(recalcRouteAndEstimates); sugg.innerHTML=''; }, 200); });
+
+        // autocomplete for existing input (debounced)
+        let acTimeout = null;
+        inp.addEventListener('input', function(){ const q = inp.value.trim(); sugg.innerHTML = ''; if (acTimeout) clearTimeout(acTimeout); if (q.length < 2) return; acTimeout = setTimeout(function(){ fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(q)).then(r=>r.json()).then(list=>{ sugg.innerHTML = ''; if (!list || !list.length) return; list.forEach(item=>{ const a = document.createElement('a'); a.href='#'; a.className='list-group-item list-group-item-action'; a.textContent = item.display_name; a.addEventListener('click', function(ev){ ev.preventDefault(); inp.value = item.display_name; inp.dataset.lat = item.lat; inp.dataset.lng = item.lon; inp.dataset.display = item.display_name; const old = destMarkers.get(inp); if (old) try{ map.removeLayer(old); }catch(e){} const m = L.marker([parseFloat(item.lat), parseFloat(item.lon)]).addTo(map).bindPopup(item.display_name); destMarkers.set(inp, m); sugg.innerHTML=''; recalcRouteAndEstimates(); }); sugg.appendChild(a); }); }).catch(()=>{ sugg.innerHTML=''; }); }, 250); });
+
+        // if there's an initial value, geocode it to create a marker
+        if (inp.value.trim()) {
+            if (inp.dataset.lat && inp.dataset.lng) {
+                try{
+                    const m = L.marker([parseFloat(inp.dataset.lat), parseFloat(inp.dataset.lng)]).addTo(map).bindPopup(inp.dataset.display || inp.value);
+                    destMarkers.set(inp, m);
+                } catch(e) {}
+            } else {
+                geocodeInputAndSetMarker(inp).then(()=>{ try{ recalcRouteAndEstimates(); } catch(e){} });
+            }
+        }
     });
 
     // Add destination button
@@ -2558,11 +2676,19 @@ document.addEventListener('DOMContentLoaded', function(){
         form.addEventListener('submit', function(){
             const dests = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.value.trim()).filter(Boolean);
             document.getElementById('tujuan_hidden').value = dests.join('||');
-            // ensure estimasi fields are set (already done by recalc)
+            // ensure estimasi fields are set (prefer numeric values already computed)
             const kmEl = document.getElementById('estimasi_km');
             const bbmEl = document.getElementById('estimasi_bbm');
-            if (routeDistanceEl.textContent && kmEl) kmEl.value = routeDistanceEl.textContent;
-            if (routeFuelEl.textContent && bbmEl) bbmEl.value = routeFuelEl.textContent;
+            if (kmEl) {
+                const v = parseFloat(kmEl.value);
+                if (isFinite(v)) kmEl.value = Math.round(v * 100) / 100;
+                else if (routeDistanceEl && !isNaN(parseFloat(routeDistanceEl.textContent))) kmEl.value = Math.round(parseFloat(routeDistanceEl.textContent) * 100) / 100;
+            }
+            if (bbmEl) {
+                const v2 = parseFloat(bbmEl.value);
+                if (isFinite(v2)) bbmEl.value = Math.round(v2 * 100) / 100;
+                else if (routeFuelEl && !isNaN(parseFloat(routeFuelEl.textContent))) bbmEl.value = Math.round(parseFloat(routeFuelEl.textContent) * 100) / 100;
+            }
         });
     }
 

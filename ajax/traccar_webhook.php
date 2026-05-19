@@ -2,10 +2,21 @@
 // ajax/traccar_webhook.php
 require_once __DIR__ . '/../config/db.php';
 
-// Shared secret: change this to a strong secret and configure Traccar to send this header
-$EXPECTED_SECRET = 'mawang';
+// Setup: allow configuring the webhook secret via environment variable
+$EXPECTED_SECRET = getenv('TRACCAR_WEBHOOK_SECRET') ?: 'mawang';
+// Allow disabling auth for debugging by setting TRACCAR_WEBHOOK_ALLOW_NOAUTH=1 in environment
+$ALLOW_NOAUTH = (getenv('TRACCAR_WEBHOOK_ALLOW_NOAUTH') === '1');
 
-// Read secret from header (X-TRACCAR-SECRET) or Authorization: Bearer <secret>
+// Log incoming requests for debugging
+$LOG_PATH = __DIR__ . '/../logs/traccar_webhook.log';
+function traccar_log($msg) {
+    global $LOG_PATH;
+    $time = date('Y-m-d H:i:s');
+    $line = "[{$time}] " . $msg . "\n";
+    @file_put_contents($LOG_PATH, $line, FILE_APPEND);
+}
+
+// Read possible headers for secret
 $hdr = $_SERVER['HTTP_X_TRACCAR_SECRET'] ?? null;
 if (!$hdr && !empty($_SERVER['HTTP_AUTHORIZATION'])) {
     $auth = $_SERVER['HTTP_AUTHORIZATION'];
@@ -14,21 +25,42 @@ if (!$hdr && !empty($_SERVER['HTTP_AUTHORIZATION'])) {
     }
 }
 
-if (!$hdr || $hdr !== $EXPECTED_SECRET) {
-    http_response_code(401);
+// Read raw body and attempt JSON decode; if JSON missing, fall back to $_POST
+$body = file_get_contents('php://input');
+$decoded = json_decode($body, true);
+if ($decoded === null && !empty($_POST)) {
+    // If form-encoded data was sent, use $_POST
+    $decoded = $_POST;
+}
+
+// Log headers and body for troubleshooting
+try {
+    $headers = function_exists('getallheaders') ? getallheaders() : [];
+} catch (Exception $e) {
+    $headers = [];
+}
+traccar_log("Headers: " . json_encode($headers));
+traccar_log("Raw body: " . substr($body ?? '', 0, 4000));
+
+if (!$ALLOW_NOAUTH) {
+    if (!$hdr || $hdr !== $EXPECTED_SECRET) {
+        traccar_log('Unauthorized request: secret missing or mismatch');
+        http_response_code(401);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'unauthorized']);
+        exit;
+    }
+}
+
+if (!$decoded) {
+    traccar_log('Invalid payload: no JSON and no POST data');
+    http_response_code(400);
     header('Content-Type: application/json');
-    echo json_encode(['error' => 'unauthorized']);
+    echo json_encode(['error' => 'invalid_json_or_form']);
     exit;
 }
 
-$body = file_get_contents('php://input');
-$data = json_decode($body, true);
-if (!$data) {
-    http_response_code(400);
-    header('Content-Type: application/json');
-    echo json_encode(['error' => 'invalid_json']);
-    exit;
-}
+$data = $decoded;
 
 // Traccar notification payload may contain position fields directly
 $deviceId = $data['deviceId'] ?? $data['id'] ?? null;

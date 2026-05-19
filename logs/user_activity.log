@@ -383,3 +383,8 @@
 [18/05/26 22:45:24] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0 | Mengajukan peminjaman kendaraan ID: 146 untuk keperluan: as
 [19/05/26 00:43:51] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0 | Mengubah detail pengajuan peminjaman ID: 27
 [19/05/26 00:43:56] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0 | Menyetujui peminjaman kendaraan ID: 146 untuk user ID: 80
+[19/05/26 04:02:48] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0 | Menambah surat tugas: ST/004/V/2026
+[19/05/26 05:59:55] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0 | Memperbarui surat tugas ID: 32
+[19/05/26 06:01:03] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 | Menyetujui peminjaman kendaraan ID: 77 untuk user ID: 83
+[19/05/26 06:01:03] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 | [PIMPINAN] Menyetujui peminjaman ID: 28
+[19/05/26 06:01:43] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0 | [DRIVER] Melihat detail surat tugas: ST/004/V/2026

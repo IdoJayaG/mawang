@@ -76,7 +76,7 @@
                     <li><a href="index.php?page=riwayat_perbaikan" class="<?= ($current_page == 'riwayat_perbaikan') ? 'active' : '' ?>">Riwayat Perbaikan</a></li>
                 </ul>
             </li>
-            <li class="has-submenu <?= in_array($current_page, ['dokumen_kendaraan', 'surat_tugas']) ? 'active' : '' ?>">
+            <li class="has-submenu <?= in_array($current_page, ['dokumen_kendaraan', 'surat_tugas','laporan_perjalanan']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-file-alt"></i><span>Dokumen</span>
                     <i class="fas fa-chevron-down submenu-arrow"></i>
@@ -84,6 +84,7 @@
                 <ul class="submenu">
                     <li><a href="index.php?page=dokumen_kendaraan" class="<?= ($current_page == 'dokumen_kendaraan') ? 'active' : '' ?>">Dokumen Kendaraan</a></li>
                     <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">Surat Tugas</a></li>
+                    <li><a href="index.php?page=laporan_perjalanan&action=assigned" class="<?= ($current_page == 'laporan_perjalanan' && ($_GET['action'] ?? '') === 'assigned') ? 'active' : '' ?>">Laporan Perjalanan</a></li>
                 </ul>
             </li>
             <li><a href="index.php?page=profil" class="<?= ($current_page == 'profil') ? 'active' : '' ?>">
@@ -171,7 +172,7 @@
                 </ul>
             </li>
             
-            <li class="has-submenu <?= in_array($current_page, ['dokumen_kendaraan', 'surat_tugas']) ? 'active' : '' ?>">
+            <li class="has-submenu <?= in_array($current_page, ['dokumen_kendaraan', 'surat_tugas', 'laporan_perjalanan']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-file-alt"></i><span>Dokumen</span>
                     <i class="fas fa-chevron-down submenu-arrow"></i>
@@ -179,6 +180,7 @@
                 <ul class="submenu">
                     <li><a href="index.php?page=dokumen_kendaraan" class="<?= ($current_page == 'dokumen_kendaraan') ? 'active' : '' ?>">Dokumen Kendaraan</a></li>
                     <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">Surat Tugas</a></li>
+                    <li><a href="index.php?page=laporan_perjalanan&action=assigned" class="<?= ($current_page == 'laporan_perjalanan' && ($_GET['action'] ?? '') === 'assigned') ? 'active' : '' ?>">Laporan Perjalanan</a></li>
                 </ul>
             </li>
             

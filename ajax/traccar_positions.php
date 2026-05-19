@@ -62,10 +62,10 @@ $rows = [];
 while ($r = $res->fetch_assoc()) {
     // penanggung_jawab column removed; user_name now always from pengguna relationship or stays empty
     $labelParts = [];
-    if (!empty($r['no_polisi'])) {
-        $labelParts[] = $r['no_polisi'];
-    } elseif (!empty($r['no_reg'])) {
+    if (!empty($r['no_reg'])) {
         $labelParts[] = $r['no_reg'];
+    } elseif (!empty($r['no_polisi'])) {
+        $labelParts[] = $r['no_polisi'];
     } elseif (!empty($r['merk'])) {
         $labelParts[] = $r['merk'];
     } elseif (!empty($r['device_name'])) {

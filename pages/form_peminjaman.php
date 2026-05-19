@@ -563,14 +563,68 @@ document.addEventListener('DOMContentLoaded', function(){
         return Promise.all([originPromise].concat(destPromises)).then(results => {
             const originLatLng = results[0];
             const destLatLngs = results.slice(1).filter(Boolean);
+            console.log('recalcRouteAndEstimates: origin=', originLatLng, 'dests=', destLatLngs);
             if (!originLatLng || destLatLngs.length === 0) {
+                console.log('recalcRouteAndEstimates: not enough points to route');
                 routeDistanceEl.textContent='-'; routeFuelEl.textContent='-'; if(routingControl){ try{ map.removeControl(routingControl); }catch(e){} routingControl=null; }
                 return;
             }
             const waypoints = [L.latLng(originLatLng.lat, originLatLng.lng)].concat(destLatLngs.map(d=>L.latLng(d.lat, d.lng))).concat([L.latLng(originLatLng.lat, originLatLng.lng)]);
             if (routingControl) { try{ map.removeControl(routingControl); } catch(e){} routingControl=null; }
             routingControl = L.Routing.control({ waypoints: waypoints, lineOptions: { styles: [{color: 'blue', opacity: 0.6, weight: 5}] }, createMarker: function(i, wp){ return L.marker(wp.latLng); }, addWaypoints: false, routeWhileDragging: false, fitSelectedRoutes: true, router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }) }).addTo(map);
-            routingControl.on('routesfound', function(e){ const summary = e.routes && e.routes[0] && e.routes[0].summary; if(!summary) return; const distKm = Math.round((summary.totalDistance/1000)*100)/100; routeDistanceEl.textContent = distKm; if (estimasiKmEl) estimasiKmEl.value = distKm; const rate = getConsumptionRateForSelectedVehicle(); const liters = Math.round((distKm / rate) * 100) / 100; routeFuelEl.textContent = liters; if (estimasiBbmEl) estimasiBbmEl.value = liters; tujuanHidden.value = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.dataset.display || i.value).filter(Boolean).join('||'); });
+
+            // routesfound handler with fallback if OSRM doesn't respond
+            let routesFoundHandled = false;
+            routingControl.on('routesfound', function(e){
+                routesFoundHandled = true;
+                const summary = e.routes && e.routes[0] && e.routes[0].summary;
+                if(!summary) return;
+                console.log('OSRM routesfound summary=', summary);
+                const distKmRaw = (summary.totalDistance/1000);
+                const distKmCeil = Math.ceil(distKmRaw);
+                routeDistanceEl.textContent = distKmCeil;
+                // ensure numeric values are set on hidden inputs (distance rounded up)
+                if (estimasiKmEl) { estimasiKmEl.value = distKmCeil; estimasiKmEl.dispatchEvent(new Event('input')); }
+                const rate = getConsumptionRateForSelectedVehicle();
+                const litersRaw = distKmRaw / rate;
+                const litersCeilPlus = Math.ceil(litersRaw) + 2;
+                routeFuelEl.textContent = litersCeilPlus;
+                if (estimasiBbmEl) { estimasiBbmEl.value = litersCeilPlus; estimasiBbmEl.dispatchEvent(new Event('input')); }
+                tujuanHidden.value = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.dataset.display || i.value).filter(Boolean).join('||');
+            });
+
+            // Immediate approximate (straight-line) distance so UI shows values quickly
+            try {
+                function haversine(a, b) {
+                    const R = 6371; // km
+                    const dLat = (b.lat - a.lat) * Math.PI / 180;
+                    const dLon = (b.lng - a.lng) * Math.PI / 180;
+                    const lat1 = a.lat * Math.PI / 180;
+                    const lat2 = b.lat * Math.PI / 180;
+                    const sinHalf = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon/2) * Math.sin(dLon/2);
+                    const c = 2 * Math.atan2(Math.sqrt(sinHalf), Math.sqrt(1 - sinHalf));
+                    return R * c; // km
+                }
+                let totalKm = 0;
+                for (let i = 0; i < waypoints.length - 1; i++) {
+                    const a = waypoints[i];
+                    const b = waypoints[i+1];
+                    if (!a || !b) continue;
+                    totalKm += haversine({lat: a.lat, lng: a.lng}, {lat: b.lat, lng: b.lng});
+                }
+                const distKmCeil = Math.ceil(totalKm);
+                console.log('Immediate straight-line distance (km)=', distKmCeil);
+                routeDistanceEl.textContent = distKmCeil;
+                if (estimasiKmEl) { estimasiKmEl.value = distKmCeil; estimasiKmEl.dispatchEvent(new Event('input')); }
+                const rate = getConsumptionRateForSelectedVehicle();
+                const litersCeilPlus = Math.ceil(totalKm / rate) + 2;
+                console.log('Immediate liters (ceil +2)=', litersCeilPlus);
+                routeFuelEl.textContent = litersCeilPlus;
+                if (estimasiBbmEl) { estimasiBbmEl.value = litersCeilPlus; estimasiBbmEl.dispatchEvent(new Event('input')); }
+                tujuanHidden.value = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.dataset.display || i.value).filter(Boolean).join('||');
+            } catch(e) {
+                console.warn('Immediate routing calculation failed', e);
+            }
         });
     }
 
@@ -615,7 +669,23 @@ document.addEventListener('DOMContentLoaded', function(){
     // Pack destinations on submit
     const form = document.querySelector('form');
     if (form) {
-        form.addEventListener('submit', function(){ const dests = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.dataset.display || i.value).filter(Boolean); tujuanHidden.value = dests.join('||'); const kmEl = document.getElementById('estimasi_km'); const bbmEl = document.getElementById('estimasi_bbm'); if (routeDistanceEl.textContent && kmEl) kmEl.value = routeDistanceEl.textContent; if (routeFuelEl.textContent && bbmEl) bbmEl.value = routeFuelEl.textContent; });
+        form.addEventListener('submit', function(){
+            const dests = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.dataset.display || i.value).filter(Boolean);
+            tujuanHidden.value = dests.join('||');
+            const kmEl = document.getElementById('estimasi_km');
+            const bbmEl = document.getElementById('estimasi_bbm');
+            // Prefer the hidden input values (already set by recalc); fallback to route text
+            if (kmEl) {
+                const val = parseFloat(kmEl.value);
+                if (isFinite(val)) kmEl.value = Math.round(val * 100) / 100;
+                else if (routeDistanceEl && !isNaN(parseFloat(routeDistanceEl.textContent))) kmEl.value = Math.round(parseFloat(routeDistanceEl.textContent) * 100) / 100;
+            }
+            if (bbmEl) {
+                const val2 = parseFloat(bbmEl.value);
+                if (isFinite(val2)) bbmEl.value = Math.round(val2 * 100) / 100;
+                else if (routeFuelEl && !isNaN(parseFloat(routeFuelEl.textContent))) bbmEl.value = Math.round(parseFloat(routeFuelEl.textContent) * 100) / 100;
+            }
+        });
     }
 
     // initial calc after short delay
