@@ -22,31 +22,47 @@ function can_access_surat_tugas($conn, $role, $userId, $suratId) {
     if (!in_array($role, ['user', 'driver'], true) || empty($userId) || empty($suratId)) {
         return false;
     }
+    // Determine accessible when:
+    // - pengguna_id matches OR created_by matches (if column exists)
+    // - OR the kendaraan assigned to the surat has pengguna_id = current user
+    // - OR there's an approved/ongoing peminjaman_kendaraan for this kendaraan for the user
+    $uid = (int)$userId;
+    $sid = (int)$suratId;
 
-    $has_created_by = false;
+    // Build base checks
+    $checks = [];
+    // pengguna_id
+    $checks[] = "s.pengguna_id = {$uid}";
+    // created_by when present
     $col_check = $conn->query("SHOW COLUMNS FROM surat_tugas LIKE 'created_by'");
     if ($col_check && $col_check->num_rows > 0) {
-        $has_created_by = true;
+        $checks[] = "s.created_by = {$uid}";
+    }
+    // kendaraan assigned pengguna
+    $checks[] = "COALESCE(k.pengguna_id,0) = {$uid}";
+
+    // peminjaman_kendaraan approved/ongoing check (detect applicant column)
+    $res_pk = $conn->query("SHOW TABLES LIKE 'peminjaman_kendaraan'");
+    if ($res_pk && $res_pk->num_rows > 0) {
+        $cols_q = $conn->query("SHOW COLUMNS FROM peminjaman_kendaraan");
+        $cols_now = $cols_q ? array_column($cols_q->fetch_all(MYSQLI_ASSOC), 'Field') : [];
+        $appCol = null;
+        foreach (['peminjam_id','pemohon_id','pengguna_id','user_id','created_by'] as $c) { if (in_array($c, $cols_now, true)) { $appCol = $c; break; } }
+        if ($appCol) {
+            if ($appCol === 'user_id' && function_exists('get_current_account_id')) {
+                $acct = (int)get_current_account_id();
+                $checks[] = "EXISTS (SELECT 1 FROM peminjaman_kendaraan pk WHERE pk.kendaraan_id = s.kendaraan_id AND pk.user_id = {$acct} AND pk.status IN ('Approved','approved','Ongoing','ongoing'))";
+            } else {
+                $checks[] = "EXISTS (SELECT 1 FROM peminjaman_kendaraan pk WHERE pk.kendaraan_id = s.kendaraan_id AND pk.{$appCol} = {$uid} AND pk.status IN ('Approved','approved','Ongoing','ongoing'))";
+            }
+        }
     }
 
-    $sql = $has_created_by
-        ? "SELECT COUNT(*) as total FROM surat_tugas WHERE id = ? AND (pengguna_id = ? OR created_by = ?)"
-        : "SELECT COUNT(*) as total FROM surat_tugas WHERE id = ? AND pengguna_id = ?";
-
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        return false;
-    }
-    if ($has_created_by) {
-        $stmt->bind_param('iii', $suratId, $userId, $userId);
-    } else {
-        $stmt->bind_param('ii', $suratId, $userId);
-    }
-    $stmt->execute();
-    $res = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-
-    return ((int)($res['total'] ?? 0)) > 0;
+    $sql = "SELECT COUNT(*) as total FROM surat_tugas s LEFT JOIN kendaraan k ON s.kendaraan_id = k.id WHERE s.id = {$sid} AND (" . implode(' OR ', $checks) . ")";
+    $res = $conn->query($sql);
+    if (!$res) return false;
+    $row = $res->fetch_assoc();
+    return ((int)($row['total'] ?? 0)) > 0;
 }
 
 function log_surat_tugas_role_activity($role, $message) {
@@ -407,18 +423,7 @@ if ($_POST) {
                 $estimasi_bbm = $_POST['estimasi_bbm'] ? (float)$_POST['estimasi_bbm'] : null;
                 $pejabat_ttd = trim($_POST['pejabat_ttd']);
 
-                // Kebijakan: peminjaman via surat tugas hanya untuk kendaraan jenis Bus.
-                $stmt_bus = $conn->prepare("SELECT jenis FROM kendaraan WHERE id = ? LIMIT 1");
-                if ($stmt_bus) {
-                    $stmt_bus->bind_param('i', $kendaraan_id);
-                    $stmt_bus->execute();
-                    $bus_row = $stmt_bus->get_result()->fetch_assoc();
-                    $stmt_bus->close();
-                    $jenis_kendaraan = strtolower(trim((string)($bus_row['jenis'] ?? '')));
-                    if ($jenis_kendaraan !== 'bus') {
-                        $msg = '<div class="alert alert-danger">Hanya kendaraan jenis Bus yang dapat diajukan pada surat tugas.</div>';
-                    }
-                }
+                // Note: Removed previous restriction that limited surat tugas to Bus only.
                 
                 // Validate tanggal_berangkat not less than today
                 $today = date('Y-m-d');
@@ -460,80 +465,141 @@ if ($_POST) {
                         $mulai_dt = $tanggal_berangkat ? ($tanggal_berangkat . ' 00:00:00') : null;
                         $selesai_dt = $tanggal_kembali ? ($tanggal_kembali . ' 23:59:59') : null;
 
-                        // 1) Create peminjaman_terjadwal (approved) if table exists, using dynamic columns
-                        try {
-                            $tbl = $conn->query("SHOW TABLES LIKE 'peminjaman_terjadwal'");
-                            $has_pt = $tbl && $tbl->num_rows > 0; if ($tbl) $tbl->free_result();
-                        } catch (mysqli_sql_exception $e) { $has_pt = false; }
-                        if (!empty($has_pt)) {
-                            $cols_info = $conn->query("SHOW COLUMNS FROM peminjaman_terjadwal");
-                            if ($cols_info) {
-                                $cols = array_column($cols_info->fetch_all(MYSQLI_ASSOC), 'Field');
-                                $cols_info->free_result();
+                        // If the creator is an admin/operator, create scheduled peminjaman and jadwal immediately.
+                        // If creator is a regular user/driver, create a peminjaman_kendaraan request (status=Pending) linked to this surat_tugas for admin approval.
+                        $role_creator = strtolower((string)$current_role);
+                        $is_admin_like = in_array($role_creator, ['admin', 'operator'], true);
 
-                                // Determine applicant column name
-                                $applicant_col = null;
-                                foreach (["pemohon_id","peminjam_id","pengguna_id","user_id"] as $c) { if (in_array($c, $cols)) { $applicant_col = $c; break; } }
+                        if ($is_admin_like) {
+                            // 1) Create peminjaman_terjadwal (approved) if table exists, using dynamic columns
+                            try {
+                                $tbl = $conn->query("SHOW TABLES LIKE 'peminjaman_terjadwal'");
+                                $has_pt = $tbl && $tbl->num_rows > 0; if ($tbl) $tbl->free_result();
+                            } catch (mysqli_sql_exception $e) { $has_pt = false; }
+                            if (!empty($has_pt)) {
+                                $cols_info = $conn->query("SHOW COLUMNS FROM peminjaman_terjadwal");
+                                if ($cols_info) {
+                                    $cols = array_column($cols_info->fetch_all(MYSQLI_ASSOC), 'Field');
+                                    $cols_info->free_result();
 
-                                $desired_map = [];
-                                if ($applicant_col) $desired_map[$applicant_col] = ['type'=>'i','value'=>$pengguna_id];
-                                if (in_array('kendaraan_id', $cols)) $desired_map['kendaraan_id'] = ['type'=>'i','value'=>$kendaraan_id];
-                                if (in_array('tujuan', $cols)) $desired_map['tujuan'] = ['type'=>'s','value'=>$tujuan];
-                                if (in_array('keperluan', $cols)) $desired_map['keperluan'] = ['type'=>'s','value'=>$keperluan];
-                                if (in_array('tanggal_mulai', $cols)) $desired_map['tanggal_mulai'] = ['type'=>'s','value'=>$mulai_dt];
-                                if (in_array('tanggal_selesai', $cols)) $desired_map['tanggal_selesai'] = ['type'=>'s','value'=>$selesai_dt];
-                                if (in_array('status', $cols)) $desired_map['status'] = ['type'=>'s','value'=>'approved'];
-                                if (in_array('created_by', $cols)) $desired_map['created_by'] = ['type'=>'i','value'=>$current_user_id];
+                                    // Determine applicant column name
+                                    $applicant_col = null;
+                                    foreach (["pemohon_id","peminjam_id","pengguna_id","user_id"] as $c) { if (in_array($c, $cols)) { $applicant_col = $c; break; } }
 
-                                if (!empty($desired_map)) {
-                                    $insert_cols = array_keys($desired_map);
-                                    $types_pt = '';
-                                    $values_pt = [];
-                                    foreach ($desired_map as $meta) { $types_pt .= $meta['type']; $values_pt[] = $meta['value']; }
-                                    $placeholders = implode(', ', array_fill(0, count($insert_cols), '?'));
-                                    $sql_pt = "INSERT INTO peminjaman_terjadwal (" . implode(', ', $insert_cols) . ") VALUES (" . $placeholders . ")";
-                                    $ins_pt = $conn->prepare($sql_pt);
-                                    if ($ins_pt) {
-                                        $bind_params = [];
-                                        $bind_params[] = & $types_pt;
-                                        foreach ($values_pt as $i => $v) { $bind_params[] = & $values_pt[$i]; }
-                                        call_user_func_array([$ins_pt, 'bind_param'], $bind_params);
-                                        if ($ins_pt->execute()) {
-                                            $pt_id = $conn->insert_id;
-                                            // Also create jadwal_kendaraan referencing peminjaman_terjadwal if table exists
-                                            try {
-                                                $jkTbl = $conn->query("SHOW TABLES LIKE 'jadwal_kendaraan'");
-                                                $has_jk = $jkTbl && $jkTbl->num_rows > 0; if ($jkTbl) $jkTbl->free_result();
-                                            } catch (mysqli_sql_exception $e) { $has_jk = false; }
-                                            if (!empty($has_jk)) {
-                                                $ket = "Peminjaman terjadwal (dari surat tugas): " . ($nomor_surat ?? '');
-                                                $ins_jk = $conn->prepare("INSERT INTO jadwal_kendaraan (kendaraan_id, tipe_penggunaan, referensi_id, pengguna_id, tanggal_mulai, tanggal_selesai, status, keterangan) VALUES (?, 'peminjaman_terjadwal', ?, ?, ?, ?, 'aktif', ?)");
-                                                if ($ins_jk) {
-                                                    $ins_jk->bind_param('iiisss', $kendaraan_id, $pt_id, $pengguna_id, $mulai_dt, $selesai_dt, $ket);
-                                                    $ins_jk->execute();
-                                                    $ins_jk->close();
+                                    $desired_map = [];
+                                    if ($applicant_col) $desired_map[$applicant_col] = ['type'=>'i','value'=>$pengguna_id];
+                                    if (in_array('kendaraan_id', $cols)) $desired_map['kendaraan_id'] = ['type'=>'i','value'=>$kendaraan_id];
+                                    if (in_array('tujuan', $cols)) $desired_map['tujuan'] = ['type'=>'s','value'=>$tujuan];
+                                    if (in_array('keperluan', $cols)) $desired_map['keperluan'] = ['type'=>'s','value'=>$keperluan];
+                                    if (in_array('tanggal_mulai', $cols)) $desired_map['tanggal_mulai'] = ['type'=>'s','value'=>$mulai_dt];
+                                    if (in_array('tanggal_selesai', $cols)) $desired_map['tanggal_selesai'] = ['type'=>'s','value'=>$selesai_dt];
+                                    if (in_array('status', $cols)) $desired_map['status'] = ['type'=>'s','value'=>'approved'];
+                                    if (in_array('created_by', $cols)) $desired_map['created_by'] = ['type'=>'i','value'=>$current_user_id];
+
+                                    if (!empty($desired_map)) {
+                                        $insert_cols = array_keys($desired_map);
+                                        $types_pt = '';
+                                        $values_pt = [];
+                                        foreach ($desired_map as $meta) { $types_pt .= $meta['type']; $values_pt[] = $meta['value']; }
+                                        $placeholders = implode(', ', array_fill(0, count($insert_cols), '?'));
+                                        $sql_pt = "INSERT INTO peminjaman_terjadwal (" . implode(', ', $insert_cols) . ") VALUES (" . $placeholders . ")";
+                                        $ins_pt = $conn->prepare($sql_pt);
+                                        if ($ins_pt) {
+                                            $bind_params = [];
+                                            $bind_params[] = & $types_pt;
+                                            foreach ($values_pt as $i => $v) { $bind_params[] = & $values_pt[$i]; }
+                                            call_user_func_array([$ins_pt, 'bind_param'], $bind_params);
+                                            if ($ins_pt->execute()) {
+                                                $pt_id = $conn->insert_id;
+                                                // Also create jadwal_kendaraan referencing peminjaman_terjadwal if table exists
+                                                try {
+                                                    $jkTbl = $conn->query("SHOW TABLES LIKE 'jadwal_kendaraan'");
+                                                    $has_jk = $jkTbl && $jkTbl->num_rows > 0; if ($jkTbl) $jkTbl->free_result();
+                                                } catch (mysqli_sql_exception $e) { $has_jk = false; }
+                                                if (!empty($has_jk)) {
+                                                    $ket = "Peminjaman terjadwal (dari surat tugas): " . ($nomor_surat ?? '');
+                                                    $ins_jk = $conn->prepare("INSERT INTO jadwal_kendaraan (kendaraan_id, tipe_penggunaan, referensi_id, pengguna_id, tanggal_mulai, tanggal_selesai, status, keterangan) VALUES (?, 'peminjaman_terjadwal', ?, ?, ?, ?, 'aktif', ?)");
+                                                    if ($ins_jk) {
+                                                        $ins_jk->bind_param('iiisss', $kendaraan_id, $pt_id, $pengguna_id, $mulai_dt, $selesai_dt, $ket);
+                                                        $ins_jk->execute();
+                                                        $ins_jk->close();
+                                                    }
                                                 }
                                             }
+                                            $ins_pt->close();
                                         }
-                                        $ins_pt->close();
                                     }
                                 }
                             }
-                        }
 
-                        // 2) Ensure jadwal_kendaraan for the surat itself (tipe_penggunaan: surat_tugas)
-                        try {
-                            $jkTbl2 = $conn->query("SHOW TABLES LIKE 'jadwal_kendaraan'");
-                            $has_jk2 = $jkTbl2 && $jkTbl2->num_rows > 0; if ($jkTbl2) $jkTbl2->free_result();
-                        } catch (mysqli_sql_exception $e) { $has_jk2 = false; }
-                        if (!empty($has_jk2)) {
-                            $ket2 = "Surat Tugas: " . ($nomor_surat ?? '');
-                            $ins_jk2 = $conn->prepare("INSERT INTO jadwal_kendaraan (kendaraan_id, tipe_penggunaan, referensi_id, pengguna_id, tanggal_mulai, tanggal_selesai, status, keterangan) VALUES (?, 'surat_tugas', ?, ?, ?, ?, 'aktif', ?)");
-                            if ($ins_jk2) {
-                                $ins_jk2->bind_param('iiisss', $kendaraan_id, $new_surat_id, $pengguna_id, $mulai_dt, $selesai_dt, $ket2);
-                                $ins_jk2->execute();
-                                $ins_jk2->close();
+                            // 2) Ensure jadwal_kendaraan for the surat itself (tipe_penggunaan: surat_tugas)
+                            try {
+                                $jkTbl2 = $conn->query("SHOW TABLES LIKE 'jadwal_kendaraan'");
+                                $has_jk2 = $jkTbl2 && $jkTbl2->num_rows > 0; if ($jkTbl2) $jkTbl2->free_result();
+                            } catch (mysqli_sql_exception $e) { $has_jk2 = false; }
+                            if (!empty($has_jk2)) {
+                                $ket2 = "Surat Tugas: " . ($nomor_surat ?? '');
+                                $ins_jk2 = $conn->prepare("INSERT INTO jadwal_kendaraan (kendaraan_id, tipe_penggunaan, referensi_id, pengguna_id, tanggal_mulai, tanggal_selesai, status, keterangan) VALUES (?, 'surat_tugas', ?, ?, ?, ?, 'aktif', ?)");
+                                if ($ins_jk2) {
+                                    $ins_jk2->bind_param('iiisss', $kendaraan_id, $new_surat_id, $pengguna_id, $mulai_dt, $selesai_dt, $ket2);
+                                    $ins_jk2->execute();
+                                    $ins_jk2->close();
+                                }
                             }
+                        } else {
+                            // Creator is a regular user/driver: create peminjaman_kendaraan request with status Pending and link to surat_tugas
+                            try {
+                                $tblpk = $conn->query("SHOW TABLES LIKE 'peminjaman_kendaraan'");
+                                $has_pk = $tblpk && $tblpk->num_rows > 0; if ($tblpk) $tblpk->free_result();
+                            } catch (mysqli_sql_exception $e) { $has_pk = false; }
+                            if (!empty($has_pk)) {
+                                $cols_info = $conn->query("SHOW COLUMNS FROM peminjaman_kendaraan");
+                                if ($cols_info) {
+                                    $cols = array_column($cols_info->fetch_all(MYSQLI_ASSOC), 'Field');
+                                    $cols_info->free_result();
+
+                                    $desired_map = [];
+                                    foreach (["pemohon_id","peminjam_id","pengguna_id","user_id"] as $c) { if (in_array($c,$cols)) { $desired_map[$c] = ['type'=>'i','value'=>$pengguna_id]; break; } }
+                                    if (in_array('kendaraan_id',$cols)) $desired_map['kendaraan_id'] = ['type'=>'i','value'=>$kendaraan_id];
+                                    if (in_array('nomor_surat',$cols)) $desired_map['nomor_surat'] = ['type'=>'s','value'=>$nomor_surat];
+                                    if (in_array('tanggal_mulai',$cols)) $desired_map['tanggal_mulai'] = ['type'=>'s','value'=>$mulai_dt];
+                                    if (in_array('tanggal_selesai',$cols)) $desired_map['tanggal_selesai'] = ['type'=>'s','value'=>$selesai_dt];
+                                    if (in_array('tujuan',$cols)) $desired_map['tujuan'] = ['type'=>'s','value'=>$tujuan];
+                                    if (in_array('keperluan',$cols)) $desired_map['keperluan'] = ['type'=>'s','value'=>$keperluan];
+                                    if (in_array('status',$cols)) $desired_map['status'] = ['type'=>'s','value'=>'Pending'];
+                                    if (in_array('surat_tugas_id',$cols)) $desired_map['surat_tugas_id'] = ['type'=>'i','value'=>$new_surat_id];
+                                    if (in_array('created_by',$cols)) $desired_map['created_by'] = ['type'=>'i','value'=>$current_user_id];
+
+                                    if (!empty($desired_map)) {
+                                        $insert_cols = array_keys($desired_map);
+                                        $types_pk = '';
+                                        $values_pk = [];
+                                        foreach ($desired_map as $meta) { $types_pk .= $meta['type']; $values_pk[] = $meta['value']; }
+                                        $placeholders = implode(', ', array_fill(0, count($insert_cols), '?'));
+                                        $sql_pk = "INSERT INTO peminjaman_kendaraan (" . implode(', ', $insert_cols) . ") VALUES (" . $placeholders . ")";
+                                        $ins_pk = $conn->prepare($sql_pk);
+                                        if ($ins_pk) {
+                                            $bind_params = [];
+                                            $bind_params[] = & $types_pk;
+                                            foreach ($values_pk as $i => $v) { $bind_params[] = & $values_pk[$i]; }
+                                            call_user_func_array([$ins_pk, 'bind_param'], $bind_params);
+                                            if ($ins_pk->execute()) {
+                                                $pk_id = $conn->insert_id;
+                                                // Notify admins/operators about new peminjaman request
+                                                $admin_operators = $conn->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id IN (2,3)");
+                                                $noteMsg = 'Pengajuan peminjaman dari user telah dibuat untuk Surat Tugas: ' . ($nomor_surat ?? '') . '. Mohon persetujuan.';
+                                                if ($admin_operators) {
+                                                    while ($adm = $admin_operators->fetch_assoc()) {
+                                                        insert_notification($conn, (int)$adm['id'], $noteMsg, 'Permohonan Peminjaman');
+                                                    }
+                                                }
+                                            }
+                                            $ins_pk->close();
+                                        }
+                                    }
+                                }
+                            }
+                            // Do not create jadwal_kendaraan yet; wait for admin approval
                         }
 
                         // Note: Legacy pengguna_kendaraan upsert removed; views now derive from surat_tugas/peminjaman tables.
@@ -605,17 +671,7 @@ if ($_POST) {
             $pejabat_ttd = trim($_POST['pejabat_ttd']);
 
             // Kebijakan: peminjaman via surat tugas hanya untuk kendaraan jenis Bus.
-            $stmt_bus = $conn->prepare("SELECT jenis FROM kendaraan WHERE id = ? LIMIT 1");
-            if ($stmt_bus) {
-                $stmt_bus->bind_param('i', $kendaraan_id);
-                $stmt_bus->execute();
-                $bus_row = $stmt_bus->get_result()->fetch_assoc();
-                $stmt_bus->close();
-                $jenis_kendaraan = strtolower(trim((string)($bus_row['jenis'] ?? '')));
-                if ($jenis_kendaraan !== 'bus') {
-                    $msg = '<div class="alert alert-danger">Hanya kendaraan jenis Bus yang dapat diajukan pada surat tugas.</div>';
-                }
-            }
+                // Note: Removed previous restriction that limited surat tugas to Bus only.
             // Fetch previous surat fields so we only validate availability when relevant fields change
             $prev_kendaraan_id = null;
             $prev_pengguna_id = null;
@@ -651,8 +707,8 @@ if ($_POST) {
                 if (empty($msg)) {
                     $status_changed = ($status !== $prev_status);
                     $status_target = strtolower(trim((string)$status));
-                    if ($status_changed && $status_target === 'disetujui' && $current_role !== 'admin') {
-                        $msg = '<div class="alert alert-danger">Status Disetujui hanya dapat ditetapkan oleh admin.</div>';
+                    if ($status_changed && $status_target === 'disetujui' && !in_array($current_role, ['admin','pimpinan'], true)) {
+                        $msg = '<div class="alert alert-danger">Status Disetujui hanya dapat ditetapkan oleh admin atau pimpinan.</div>';
                     }
                 }
 
@@ -1005,6 +1061,20 @@ if ($_POST) {
                         }
                     }
 
+                    // Ensure kendaraan marked available when surat tugas set to Selesai
+                    if ($new_status_l === 'selesai') {
+                        $to_free = $kendaraan_id ?: $prev_kendaraan_id ?: 0;
+                        if ($to_free > 0) {
+                            $stmt_free2 = $conn->prepare("UPDATE kendaraan SET status_peminjaman='Tersedia', status_kendaraan='Operasional', updated_at = NOW() WHERE id = ?");
+                            if ($stmt_free2) {
+                                $stmt_free2->bind_param('i', $to_free);
+                                $stmt_free2->execute();
+                                $stmt_free2->close();
+                            }
+                            log_user_activity("Surat tugas ID: $surat_id selesai; kendaraan ID $to_free set to Tersedia");
+                        }
+                    }
+
                     $msg = '<div class="alert alert-success">Surat tugas berhasil diperbarui!</div>';
                     log_user_activity("Memperbarui surat tugas ID: $surat_id");
                     log_surat_tugas_role_activity($current_role, "Memperbarui surat tugas ID: $surat_id");
@@ -1133,11 +1203,34 @@ if ($users_result) {
                     $where_clauses = [];
                     if ($is_user && $current_user_id) {
                         $uid = (int)$current_user_id;
-                        if ($has_created_by_col) {
-                            $where_clauses[] = "(s.created_by = {$uid} OR s.pengguna_id = {$uid})";
-                        } else {
-                            $where_clauses[] = "s.pengguna_id = {$uid}";
+                        // Build access checks: creator, assigned pengguna, vehicle assigned pengguna, or approved peminjaman for this kendaraan
+                        $access_parts = [];
+                        if ($has_created_by_col) $access_parts[] = "s.created_by = {$uid}";
+                        $access_parts[] = "s.pengguna_id = {$uid}";
+                        // allow when kendaraan.pengguna_id equals current user (vehicle assigned to user)
+                        $access_parts[] = "COALESCE(k.pengguna_id, 0) = {$uid}";
+
+                        // If peminjaman_kendaraan table exists, detect applicant column and allow when user has an approved/ongoing peminjaman for this kendaraan
+                        $res_pk = $conn->query("SHOW TABLES LIKE 'peminjaman_kendaraan'");
+                        if ($res_pk && $res_pk->num_rows > 0) {
+                            $cols_now = [];
+                            $cols_q = $conn->query("SHOW COLUMNS FROM peminjaman_kendaraan");
+                            if ($cols_q) $cols_now = array_column($cols_q->fetch_all(MYSQLI_ASSOC), 'Field');
+                            $appCol = null;
+                            foreach (['peminjam_id','pemohon_id','pengguna_id','user_id','created_by'] as $c) { if (in_array($c, $cols_now, true)) { $appCol = $c; break; } }
+                            if ($appCol) {
+                                if ($appCol === 'user_id') {
+                                    $acct = (int)(function_exists('get_current_account_id') ? get_current_account_id() : 0);
+                                    $access_parts[] = "EXISTS (SELECT 1 FROM peminjaman_kendaraan pk WHERE pk.kendaraan_id = s.kendaraan_id AND pk.user_id = {$acct} AND pk.status IN ('Approved','approved','Ongoing','ongoing'))";
+                                } else {
+                                    $access_parts[] = "EXISTS (SELECT 1 FROM peminjaman_kendaraan pk WHERE pk.kendaraan_id = s.kendaraan_id AND pk.{$appCol} = {$uid} AND pk.status IN ('Approved','approved','Ongoing','ongoing'))";
+                                }
+                            }
                         }
+
+                        $where_clauses[] = '(' . implode(' OR ', $access_parts) . ')';
+
+                        // Require pimpinan approval when column exists
                         if ($has_approval_pimpinan_col) {
                             $where_clauses[] = "s.approval_pimpinan_status = 'Approved'";
                         }
@@ -1149,7 +1242,12 @@ if ($users_result) {
                     $where_sql = $where_clauses ? 'WHERE ' . implode(' AND ', $where_clauses) : '';
 
                     // total count (respecting filters)
-                    $countRes = $conn->query("SELECT COUNT(*) as total FROM surat_tugas s $where_sql");
+                    // include kendaraan join when k.* is referenced in where clauses
+                    $count_sql_from = "FROM surat_tugas s";
+                    if (stripos($where_sql, 'k.pengguna_id') !== false || stripos($where_sql, 's.kendaraan_id') !== false) {
+                        $count_sql_from = "FROM surat_tugas s LEFT JOIN kendaraan k ON s.kendaraan_id = k.id LEFT JOIN pengguna p ON s.pengguna_id = p.id";
+                    }
+                    $countRes = $conn->query("SELECT COUNT(*) as total " . $count_sql_from . " " . $where_sql);
                     $total = 0;
                     if ($countRes) {
                         $rtmp = $countRes->fetch_assoc();
@@ -1687,10 +1785,10 @@ if ($users_result) {
                                     <div class="col-md-6">
                                         <div class="form-group">
                                             <label for="nomor_surat">Nomor Surat *</label>
-                                            <input type="text" name="nomor_surat" id="nomor_surat" 
-                                                   class="form-control" required
-                                                   value="<?= isset($surat_data) ? htmlspecialchars($surat_data['nomor_surat']) : '' ?>"
-                                                   placeholder="Contoh: ST/001/VIII/2025">
+                                              <input type="text" name="nomor_surat" id="nomor_surat" 
+                                                  class="form-control"
+                                                  value="<?= isset($surat_data) ? htmlspecialchars($surat_data['nomor_surat']) : '' ?>"
+                                                  placeholder="Contoh: ST/001/VIII/2025">
                                         </div>
                                     </div>
                                     <div class="col-md-6">
@@ -1889,7 +1987,7 @@ if ($users_result) {
                                                 <input type="hidden" name="pengguna_id" value="<?= isset($surat_data) ? (int)$surat_data['pengguna_id'] : '' ?>">
                                             <?php else: ?>
                                                 <!-- Create mode: Editable select (for admin/operator) or hidden for users -->
-                                                <select name="pengguna_id" id="pengguna_id" class="form-control" required <?= $is_user ? 'style="display:none"' : '' ?>>
+                                                <select name="pengguna_id" id="pengguna_id" class="form-control" <?= $is_user ? 'style="display:none"' : 'required' ?>>
                                                     <option value="">Pilih Pengguna (atau pilih kendaraan terlebih dahulu)</option>
                                                     <?php foreach ($users as $user): ?>
                                                         <option value="<?= $user['id'] ?>" 

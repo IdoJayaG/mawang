@@ -5,3 +5,4 @@
 2026-05-13T14:25:17+07:00 Updated peminjaman_kendaraan -> completed for nomor_surat ST/001/V/2026 affected=0
 2026-05-13T14:25:17+07:00 Set kendaraan.id 143 status_peminjaman=Tersedia (affected=1)
 2026-05-13T14:25:17+07:00 Inserted riwayat_pemakaian id=36 kendaraan_id=143
+2026-05-19T09:06:41+07:00 Skipping surat_tugas id 32: end not reached 2026-05-20 23:59:59

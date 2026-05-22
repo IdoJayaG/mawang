@@ -62,7 +62,7 @@ if (!empty($_GET['return_to'])) {
         }
         $keperluan = trim($_POST['keperluan']);
         // Prefer tujuan_hidden (set by map search) over free-text
-        $tujuan = trim($_POST['tujuan_hidden'] ?? ($_POST['map_search'] ?? ''));
+        $tujuan = trim($_POST['tujuan_hidden'] ?? '');
         $tanggal_mulai = $_POST['tanggal_mulai'];
         $tanggal_selesai = $_POST['tanggal_selesai'];
     // Always require a driver name (remove 'sopir_sendiri' option)
@@ -181,6 +181,10 @@ if (!empty($_GET['return_to'])) {
                 // Include no_reg and satker if available (will be filtered out later if table has no such columns)
                 $desired_map['no_reg'] = ['type' => 's', 'value' => $no_reg];
                 $desired_map['satker'] = ['type' => 's', 'value' => $satker];
+                // Ensure new submissions are marked pending for approval
+                $desired_map['status'] = ['type' => 's', 'value' => 'Pending'];
+                // created_at if table supports it
+                $desired_map['created_at'] = ['type' => 's', 'value' => date('Y-m-d H:i:s')];
 
                 // Filter desired_map to only columns that actually exist in the table
                 $insert_cols = [];
@@ -354,14 +358,12 @@ $vehicles = $mysqli->query($vehicles_query)->fetch_all(MYSQLI_ASSOC);
             
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label for="map_search" class="form-label">Cari Lokasi Tujuan *</label>
-                    <input type="text" id="map_search" name="map_search" class="form-control" placeholder="Cari lokasi tujuan...">
-                    <small class="form-text text-muted">Pilih lokasi yang muncul untuk melihat rute pulang-pergi dari SPBT Kemhan Cawang.</small>
-                    <div id="map_search_suggestions" class="list-group mt-2"></div>
-                    <div class="mt-2">
-                        <button type="button" id="addDestinationBtn" class="btn btn-sm btn-outline-primary">Tambah Tujuan</button>
-                        <ul id="destinationList" class="list-group mt-2"></ul>
+                    <label for="add_destination_input" class="form-label">Tambah Lokasi Tujuan *</label>
+                    <div class="input-group">
+                        <input type="text" id="add_destination_input" class="form-control" placeholder="Masukkan alamat tujuan...">
+                        <button type="button" id="addDestinationBtn" class="btn btn-outline-primary">Tambah</button>
                     </div>
+                    <ul id="destinationList" class="list-group mt-2"></ul>
                     <input type="hidden" name="tujuan_hidden" id="tujuan_hidden" value="">
                     <input type="hidden" name="estimasi_km" id="estimasi_km" value="">
                     <input type="hidden" name="estimasi_bbm" id="estimasi_bbm" value="">
@@ -470,127 +472,211 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
-<!-- Leaflet Routing Machine (for route distance estimation) -->
+<!-- Leaflet + Routing -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" integrity="" crossorigin="" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
 <script>
+// Map, routing and geocoding for multi-destination route + BBM estimate
 document.addEventListener('DOMContentLoaded', function(){
     if (!document.getElementById('miniMap')) return;
 
     const map = L.map('miniMap').setView([-6.200, 106.816], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
-
-    const mapSearch = document.getElementById('map_search');
-    const suggestionsContainer = document.getElementById('map_search_suggestions');
-    const routeDistanceEl = document.getElementById('routeDistance');
-    const routeFuelEl = document.getElementById('routeFuel');
-    const tujuanHidden = document.getElementById('tujuan_hidden');
-    const estimasiKmEl = document.getElementById('estimasi_km');
-    const estimasiBbmEl = document.getElementById('estimasi_bbm');
-    const kendaraanSelect = document.getElementById('kendaraan_id');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
 
     let routingControl = null;
-    let originLatLng = null;
     let originMarker = null;
-    let destMarker = null;
+    const destMarkers = new Map(); // inputElem -> marker
 
+    const kendaraanSelect = document.getElementById('kendaraan_id');
+    const originInput = document.getElementById('berangkat_dari');
+    const destinationList = document.getElementById('destinationList');
+    const addDestinationBtn = document.getElementById('addDestinationBtn');
+    const routeDistanceEl = document.getElementById('routeDistance');
+    const routeFuelEl = document.getElementById('routeFuel');
+
+    // Simple nominatim geocode
     function geocodeAddress(q){
         return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
-            .then(r=>r.json()).then(j=>j && j.length ? j[0] : null).catch(()=>null);
-    }
-    function geocodeSuggestions(q, limit = 5){
-        return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=' + limit + '&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
-            .then(r=>r.json()).catch(()=>[]);
+            .then(r => r.json())
+            .then(j => j && j.length ? j[0] : null)
+            .catch(()=>null);
     }
     function reverseGeocode(lat, lon){
         return fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + encodeURIComponent(lat) + '&lon=' + encodeURIComponent(lon), { headers: { 'Accept': 'application/json' } })
-            .then(r=>r.json()).then(j=>j && j.display_name ? j.display_name : null).catch(()=>null);
+            .then(r => r.json())
+            .then(j => j && j.display_name ? j.display_name : null)
+            .catch(()=>null);
     }
-
-    // initialize origin by geocoding SPBT Kemhan Cawang
-    geocodeAddress('SPBT Kemhan Cawang').then(r => {
-        if (r) {
-            originLatLng = L.latLng(parseFloat(r.lat), parseFloat(r.lon));
-            originMarker = L.marker(originLatLng).addTo(map).bindPopup(r.display_name || 'SPBT Kemhan Cawang');
-            map.setView(originLatLng, 12);
-        }
-    }).catch(()=>{});
-
-    function clearRouting(){
-        if (routingControl) { try{ map.removeControl(routingControl); } catch(e){} routingControl = null; }
-        if (destMarker) { try{ map.removeLayer(destMarker); } catch(e){} destMarker = null; }
-        routeDistanceEl.textContent = '-';
-        routeFuelEl.textContent = '-';
-        if (estimasiKmEl) estimasiKmEl.value = '';
-        if (estimasiBbmEl) estimasiBbmEl.value = '';
-        tujuanHidden.value = '';
-    }
-
-    // multi-destination helpers
-    const addDestinationBtn = document.getElementById('addDestinationBtn');
-    const destinationList = document.getElementById('destinationList');
-    const destMarkers = new Map();
 
     function addDestinationInput(value){
-        const li = document.createElement('li'); li.className = 'list-group-item d-flex align-items-center';
-        const input = document.createElement('input'); input.type='text'; input.className='form-control me-2 destination-item'; input.value = value || ''; input.placeholder='Alamat tujuan';
-        li.style.position='relative';
-        const sugg = document.createElement('div'); sugg.className='destination-suggestions list-group'; sugg.style.position='absolute'; sugg.style.left='0'; sugg.style.right='0'; sugg.style.top='100%'; sugg.style.zIndex='1200';
-        const btn = document.createElement('button'); btn.type='button'; btn.className='btn btn-sm btn-danger remove-destination'; btn.innerHTML='&times;';
-        btn.addEventListener('click', function(){ const m = destMarkers.get(input); if(m){ try{ map.removeLayer(m); }catch(e){} destMarkers.delete(input); } li.remove(); recalcRouteAndEstimates(); });
-        input.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); geocodeInputAndSetMarker(input).then(recalcRouteAndEstimates); } });
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex align-items-center';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-control me-2 destination-item';
+        input.value = value || '';
+        input.placeholder = 'Alamat tujuan';
+        // container for suggestions
+        li.style.position = 'relative';
+        const sugg = document.createElement('div');
+        sugg.className = 'destination-suggestions list-group';
+        sugg.style.position = 'absolute';
+        sugg.style.left = '0';
+        sugg.style.right = '0';
+        sugg.style.top = '100%';
+        sugg.style.zIndex = '1200';
+        const btn = document.createElement('button');
+        btn.type = 'button'; btn.className = 'btn btn-sm btn-danger remove-destination'; btn.innerHTML = '&times;';
+        btn.addEventListener('click', function(){
+            const m = destMarkers.get(input);
+            if (m) { map.removeLayer(m); destMarkers.delete(input); }
+            li.remove(); recalcRouteAndEstimates();
+        });
+        input.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); geocodeInputAndSetMarker(input).then(recalcRouteAndEstimates); } });
         input.addEventListener('blur', function(){ setTimeout(()=>{ if (input.value.trim()) geocodeInputAndSetMarker(input).then(recalcRouteAndEstimates); sugg.innerHTML=''; }, 200); });
+        // autocomplete (Nominatim) with debounce
         let acTimeout = null;
-        input.addEventListener('input', function(){ const q = input.value.trim(); if (acTimeout) clearTimeout(acTimeout); sugg.innerHTML=''; if (q.length < 2) return; acTimeout = setTimeout(function(){ geocodeSuggestions(q,5).then(list=>{ sugg.innerHTML=''; if(!list||!list.length) return; list.forEach(item=>{ const a=document.createElement('a'); a.href='#'; a.className='list-group-item list-group-item-action'; a.textContent=item.display_name; a.addEventListener('click', function(ev){ ev.preventDefault(); input.value = item.display_name; input.dataset.lat = item.lat; input.dataset.lng = item.lon; input.dataset.display = item.display_name; const old = destMarkers.get(input); if(old) try{ map.removeLayer(old); }catch(e){} const m = L.marker([parseFloat(item.lat), parseFloat(item.lon)]).addTo(map).bindPopup(item.display_name); destMarkers.set(input, m); sugg.innerHTML=''; recalcRouteAndEstimates(); }); sugg.appendChild(a); }); }).catch(()=>{ sugg.innerHTML=''; }); }, 300); });
-        li.appendChild(input); li.appendChild(btn); li.appendChild(sugg); destinationList.appendChild(li); return input;
+        input.addEventListener('input', function(){
+            const q = input.value.trim();
+            if (acTimeout) clearTimeout(acTimeout);
+            if (q.length < 2) { sugg.innerHTML = ''; return; }
+            acTimeout = setTimeout(function(){
+                fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(q))
+                    .then(r => r.json())
+                    .then(list => {
+                        sugg.innerHTML = '';
+                        if (!list || !list.length) return;
+                        list.forEach(item => {
+                            const a = document.createElement('a');
+                            a.href = '#';
+                            a.className = 'list-group-item list-group-item-action';
+                            a.textContent = item.display_name;
+                            a.addEventListener('click', function(ev){ ev.preventDefault(); input.value = item.display_name; input.dataset.lat = item.lat; input.dataset.lng = item.lon; input.dataset.display = item.display_name; // place marker immediately
+                                const old = destMarkers.get(input); if (old) map.removeLayer(old);
+                                const m = L.marker([parseFloat(item.lat), parseFloat(item.lon)]).addTo(map).bindPopup(item.display_name);
+                                destMarkers.set(input, m);
+                                sugg.innerHTML = '';
+                                recalcRouteAndEstimates();
+                            });
+                            sugg.appendChild(a);
+                        });
+                    }).catch(()=>{ sugg.innerHTML=''; });
+            }, 300);
+        });
+        li.appendChild(input); li.appendChild(btn); li.appendChild(sugg); destinationList.appendChild(li);
+        return input;
     }
 
     function geocodeInputAndSetMarker(input){
-        const q = input.value.trim(); if(!q) return Promise.resolve(null);
-        return geocodeAddress(q).then(res=>{ if(!res) return null; input.dataset.lat = res.lat; input.dataset.lng = res.lon; input.dataset.display = res.display_name || q; const latlng = L.latLng(parseFloat(res.lat), parseFloat(res.lon)); const old = destMarkers.get(input); if(old) try{ map.removeLayer(old); }catch(e){} const m = L.marker(latlng).addTo(map).bindPopup(input.dataset.display || q); destMarkers.set(input, m); return {lat: latlng.lat, lng: latlng.lng}; });
+        const q = input.value.trim();
+        if (!q) return Promise.resolve(null);
+        return geocodeAddress(q).then(res => {
+            if (!res) return null;
+            input.dataset.lat = res.lat; input.dataset.lng = res.lon; input.dataset.display = res.display_name || q;
+            // place marker
+            const latlng = L.latLng(parseFloat(res.lat), parseFloat(res.lon));
+            const old = destMarkers.get(input);
+            if (old) map.removeLayer(old);
+            const m = L.marker(latlng).addTo(map).bindPopup(input.dataset.display || q);
+            destMarkers.set(input, m);
+            return {lat: latlng.lat, lng: latlng.lng};
+        });
     }
 
-    function setOriginMarker(latlng, display){ if(originMarker) try{ map.removeLayer(originMarker); }catch(e){} originMarker = L.marker(latlng, {icon: L.icon({iconUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-icon.png'})}).addTo(map).bindPopup(display || 'SPBT Kemhan Cawang'); }
+    function setOriginMarker(latlng, display){
+        if (originMarker) map.removeLayer(originMarker);
+        originMarker = L.marker(latlng, {icon: L.icon({iconUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-icon.png'})}).addTo(map).bindPopup(display || 'Asal');
+    }
 
-    function getConsumptionRateForSelectedVehicle(){ if(!kendaraanSelect) return 4; const opt = kendaraanSelect.selectedOptions && kendaraanSelect.selectedOptions[0]; const merk = (opt && (opt.dataset && opt.dataset.merk)) ? opt.dataset.merk.toLowerCase() : ''; if (merk.indexOf('mercedes') !== -1) return 3; if (merk.indexOf('mitsubishi') !== -1) return 4; if (merk.indexOf('hino') !== -1) return 5; return 4; }
+    function getConsumptionRateForSelectedVehicle(){
+        if (!kendaraanSelect) return 4;
+        const opt = kendaraanSelect.selectedOptions && kendaraanSelect.selectedOptions[0];
+        const merk = (opt && (opt.dataset && opt.dataset.merk)) ? opt.dataset.merk.toLowerCase() : '';
+        if (merk.includes('mercedes')) return 3;
+        if (merk.includes('mitsubishi')) return 4;
+        if (merk.includes('hino')) return 5;
+        return 4; // default
+    }
 
     function recalcRouteAndEstimates(){
-        const originVal = 'SPBT Kemhan Cawang';
-        const originPromise = geocodeAddress(originVal).then(r=>{ if(r){ setOriginMarker([parseFloat(r.lat), parseFloat(r.lon)], r.display_name); return {lat: parseFloat(r.lat), lng: parseFloat(r.lon)} } return null; });
+        // Build promises to ensure lat/lng available for origin and all destinations
+        // If an origin input exists but is empty, fall back to the fixed origin
+        const originVal = (originInput && originInput.value && originInput.value.trim()) ? originInput.value.trim() : 'SPBT Kemhan Cawang';
         const destInputs = Array.from(document.querySelectorAll('.destination-item'));
-        const destPromises = destInputs.map(inp=>{ const v = inp.value.trim(); if(!v) return Promise.resolve(null); if (inp.dataset.lat && inp.dataset.lng) return Promise.resolve({lat: parseFloat(inp.dataset.lat), lng: parseFloat(inp.dataset.lng)}); return geocodeAddress(v).then(r=>{ if(r){ inp.dataset.lat=r.lat; inp.dataset.lng=r.lon; inp.dataset.display=r.display_name; const old = destMarkers.get(inp); if (old) try{ map.removeLayer(old); }catch(e){} const m = L.marker([parseFloat(r.lat), parseFloat(r.lon)]).addTo(map).bindPopup(r.display_name); destMarkers.set(inp,m); return {lat: parseFloat(r.lat), lng: parseFloat(r.lon)} } return null; }); });
+        const originPromise = (originInput && originInput.dataset && originInput.dataset.lat && originInput.dataset.lng)
+            ? Promise.resolve({lat: parseFloat(originInput.dataset.lat), lng: parseFloat(originInput.dataset.lng)})
+            : (originVal ? geocodeAddress(originVal).then(r => {
+                if (r) {
+                    if (originInput) { originInput.dataset.lat = r.lat; originInput.dataset.lng = r.lon; originInput.dataset.display = r.display_name; }
+                    setOriginMarker([parseFloat(r.lat), parseFloat(r.lon)], r.display_name);
+                    return {lat: parseFloat(r.lat), lng: parseFloat(r.lon)};
+                }
+                // geocode failed -> fallback to fixed SPBT Kemhan Cawang coords so routing can proceed
+                console.warn('geocodeAddress failed for origin, using fixed fallback coords');
+                const fallback = { lat: -6.200, lng: 106.816 };
+                if (originInput) { originInput.dataset.lat = fallback.lat; originInput.dataset.lng = fallback.lng; originInput.dataset.display = 'SPBT Kemhan Cawang'; }
+                setOriginMarker([fallback.lat, fallback.lng], 'SPBT Kemhan Cawang');
+                return fallback;
+            }) : Promise.resolve(null));
+
+        const destPromises = destInputs.map(inp => {
+            const v = inp.value.trim();
+            if (!v) return Promise.resolve(null);
+            if (inp.dataset.lat && inp.dataset.lng) return Promise.resolve({lat: parseFloat(inp.dataset.lat), lng: parseFloat(inp.dataset.lng)});
+            return geocodeAddress(v).then(r=>{ if (r){ inp.dataset.lat=r.lat; inp.dataset.lng=r.lon; inp.dataset.display=r.display_name; const old = destMarkers.get(inp); if (old) map.removeLayer(old); const m = L.marker([parseFloat(r.lat), parseFloat(r.lon)]).addTo(map).bindPopup(r.display_name); destMarkers.set(inp,m); return {lat: parseFloat(r.lat), lng: parseFloat(r.lon)} } return null; });
+        });
 
         return Promise.all([originPromise].concat(destPromises)).then(results => {
             const originLatLng = results[0];
             const destLatLngs = results.slice(1).filter(Boolean);
-            console.log('recalcRouteAndEstimates: origin=', originLatLng, 'dests=', destLatLngs);
+            console.log('recalcRouteAndEstimates (form_peminjaman): origin=', originLatLng, 'dests=', destLatLngs);
             if (!originLatLng || destLatLngs.length === 0) {
+                // Not enough points to route
                 console.log('recalcRouteAndEstimates: not enough points to route');
-                routeDistanceEl.textContent='-'; routeFuelEl.textContent='-'; if(routingControl){ try{ map.removeControl(routingControl); }catch(e){} routingControl=null; }
+                routeDistanceEl.textContent = '-'; routeFuelEl.textContent = '-';
+                if (routingControl) { try{ map.removeControl(routingControl); } catch(e){} routingControl = null; }
                 return;
             }
-            const waypoints = [L.latLng(originLatLng.lat, originLatLng.lng)].concat(destLatLngs.map(d=>L.latLng(d.lat, d.lng))).concat([L.latLng(originLatLng.lat, originLatLng.lng)]);
-            if (routingControl) { try{ map.removeControl(routingControl); } catch(e){} routingControl=null; }
-            routingControl = L.Routing.control({ waypoints: waypoints, lineOptions: { styles: [{color: 'blue', opacity: 0.6, weight: 5}] }, createMarker: function(i, wp){ return L.marker(wp.latLng); }, addWaypoints: false, routeWhileDragging: false, fitSelectedRoutes: true, router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }) }).addTo(map);
 
-            // routesfound handler with fallback if OSRM doesn't respond
+            // Build waypoints: origin -> dest1 -> dest2 ... -> origin (return)
+            const waypoints = [L.latLng(originLatLng.lat, originLatLng.lng)].concat(destLatLngs.map(d=>L.latLng(d.lat, d.lng))).concat([L.latLng(originLatLng.lat, originLatLng.lng)]);
+
+            if (routingControl) { try{ map.removeControl(routingControl); } catch(e){} routingControl = null; }
+            routingControl = L.Routing.control({
+                waypoints: waypoints,
+                lineOptions: { styles: [{color: 'blue', opacity: 0.6, weight: 5}] },
+                createMarker: function(i, wp) { return L.marker(wp.latLng); },
+                addWaypoints: false,
+                routeWhileDragging: false,
+                fitSelectedRoutes: true,
+                router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' })
+            }).addTo(map);
+
+            // routesfound handler with fallback
             let routesFoundHandled = false;
             routingControl.on('routesfound', function(e){
                 routesFoundHandled = true;
                 const summary = e.routes && e.routes[0] && e.routes[0].summary;
-                if(!summary) return;
+                if (!summary) return;
                 console.log('OSRM routesfound summary=', summary);
                 const distKmRaw = (summary.totalDistance/1000);
                 const distKmCeil = Math.ceil(distKmRaw);
                 routeDistanceEl.textContent = distKmCeil;
-                // ensure numeric values are set on hidden inputs (distance rounded up)
-                if (estimasiKmEl) { estimasiKmEl.value = distKmCeil; estimasiKmEl.dispatchEvent(new Event('input')); }
+                // Estimasi BBM: ceil(liters) + 2
                 const rate = getConsumptionRateForSelectedVehicle();
                 const litersRaw = distKmRaw / rate;
                 const litersCeilPlus = Math.ceil(litersRaw) + 2;
                 routeFuelEl.textContent = litersCeilPlus;
-                if (estimasiBbmEl) { estimasiBbmEl.value = litersCeilPlus; estimasiBbmEl.dispatchEvent(new Event('input')); }
-                tujuanHidden.value = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.dataset.display || i.value).filter(Boolean).join('||');
+                // Update form fields (prefer numeric values and trigger input)
+                const kmEl = document.getElementById('estimasi_km');
+                const bbmEl = document.getElementById('estimasi_bbm');
+                if (kmEl) { kmEl.value = distKmCeil; kmEl.dispatchEvent(new Event('input')); }
+                if (bbmEl) { bbmEl.value = litersCeilPlus; bbmEl.dispatchEvent(new Event('input')); }
             });
 
             // Immediate approximate (straight-line) distance so UI shows values quickly
@@ -615,83 +701,125 @@ document.addEventListener('DOMContentLoaded', function(){
                 const distKmCeil = Math.ceil(totalKm);
                 console.log('Immediate straight-line distance (km)=', distKmCeil);
                 routeDistanceEl.textContent = distKmCeil;
-                if (estimasiKmEl) { estimasiKmEl.value = distKmCeil; estimasiKmEl.dispatchEvent(new Event('input')); }
                 const rate = getConsumptionRateForSelectedVehicle();
                 const litersCeilPlus = Math.ceil(totalKm / rate) + 2;
                 console.log('Immediate liters (ceil +2)=', litersCeilPlus);
                 routeFuelEl.textContent = litersCeilPlus;
-                if (estimasiBbmEl) { estimasiBbmEl.value = litersCeilPlus; estimasiBbmEl.dispatchEvent(new Event('input')); }
-                tujuanHidden.value = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.dataset.display || i.value).filter(Boolean).join('||');
-            } catch(e) {
-                console.warn('Immediate routing calculation failed', e);
-            }
+                const kmEl = document.getElementById('estimasi_km');
+                const bbmEl = document.getElementById('estimasi_bbm');
+                if (kmEl) { kmEl.value = distKmCeil; kmEl.dispatchEvent(new Event('input')); }
+                if (bbmEl) { bbmEl.value = litersCeilPlus; bbmEl.dispatchEvent(new Event('input')); }
+            } catch(e) { console.warn('Immediate routing calculation failed', e); }
+
+            // Fit map to route after short delay
+            setTimeout(()=>{ try{ if (routingControl && routingControl.getPlan) routingControl.getPlan().setWaypoints(waypoints); } catch(e){} }, 300);
         });
     }
 
-    // Add destination button
-    addDestinationBtn?.addEventListener('click', function(){ const newInp = addDestinationInput(''); newInp.focus(); });
+    // Initialize existing destination inputs (add autocomplete + remove handlers)
+    Array.from(document.querySelectorAll('.destination-item')).forEach(inp => {
+        const li = inp.closest('li') || inp.parentElement;
+        // ensure suggestion container exists
+        let sugg = li.querySelector('.destination-suggestions');
+        if (!sugg) {
+            sugg = document.createElement('div');
+            sugg.className = 'destination-suggestions list-group';
+            sugg.style.position = 'absolute';
+            sugg.style.left = '0';
+            sugg.style.right = '0';
+            sugg.style.top = '100%';
+            sugg.style.zIndex = '1200';
+            li.style.position = 'relative';
+            li.appendChild(sugg);
+        }
 
-    // Map click: add destination
-    map.on('click', function(e){ reverseGeocode(e.latlng.lat, e.latlng.lng).then(addr=>{ const display = addr || (e.latlng.lat + ',' + e.latlng.lng); const inp = addDestinationInput(display); inp.dataset.lat = e.latlng.lat; inp.dataset.lng = e.latlng.lng; const m = L.marker(e.latlng).addTo(map).bindPopup(inp.value); destMarkers.set(inp,m); recalcRouteAndEstimates(); }).catch(()=>{ const display = e.latlng.lat + ',' + e.latlng.lng; const inp = addDestinationInput(display); inp.dataset.lat = e.latlng.lat; inp.dataset.lng = e.latlng.lng; const m = L.marker(e.latlng).addTo(map).bindPopup(inp.value); destMarkers.set(inp,m); recalcRouteAndEstimates(); });
+        // wire remove button
+        const removeBtn = li.querySelector('.remove-destination');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', function(){ const m = destMarkers.get(inp); if (m) { try{ map.removeLayer(m); } catch(e){} destMarkers.delete(inp); } li.remove(); recalcRouteAndEstimates(); });
+        } else {
+            const btn = document.createElement('button'); btn.type='button'; btn.className='btn btn-sm btn-danger remove-destination'; btn.innerHTML='&times;'; btn.addEventListener('click', function(){ const m = destMarkers.get(inp); if (m) { try{ map.removeLayer(m); } catch(e){} destMarkers.delete(inp); } li.remove(); recalcRouteAndEstimates(); }); li.appendChild(btn);
+        }
 
-    // autocomplete suggestions (debounced) for the main search input: add as destination
-    let acTimer = null;
-    mapSearch.addEventListener('input', function(){
-        const q = this.value.trim();
-        suggestionsContainer.innerHTML = '';
-        if (acTimer) clearTimeout(acTimer);
-        if (q.length < 2) return;
-        acTimer = setTimeout(function(){
-            geocodeSuggestions(q, 5).then(list => {
-                suggestionsContainer.innerHTML = '';
-                (list || []).forEach(item => {
-                    const a = document.createElement('a');
-                    a.href = '#';
-                    a.className = 'list-group-item list-group-item-action';
-                    a.textContent = item.display_name;
-                    a.addEventListener('click', function(ev){
-                        ev.preventDefault();
-                        mapSearch.value = '';
-                        suggestionsContainer.innerHTML = '';
-                        const inp = addDestinationInput(item.display_name);
-                        inp.dataset.lat = item.lat; inp.dataset.lng = item.lon; inp.dataset.display = item.display_name;
-                        const old = destMarkers.get(inp); if(old) try{ map.removeLayer(old); }catch(e){}
-                        const m = L.marker([parseFloat(item.lat), parseFloat(item.lon)]).addTo(map).bindPopup(item.display_name);
-                        destMarkers.set(inp, m);
-                        recalcRouteAndEstimates();
-                    });
-                    suggestionsContainer.appendChild(a);
-                });
-            }).catch(()=>{ suggestionsContainer.innerHTML = ''; });
-        }, 250);
+        // input handlers (enter, blur)
+        inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); geocodeInputAndSetMarker(inp).then(recalcRouteAndEstimates); } });
+        inp.addEventListener('blur', function(){ setTimeout(()=>{ if (inp.value.trim()) geocodeInputAndSetMarker(inp).then(recalcRouteAndEstimates); sugg.innerHTML=''; }, 200); });
+
+        // autocomplete for existing input (debounced)
+        let acTimeout = null;
+        inp.addEventListener('input', function(){ const q = inp.value.trim(); sugg.innerHTML = ''; if (acTimeout) clearTimeout(acTimeout); if (q.length < 2) return; acTimeout = setTimeout(function(){ fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(q)).then(r=>r.json()).then(list=>{ sugg.innerHTML = ''; if (!list || !list.length) return; list.forEach(item=>{ const a = document.createElement('a'); a.href='#'; a.className='list-group-item list-group-item-action'; a.textContent = item.display_name; a.addEventListener('click', function(ev){ ev.preventDefault(); inp.value = item.display_name; inp.dataset.lat = item.lat; inp.dataset.lng = item.lon; inp.dataset.display = item.display_name; const old = destMarkers.get(inp); if (old) try{ map.removeLayer(old); }catch(e){} const m = L.marker([parseFloat(item.lat), parseFloat(item.lon)]).addTo(map).bindPopup(item.display_name); destMarkers.set(inp, m); sugg.innerHTML=''; recalcRouteAndEstimates(); }); sugg.appendChild(a); }); }).catch(()=>{ sugg.innerHTML=''; }); }, 250); });
+
+        // if there's an initial value, geocode it to create a marker
+        if (inp.value.trim()) {
+            if (inp.dataset.lat && inp.dataset.lng) {
+                try{
+                    const m = L.marker([parseFloat(inp.dataset.lat), parseFloat(inp.dataset.lng)]).addTo(map).bindPopup(inp.dataset.display || inp.value);
+                    destMarkers.set(inp, m);
+                } catch(e) {}
+            } else {
+                geocodeInputAndSetMarker(inp).then(()=>{ try{ recalcRouteAndEstimates(); } catch(e){} });
+            }
+        }
     });
+
+    // Add destination button: use the add_destination_input value if provided
+    addDestinationBtn?.addEventListener('click', function(){
+        try {
+            const textInput = document.getElementById('add_destination_input');
+            const val = textInput && textInput.value ? textInput.value.trim() : '';
+            if (!val) {
+                const newInp = addDestinationInput(''); newInp.focus();
+                return;
+            }
+            const newInp = addDestinationInput(val);
+            // geocode and set marker immediately
+            geocodeInputAndSetMarker(newInp).then(()=>{ recalcRouteAndEstimates(); });
+            if (textInput) textInput.value = '';
+            newInp.focus();
+        } catch(e) { console.error(e); }
+    });
+
+    // Map click: add destination at clicked point (origin is fixed to SPBT Kemhan Cawang)
+    map.on('click', function(e){
+        reverseGeocode(e.latlng.lat, e.latlng.lng).then(addr=>{
+            const inp = addDestinationInput(addr || (e.latlng.lat + ',' + e.latlng.lng));
+            inp.dataset.lat = e.latlng.lat; inp.dataset.lng = e.latlng.lng; const m = L.marker(e.latlng).addTo(map).bindPopup(inp.value); destMarkers.set(inp, m);
+            recalcRouteAndEstimates();
+        });
+    });
+
+    // Removed main search autocomplete — replacement is the add-destination input above
 
     // Pack destinations on submit
     const form = document.querySelector('form');
     if (form) {
-        form.addEventListener('submit', function(){
-            const dests = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.dataset.display || i.value).filter(Boolean);
-            tujuanHidden.value = dests.join('||');
+        form.addEventListener('submit', function(e){
+            const dests = Array.from(document.querySelectorAll('.destination-item')).map(i=>i.value.trim()).filter(Boolean);
+            // Require at least one destination
+            if (dests.length === 0) {
+                e.preventDefault();
+                alert('Harap tambahkan minimal satu lokasi tujuan sebelum submit.');
+                const addInput = document.getElementById('add_destination_input'); if (addInput) addInput.focus();
+                return;
+            }
+            document.getElementById('tujuan_hidden').value = dests.join('||');
+            // ensure estimasi fields are set (prefer numeric values already computed)
             const kmEl = document.getElementById('estimasi_km');
             const bbmEl = document.getElementById('estimasi_bbm');
-            // Prefer the hidden input values (already set by recalc); fallback to route text
             if (kmEl) {
-                const val = parseFloat(kmEl.value);
-                if (isFinite(val)) kmEl.value = Math.round(val * 100) / 100;
+                const v = parseFloat(kmEl.value);
+                if (isFinite(v)) kmEl.value = Math.round(v * 100) / 100;
                 else if (routeDistanceEl && !isNaN(parseFloat(routeDistanceEl.textContent))) kmEl.value = Math.round(parseFloat(routeDistanceEl.textContent) * 100) / 100;
             }
             if (bbmEl) {
-                const val2 = parseFloat(bbmEl.value);
-                if (isFinite(val2)) bbmEl.value = Math.round(val2 * 100) / 100;
+                const v2 = parseFloat(bbmEl.value);
+                if (isFinite(v2)) bbmEl.value = Math.round(v2 * 100) / 100;
                 else if (routeFuelEl && !isNaN(parseFloat(routeFuelEl.textContent))) bbmEl.value = Math.round(parseFloat(routeFuelEl.textContent) * 100) / 100;
             }
         });
     }
 
-    // initial calc after short delay
-    setTimeout(()=>{ recalcRouteAndEstimates(); }, 700);
-
-    // clear routing if user clears search
-    mapSearch.addEventListener('change', function(){ if (!this.value.trim()) { /* keep destinations, but clear suggestions */ suggestionsContainer.innerHTML = ''; } });
+    // initial calc if possible
+    setTimeout(()=>{ recalcRouteAndEstimates(); }, 800);
 });
 </script>

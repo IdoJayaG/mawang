@@ -138,6 +138,7 @@ try {
                             <th>Tanggal</th>
                             <th>Jumlah (L)</th>
                             <th>KM</th>
+                            <th>Jarak Traccar (km)</th>
                             <th>SPBU</th>
                             <th>Jenis BBM</th>
                             <th>User</th>
@@ -155,6 +156,9 @@ try {
                             <td><strong class="text-primary"><?= number_format($log['jumlah_liter'], 2) ?></strong></td>
                             <td>
                                 <?= $log['km_saat_isi'] ? number_format($log['km_saat_isi']) : '<span class="text-muted">-</span>' ?>
+                            </td>
+                            <td>
+                                <?= isset($log['jarak_traccar_km']) && $log['jarak_traccar_km'] !== null ? number_format($log['jarak_traccar_km'], 2) : '<span class="text-muted">-</span>' ?>
                             </td>
                             <td><?= $log['spbu'] ? htmlspecialchars($log['spbu']) : '<span class="text-muted">-</span>' ?></td>
                             <td><span class="badge badge-info"><?= htmlspecialchars($log['jenis_bbm']) ?></span></td>

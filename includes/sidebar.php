@@ -124,6 +124,18 @@
 
         <?php elseif ($current_role === 'pimpinan'): ?>
             <!-- Menu untuk Pimpinan -->
+            <!-- Vehicle menu for Pimpinan: List + Map -->
+            <li class="has-submenu <?= in_array($current_page, ['list_kendaraan', 'map_kendaraan']) ? 'active' : '' ?>">
+                <a href="javascript:void(0)" class="submenu-toggle">
+                    <i class="fas fa-car"></i><span>Kendaraan</span>
+                    <i class="fas fa-chevron-down submenu-arrow"></i>
+                </a>
+                <ul class="submenu">
+                    <li><a href="index.php?page=list_kendaraan" class="<?= ($current_page == 'list_kendaraan') ? 'active' : '' ?>">List Kendaraan</a></li>
+                    <li><a href="index.php?page=map_kendaraan" class="<?= ($current_page == 'map_kendaraan') ? 'active' : '' ?>">Peta Kendaraan</a></li>
+                </ul>
+            </li>
+
             <li><a href="index.php?page=persetujuan_peminjaman" class="<?= ($current_page == 'persetujuan_peminjaman') ? 'active' : '' ?>">
                 <i class="fas fa-clipboard-check"></i><span>Persetujuan Peminjaman</span>
             </a></li>

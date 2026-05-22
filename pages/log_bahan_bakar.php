@@ -95,6 +95,7 @@ if ($_POST) {
                 $spbu = trim($_POST['spbu']);
                 $jenis_bbm = $_POST['jenis_bbm'];
                 $keterangan = trim($_POST['keterangan']);
+                $jarak_traccar_km = isset($_POST['jarak_traccar_km']) && $_POST['jarak_traccar_km'] !== '' ? (float)$_POST['jarak_traccar_km'] : null;
                 // biaya/harga dihapus dari input; nilai disimpan terpisah jika perlu melalui migrasi
                 
                 // Upload photos
@@ -114,8 +115,8 @@ if ($_POST) {
                     $foto_odometer = uploadPhoto($_FILES['foto_odometer'], 'odometer');
                 }
                 
-                $stmt = $mysqli->prepare("INSERT INTO log_bahan_bakar (kendaraan_id, tanggal_isi, jumlah_liter, km_saat_isi, spbu, jenis_bahan_bakar, user_id, foto_sebelum_isi, foto_sesudah_isi, foto_odometer, keterangan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param('isdisisssss', $kendaraan_id, $tanggal_isi, $jumlah_liter, $km_saat_isi, $spbu, $jenis_bbm, $current_user_id, $foto_sebelum, $foto_sesudah, $foto_odometer, $keterangan);
+                $stmt = $mysqli->prepare("INSERT INTO log_bahan_bakar (kendaraan_id, tanggal_isi, jumlah_liter, km_saat_isi, jarak_traccar_km, spbu, jenis_bahan_bakar, user_id, foto_sebelum_isi, foto_sesudah_isi, foto_odometer, keterangan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param('isdidissssss', $kendaraan_id, $tanggal_isi, $jumlah_liter, $km_saat_isi, $jarak_traccar_km, $spbu, $jenis_bbm, $current_user_id, $foto_sebelum, $foto_sesudah, $foto_odometer, $keterangan);
                 
                 if ($stmt->execute()) {
                     // Catat aktivitas dan kembali ke halaman daftar log BBM
@@ -145,6 +146,12 @@ if ($_POST) {
 
                 $stmt = $mysqli->prepare("UPDATE log_bahan_bakar SET kendaraan_id=?, tanggal_isi=?, jumlah_liter=?, km_saat_isi=?, spbu=?, jenis_bahan_bakar=?, keterangan=? WHERE id=?");
                 $stmt->bind_param('isdisssi', $kendaraan_id, $tanggal_isi, $jumlah_liter, $km_saat_isi, $spbu, $jenis_bbm, $keterangan, $log_id);
+                    // include traccar distance if column exists
+                    $has_col = function_exists('db_table_columns') && in_array('jarak_traccar_km', (array)db_table_columns('log_bahan_bakar'), true);
+                    if ($has_col) {
+                        $stmt = $mysqli->prepare("UPDATE log_bahan_bakar SET kendaraan_id=?, tanggal_isi=?, jumlah_liter=?, km_saat_isi=?, jarak_traccar_km=?, spbu=?, jenis_bahan_bakar=?, keterangan=? WHERE id=?");
+                        $stmt->bind_param('isdidsssi', $kendaraan_id, $tanggal_isi, $jumlah_liter, $km_saat_isi, $jarak_traccar_km, $spbu, $jenis_bbm, $keterangan, $log_id);
+                    }
 
                 if ($stmt->execute()) {
                     log_activity("EDIT_BBM_LOG", "Memperbarui log BBM ID $log_id untuk kendaraan ID $kendaraan_id");
@@ -263,6 +270,7 @@ if (in_array($current_role, ['user', 'driver'], true)) {
             k.foto,
             COUNT(lb.id) as total_pengisian,
             SUM(lb.jumlah_liter) as total_liter,
+            SUM(lb.jarak_traccar_km) as total_jarak_traccar,
             MAX(lb.tanggal_isi) as pengisian_terakhir,
             " . $avg_col . "
             MAX(lb.km_saat_isi) as km_terakhir
@@ -296,6 +304,7 @@ if (in_array($current_role, ['user', 'driver'], true)) {
             k.foto,
             COUNT(lb.id) as total_pengisian,
             SUM(lb.jumlah_liter) as total_liter,
+            SUM(lb.jarak_traccar_km) as total_jarak_traccar,
             MAX(lb.tanggal_isi) as pengisian_terakhir,
             " . $avg_col . "
             MAX(lb.km_saat_isi) as km_terakhir
@@ -477,6 +486,8 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                         <i class="fas fa-times"></i> Batal
                     </a>
                 </div>
+                    <input type="hidden" name="jarak_traccar_km" id="jarak_traccar_km" value="">
+                    <div class="small text-muted mb-2">Jarak Traccar: <span id="traccarDistanceDisplay">-</span> km</div>
             </form>
         </div>
     </div>
@@ -501,6 +512,7 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                                     <th width="30%">Kendaraan</th>
                                     <th width="15%">Total Pengisian</th>
                                     <th width="15%">Total Liter</th>
+                                    <th width="15%">Jarak Total (km)</th>
                                     <th width="20%">Pengisian Terakhir</th>
                                     <th width="15%">Aksi</th>
                                 </tr>
@@ -540,6 +552,9 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                                         <?php if ($kendaraan['km_terakhir']): ?>
                                             <br><small class="text-muted">KM: <?= number_format($kendaraan['km_terakhir']) ?></small>
                                         <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <span class="traccar-total" data-kendaraan-id="<?= $kendaraan['kendaraan_id'] ?>">Memuat...</span>
                                     </td>
                                     <td>
                                         <?php if ($kendaraan['pengisian_terakhir']): ?>
@@ -643,6 +658,55 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
 <style>
 .photo-modal {
     display: none;
+// Fetch Traccar daily distance and populate hidden field
+document.addEventListener('DOMContentLoaded', function () {
+    function formatDateForTraccar(dtLocal) {
+        if (!dtLocal) return '';
+        // dtLocal like 2026-05-20T14:30 -> 2026-05-20
+        return dtLocal.split('T')[0];
+    }
+
+    function fetchTraccarDistance() {
+        var veh = document.getElementById('kendaraan_id');
+        var dateInput = document.getElementById('tanggal_isi');
+        if (!veh || !dateInput) return;
+        var vid = veh.value;
+        var date = formatDateForTraccar(dateInput.value);
+        var display = document.getElementById('traccarDistanceDisplay');
+        var hidden = document.getElementById('jarak_traccar_km');
+
+        if (!vid || !date) {
+            if (display) display.textContent = '-';
+            if (hidden) hidden.value = '';
+            return;
+        }
+
+        fetch('ajax/traccar_daily_timeline.php?kendaraan_id=' + encodeURIComponent(vid) + '&date=' + encodeURIComponent(date))
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                var distance = 0;
+                if (Array.isArray(data) && data.length && data[0].distance_km !== undefined) {
+                    distance = parseFloat(data[0].distance_km) || 0;
+                } else if (data && data.distance_km !== undefined) {
+                    distance = parseFloat(data.distance_km) || 0;
+                }
+                if (hidden) hidden.value = distance ? distance.toFixed(2) : '';
+                if (display) display.textContent = distance ? distance.toFixed(2) : '-';
+            })
+            .catch(function () {
+                if (display) display.textContent = '-';
+                if (hidden) hidden.value = '';
+            });
+    }
+
+    var kendaraanSelect = document.getElementById('kendaraan_id');
+    var tanggalInput = document.getElementById('tanggal_isi');
+    if (kendaraanSelect) kendaraanSelect.addEventListener('change', fetchTraccarDistance);
+    if (tanggalInput) tanggalInput.addEventListener('change', fetchTraccarDistance);
+
+    // initial fetch when form loads (edit case)
+    fetchTraccarDistance();
+});
     position: fixed;
     z-index: 1000;
     left: 0;
@@ -1142,6 +1206,26 @@ window.onclick = function(event) {
 }
 
 // Removed legacy auto-calculation of biaya/harga
+</script>
+
+<script>
+// Fetch lifetime Traccar totals for displayed vehicles and update cells
+document.addEventListener('DOMContentLoaded', function () {
+    var els = document.querySelectorAll('.traccar-total');
+    els.forEach(function (el) {
+        var vid = el.getAttribute('data-kendaraan-id');
+        if (!vid) { el.textContent = '-'; return; }
+        fetch('ajax/traccar_total_distance.php?kendaraan_id=' + encodeURIComponent(vid))
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (data && data.success && data.distance_km !== undefined) {
+                    el.textContent = parseFloat(data.distance_km).toFixed(2) + ' km';
+                } else {
+                    el.textContent = '-';
+                }
+            }).catch(function () { el.textContent = '-'; });
+    });
+});
 </script>
 
 

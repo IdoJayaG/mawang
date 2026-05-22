@@ -476,14 +476,8 @@ if ($status_filter) {
     $param_types .= 's';
 }
 
-// Pimpinan only approves flow from surat_tugas linkage.
-if ($current_role === 'pimpinan') {
-    if (!empty($has_surat_tugas_id)) {
-        $where_conditions[] = "p.surat_tugas_id IS NOT NULL";
-    } else {
-        $where_conditions[] = "1 = 0";
-    }
-}
+// Note: allow pimpinan to see all peminjaman (not only those linked to surat_tugas)
+// (Previously this filtered pimpinan to only see peminjaman with surat_tugas linkage.)
 
 $where_sql = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
 

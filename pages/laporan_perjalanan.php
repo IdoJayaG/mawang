@@ -79,7 +79,7 @@ if ($action === 'export_excel') {
     if ($tahun !== null) {
       $start = $tahun . '-01-01';
       $end = ((int)$tahun + 1) . '-01-01';
-      $sql = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, p.nama_lengkap, p.pangkat, p.nrp_nip FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id LEFT JOIN pengguna p ON lp.pengguna_id = p.id WHERE lp.tanggal >= ? AND lp.tanggal < ? ORDER BY lp.tanggal ASC, lp.id ASC";
+      $sql = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km, (SELECT estimasi_km FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_berangkat) = DATE(lp.tanggal) LIMIT 1) AS surat_estimasi_km, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, p.nama_lengkap, p.pangkat, p.nrp_nip FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id LEFT JOIN pengguna p ON lp.pengguna_id = p.id WHERE lp.tanggal >= ? AND lp.tanggal < ? ORDER BY lp.tanggal ASC, lp.id ASC";
       $paramsE = [$start, $end];
       $typesE = 'ss';
     } else if (count($bulan_list) === 1) {
@@ -88,13 +88,13 @@ if ($action === 'export_excel') {
       $dt = DateTime::createFromFormat('Y-m-d', $bulan_start);
       $dt->modify('first day of next month');
       $bulan_end = $dt->format('Y-m-d');
-      $sql = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, p.nama_lengkap, p.pangkat, p.nrp_nip FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id LEFT JOIN pengguna p ON lp.pengguna_id = p.id WHERE lp.tanggal >= ? AND lp.tanggal < ? ORDER BY lp.tanggal ASC, lp.id ASC";
+      $sql = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km, (SELECT estimasi_km FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_berangkat) = DATE(lp.tanggal) LIMIT 1) AS surat_estimasi_km, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, p.nama_lengkap, p.pangkat, p.nrp_nip FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id LEFT JOIN pengguna p ON lp.pengguna_id = p.id WHERE lp.tanggal >= ? AND lp.tanggal < ? ORDER BY lp.tanggal ASC, lp.id ASC";
       $paramsE = [$bulan_start, $bulan_end];
       $typesE = 'ss';
     } else {
       // Multiple non-contiguous months: filter by YYYY-MM using DATE_FORMAT
       $placeholders = implode(',', array_fill(0, count($bulan_list), '?'));
-      $sql = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, p.nama_lengkap, p.pangkat, p.nrp_nip FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id LEFT JOIN pengguna p ON lp.pengguna_id = p.id WHERE DATE_FORMAT(lp.tanggal, '%Y-%m') IN ($placeholders) ORDER BY lp.tanggal ASC, lp.id ASC";
+      $sql = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km, (SELECT estimasi_km FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_berangkat) = DATE(lp.tanggal) LIMIT 1) AS surat_estimasi_km, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, p.nama_lengkap, p.pangkat, p.nrp_nip FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id LEFT JOIN pengguna p ON lp.pengguna_id = p.id WHERE DATE_FORMAT(lp.tanggal, '%Y-%m') IN ($placeholders) ORDER BY lp.tanggal ASC, lp.id ASC";
       $paramsE = $bulan_list;
       $typesE = str_repeat('s', count($bulan_list));
     }
@@ -111,8 +111,14 @@ if ($action === 'export_excel') {
     $surat_map = [];
     if ($current_role === 'driver' && $current_user_id && db_table_exists('surat_tugas')) {
       $today = date('Y-m-d');
-      $stQ = $mysqli->prepare("SELECT id, kendaraan_id, status, tanggal_berangkat FROM surat_tugas WHERE pengguna_id = ? AND DATE(tanggal_berangkat) = ? AND status IN ('Disetujui','Dalam Perjalanan')");
-      $stQ->bind_param('is', $current_user_id, $today);
+      $hasApproval = false;
+      $colQ = $mysqli->query("SHOW COLUMNS FROM surat_tugas LIKE 'approval_pimpinan_status'");
+      if ($colQ && $colQ->num_rows > 0) $hasApproval = true;
+
+      $sql = "SELECT s.id, s.kendaraan_id, s.status, s.tanggal_berangkat FROM surat_tugas s LEFT JOIN kendaraan k ON s.kendaraan_id = k.id WHERE (s.pengguna_id = ? OR COALESCE(k.pengguna_id,0) = ?) AND DATE(s.tanggal_berangkat) = ? AND s.status IN ('Disetujui','Dalam Perjalanan')";
+      if ($hasApproval) $sql .= " AND s.approval_pimpinan_status = 'Approved'";
+      $stQ = $mysqli->prepare($sql);
+      $stQ->bind_param('iis', $current_user_id, $current_user_id, $today);
       $stQ->execute();
       $stRes = $stQ->get_result();
       while ($s = $stRes->fetch_assoc()) { $surat_map[(int)$s['kendaraan_id']] = $s; }
@@ -219,7 +225,6 @@ if ($action === 'export_excel') {
     $hari_map = [ 'Sun'=>'Minggu','Mon'=>'Senin','Tue'=>'Selasa','Wed'=>'Rabu','Thu'=>'Kamis','Fri'=>'Jumat','Sat'=>'Sabtu' ];
     $rnum = $numberRow + 1; $no=1;
     foreach ($rows_export as $r) {
-      $bbm = hitung_bbm_liter($r['jarak_km'], $r['bahan_bakar'], true);
       $isSolar = false; $bb = strtolower((string)$r['bahan_bakar']);
       if ($bb === 'solar' || strpos($bb,'bio') !== false) { $isSolar = true; }
 
@@ -233,7 +238,8 @@ if ($action === 'export_excel') {
   $kmIndex = $isSolar ? 6.0 : 12.0;
       $fmt = function($n){ return number_format((float)$n, 0, ',', '.'); };
       $uraianText = (string)($r['uraian_kegiatan'] ?? '');
-      $jarakNum = isset($r['jarak_km']) ? (float)$r['jarak_km'] : null;
+      $jarakNum = isset($r['jarak_km']) ? (float)$r['jarak_km'] : (isset($r['surat_estimasi_km']) && $r['surat_estimasi_km'] !== null ? (float)$r['surat_estimasi_km'] : null);
+      $bbm = hitung_bbm_liter($jarakNum, $r['bahan_bakar'], true);
       $line2 = $jarakNum !== null
         ? ('1 ran (' . $fmt($jarakNum) . ' km x 2) x 1 HB = ' . ($bbm!==null ? $fmt($bbm) : '-') . ' liter')
         : '1 ran x 1 HB = -';
@@ -340,12 +346,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!empty($_POST['start_surat_id'])) {
     $sid = (int)$_POST['start_surat_id'];
     if ($sid > 0 && db_table_exists('surat_tugas')) {
-      $st = $mysqli->prepare("SELECT id, kendaraan_id, pengguna_id, tanggal_berangkat, nomor_surat, tujuan, keperluan, laporan_perjalanan, status FROM surat_tugas WHERE id = ? LIMIT 1");
+      $st = $mysqli->prepare("SELECT id, kendaraan_id, pengguna_id, tanggal_berangkat, estimasi_km, nomor_surat, tujuan, keperluan, laporan_perjalanan, status FROM surat_tugas WHERE id = ? LIMIT 1");
       $st->bind_param('i', $sid);
       $st->execute();
       $srow = $st->get_result()->fetch_assoc();
       $st->close();
-      if ($srow && ((int)$srow['pengguna_id'] === (int)$current_user_id || can_admin())) {
+      if ($srow && ( (int)$srow['pengguna_id'] === (int)$current_user_id || (function_exists('can_access_vehicle') && can_access_vehicle((int)$srow['kendaraan_id'])) || can_admin() )) {
         $newStatus = 'Dalam Perjalanan';
         $up = $mysqli->prepare("UPDATE surat_tugas SET status = ?, updated_at = NOW() WHERE id = ?");
         $up->bind_param('si', $newStatus, $sid);
@@ -356,6 +362,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Ensure a laporan_perjalanan exists for this surat (use tanggal_berangkat); create if missing.
         $lp_id = null;
         $tanggal = $srow['tanggal_berangkat'] ?? null;
+        $estimasi_km_val = null;
+        if (isset($srow['estimasi_km']) && $srow['estimasi_km'] !== '' && is_numeric($srow['estimasi_km'])) {
+          $estimasi_km_val = (float)$srow['estimasi_km'];
+        }
         if ($tanggal) {
           $chk = $mysqli->prepare("SELECT id FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? LIMIT 1");
           $chk->bind_param('is', $srow['kendaraan_id'], $tanggal);
@@ -367,19 +377,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           } else {
             $uraian = trim($srow['laporan_perjalanan'] ?? $srow['keperluan'] ?? $srow['nomor_surat'] ?? ('Surat Tugas ' . ($srow['id'] ?? '')));
             $route = $srow['tujuan'] ?? '';
-            if ($ins = $mysqli->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, NULL, NOW())")) {
-              $ins->bind_param('siiss', $tanggal, $srow['kendaraan_id'], $srow['pengguna_id'], $uraian, $route);
-              if ($ins->execute()) {
-                $lp_id = (int)$mysqli->insert_id;
+            if ($estimasi_km_val === null) {
+              if ($ins = $mysqli->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, NULL, NOW())")) {
+                $ins->bind_param('siiss', $tanggal, $srow['kendaraan_id'], $srow['pengguna_id'], $uraian, $route);
+                if ($ins->execute()) { $lp_id = (int)$mysqli->insert_id; }
+                $ins->close();
               }
-              $ins->close();
+            } else {
+              if ($ins = $mysqli->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())")) {
+                $ins->bind_param('siissd', $tanggal, $srow['kendaraan_id'], $srow['pengguna_id'], $uraian, $route, $estimasi_km_val);
+                if ($ins->execute()) { $lp_id = (int)$mysqli->insert_id; }
+                $ins->close();
+              }
             }
           }
         }
-        if ($lp_id) {
-          header('Location: index.php?page=laporan_perjalanan&action=edit&id=' . $lp_id);
-          exit;
-        }
+        // After starting, redirect back to assigned surat list so status update is visible
+        header('Location: index.php?page=laporan_perjalanan&action=assigned');
+        exit;
       }
     }
     header('Location: index.php?page=laporan_perjalanan');
@@ -388,21 +403,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!empty($_POST['finish_surat_id'])) {
     $sid = (int)$_POST['finish_surat_id'];
     if ($sid > 0 && db_table_exists('surat_tugas')) {
-      $st = $mysqli->prepare("SELECT id, kendaraan_id, pengguna_id, tanggal_berangkat, tanggal_kembali, nomor_surat, tujuan, keperluan, laporan_perjalanan, status FROM surat_tugas WHERE id = ? LIMIT 1");
-      $st->bind_param('i', $sid);
-      $st->execute();
-      $srow = $st->get_result()->fetch_assoc();
-      $st->close();
-      if ($srow && ((int)$srow['pengguna_id'] === (int)$current_user_id || can_admin())) {
+      $st = $mysqli->prepare("SELECT id, kendaraan_id, pengguna_id, tanggal_berangkat, tanggal_kembali, estimasi_km, nomor_surat, tujuan, keperluan, laporan_perjalanan, status FROM surat_tugas WHERE id = ? LIMIT 1");
+      $srow = null;
+      if ($st) {
+        $st->bind_param('i', $sid);
+        $st->execute();
+        $srow = $st->get_result()->fetch_assoc();
+        $st->close();
+      }
+      if ($srow && ( (int)$srow['pengguna_id'] === (int)$current_user_id || (function_exists('can_access_vehicle') && can_access_vehicle((int)$srow['kendaraan_id'])) || can_admin() )) {
         $newStatus = 'Selesai';
         $up = $mysqli->prepare("UPDATE surat_tugas SET status = ?, updated_at = NOW() WHERE id = ?");
         $up->bind_param('si', $newStatus, $sid);
         $up->execute();
         $up->close();
+        // Ensure kendaraan marked available when surat tugas finished
+        $to_free = isset($srow['kendaraan_id']) ? (int)$srow['kendaraan_id'] : 0;
+        if ($to_free > 0) {
+          $free = $mysqli->prepare("UPDATE kendaraan SET status_peminjaman = 'Tersedia', status_kendaraan = 'Operasional', updated_at = NOW() WHERE id = ?");
+          if ($free) {
+            $free->bind_param('i', $to_free);
+            $free->execute();
+            $free->close();
+          }
+          if (function_exists('log_activity')) log_activity('SURAT_FREE_VEHICLE', "Surat tugas id={$sid} selesai; kendaraan id={$to_free} set to Tersedia");
+        }
         if (function_exists('log_activity')) log_activity('SURAT_FINISH', "Surat tugas id={$sid} set to Selesai oleh pengguna {$current_user_id}");
         // Ensure a laporan_perjalanan exists for this surat (tanggal_berangkat)
         $lp_id = null;
         $tanggal = $srow['tanggal_berangkat'] ?? null;
+        $estimasi_km_val = null;
+        if (isset($srow['estimasi_km']) && $srow['estimasi_km'] !== '' && is_numeric($srow['estimasi_km'])) {
+          $estimasi_km_val = (float)$srow['estimasi_km'];
+        }
         if ($tanggal) {
           $chk = $mysqli->prepare("SELECT id FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? LIMIT 1");
           $chk->bind_param('is', $srow['kendaraan_id'], $tanggal);
@@ -415,19 +448,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // create a minimal laporan_perjalanan row
             $uraian = trim($srow['laporan_perjalanan'] ?? $srow['keperluan'] ?? $srow['nomor_surat'] ?? ('Surat Tugas ' . ($srow['id'] ?? '')));
             $route = $srow['tujuan'] ?? '';
-            if ($ins = $mysqli->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, NULL, NOW())")) {
-              $ins->bind_param('siiss', $tanggal, $srow['kendaraan_id'], $srow['pengguna_id'], $uraian, $route);
-              if ($ins->execute()) {
-                $lp_id = (int)$mysqli->insert_id;
+            if ($estimasi_km_val === null) {
+              if ($ins = $mysqli->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, NULL, NOW())")) {
+                $ins->bind_param('siiss', $tanggal, $srow['kendaraan_id'], $srow['pengguna_id'], $uraian, $route);
+                if ($ins->execute()) { $lp_id = (int)$mysqli->insert_id; }
+                $ins->close();
               }
-              $ins->close();
+            } else {
+              if ($ins = $mysqli->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())")) {
+                $ins->bind_param('siissd', $tanggal, $srow['kendaraan_id'], $srow['pengguna_id'], $uraian, $route, $estimasi_km_val);
+                if ($ins->execute()) { $lp_id = (int)$mysqli->insert_id; }
+                $ins->close();
+              }
             }
           }
         }
-        if ($lp_id) {
-          header('Location: index.php?page=laporan_perjalanan&action=edit&id=' . $lp_id);
-          exit;
-        }
+        // After finishing, redirect to assigned surat list to show updated status
+        header('Location: index.php?page=laporan_perjalanan&action=assigned');
+        exit;
       }
     }
     header('Location: index.php?page=laporan_perjalanan');
@@ -581,9 +619,15 @@ if ($action === 'assigned') {
   if ($current_role !== 'driver' || !$current_user_id) {
     header('Location: index.php'); exit;
   }
-  // Fetch surat_tugas assigned to this driver
-  $stmt = $mysqli->prepare("SELECT st.id, st.nomor_surat, st.tanggal_berangkat, st.tanggal_kembali, st.kendaraan_id, st.pengguna_id, st.tujuan, st.status, k.no_reg, k.no_polisi, k.merk, k.tipe FROM surat_tugas st JOIN kendaraan k ON st.kendaraan_id = k.id WHERE st.pengguna_id = ? ORDER BY st.tanggal_berangkat ASC LIMIT 100");
-  $stmt->bind_param('i', $current_user_id);
+  // Fetch surat_tugas assigned to this driver (directly or via assigned kendaraan)
+  $hasApproval = false;
+  $colQ2 = $mysqli->query("SHOW COLUMNS FROM surat_tugas LIKE 'approval_pimpinan_status'");
+  if ($colQ2 && $colQ2->num_rows > 0) $hasApproval = true;
+  $sql = "SELECT st.id, st.nomor_surat, st.tanggal_berangkat, st.tanggal_kembali, st.kendaraan_id, st.pengguna_id, st.tujuan, st.status, st.estimasi_km, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar FROM surat_tugas st JOIN kendaraan k ON st.kendaraan_id = k.id WHERE (st.pengguna_id = ? OR COALESCE(k.pengguna_id,0) = ?)";
+  if ($hasApproval) $sql .= " AND st.approval_pimpinan_status = 'Approved'";
+  $sql .= " ORDER BY st.tanggal_berangkat ASC LIMIT 100";
+  $stmt = $mysqli->prepare($sql);
+  $stmt->bind_param('ii', $current_user_id, $current_user_id);
   $stmt->execute();
   $assigned = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
   $stmt->close();
@@ -593,8 +637,9 @@ if ($action === 'assigned') {
     <h1><i class="fas fa-route"></i> Surat Tugas - Tugas Saya</h1>
   </div>
   <div class="card">
-    <div class="card-body">
-      <div class="table-responsive">
+      <div class="card-body">
+        <?php $csrfToken = generate_csrf_token(); ?>
+        <div class="table-responsive">
         <table class="table align-middle">
           <thead>
             <tr>
@@ -602,43 +647,103 @@ if ($action === 'assigned') {
               <th>Nomor Surat</th>
               <th>Kendaraan</th>
               <th>Tujuan</th>
+              <th>Jarak</th>
+              <th>Est. BBM (L)</th>
               <th>Status</th>
               <th>Aksi</th>
             </tr>
           </thead>
           <tbody>
           <?php if (empty($assigned)): ?>
-            <tr><td colspan="6" class="text-center text-muted">Belum ada surat tugas</td></tr>
-          <?php else: foreach ($assigned as $s):
+            <tr><td colspan="8" class="text-center text-muted">Belum ada surat tugas</td></tr>
+          <?php else:
+            $lpStmt = $mysqli->prepare("SELECT jarak_km FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? LIMIT 1");
+            foreach ($assigned as $s):
             $today = date('Y-m-d');
             $editable = ($s['tanggal_berangkat'] !== null && $today >= $s['tanggal_berangkat']);
             $vehLabel = htmlspecialchars(($s['no_reg'] ?: $s['no_polisi']) . ' - ' . $s['merk'] . ($s['tipe'] ? ' '.$s['tipe'] : ''));
+            // fetch laporan jarak if exists, otherwise use surat_tugas.estimasi_km when available
+            $jarak_km = null;
+            if ($lpStmt) {
+              $kid = (int)$s['kendaraan_id'];
+              $tgl = $s['tanggal_berangkat'];
+              $lpStmt->bind_param('is', $kid, $tgl);
+              $lpStmt->execute();
+              $rLP = $lpStmt->get_result();
+              $rLP = $rLP ? $rLP->fetch_assoc() : null;
+              if ($rLP && isset($rLP['jarak_km'])) $jarak_km = $rLP['jarak_km'];
+            }
+            if ($jarak_km === null && isset($s['estimasi_km']) && $s['estimasi_km'] !== '' && is_numeric($s['estimasi_km'])) {
+              $jarak_km = (float)$s['estimasi_km'];
+            }
+            $est_bbm = $jarak_km !== null ? hitung_bbm_liter($jarak_km, $s['bahan_bakar'] ?? null, true) : null;
             ?>
             <tr>
               <td><?= htmlspecialchars($s['tanggal_berangkat']) ?></td>
               <td><?= htmlspecialchars($s['nomor_surat']) ?></td>
               <td><?= $vehLabel ?></td>
               <td><?= htmlspecialchars($s['tujuan']) ?></td>
+              <td><?= $jarak_km !== null ? htmlspecialchars($jarak_km) . ' Km' : '-' ?></td>
+              <td><?= $est_bbm !== null ? number_format($est_bbm,0) . ' L' : '-' ?></td>
               <td><?= htmlspecialchars($s['status']) ?></td>
               <td>
-                <?php if ($editable): ?>
-                  <form method="post" style="display:inline" class="d-inline">
-                    <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
-                    <input type="hidden" name="start_surat_id" value="<?= (int)$s['id'] ?>">
-                    <button class="btn btn-sm btn-primary" type="submit"><i class="fas fa-edit"></i> Edit</button>
-                  </form>
-                <?php else: ?>
-                  <button class="btn btn-sm btn-secondary" disabled><i class="fas fa-edit"></i> Edit</button>
+                <?php
+                  $st_status = strtolower(trim((string)($s['status'] ?? '')));
+                  $st_time = strtotime($s['tanggal_berangkat'] ?? '');
+                  $is_approved_and_time_met = ($st_time !== false && time() >= $st_time && $st_status === 'disetujui');
+                  $is_in_progress = ($st_status === 'dalam perjalanan');
+                  $is_finished = ($st_status === 'selesai');
+                ?>
+                <?php if ($is_approved_and_time_met): ?>
+                  <button type="button" class="btn btn-sm btn-outline-info start-surat-btn" data-surat-id="<?= (int)$s['id'] ?>" data-csrf="<?= htmlspecialchars($csrfToken) ?>"><i class="fas fa-map-marker-alt me-1"></i> Mulai</button>
+                <?php elseif ($is_in_progress): ?>
+                  <button type="button" class="btn btn-sm btn-success finish-surat-btn" data-surat-id="<?= (int)$s['id'] ?>" data-csrf="<?= htmlspecialchars($csrfToken) ?>"><i class="fas fa-check"></i> Selesai</button>
+                <?php elseif (!$is_finished): ?>
+                  <button class="btn btn-sm btn-secondary" disabled><i class="fas fa-map-marker-alt me-1"></i> Mulai</button>
                 <?php endif; ?>
                 <a href="?page=laporan_perjalanan&action=detail_surat&surat_id=<?= (int)$s['id'] ?>" class="btn btn-sm btn-outline-info ms-1"><i class="fas fa-map-marker-alt"></i> Detail</a>
               </td>
             </tr>
-          <?php endforeach; endif; ?>
+          <?php endforeach; $lpStmt && $lpStmt->close(); endif; ?>
           </tbody>
         </table>
       </div>
     </div>
   </div>
+  <script>
+  (function(){
+    function submitForm(data){
+      var form = document.createElement('form');
+      form.method = 'post';
+      form.action = window.location.href.split('#')[0];
+      form.style.display = 'none';
+      for (var k in data){
+        if (!data.hasOwnProperty(k)) continue;
+        var inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = k; inp.value = data[k];
+        form.appendChild(inp);
+      }
+      document.body.appendChild(form);
+      form.submit();
+    }
+
+    document.addEventListener('click', function(e){
+      var btn = e.target.closest('.start-surat-btn, .finish-surat-btn');
+      if (!btn) return;
+      e.preventDefault();
+      var isStart = btn.classList.contains('start-surat-btn');
+      var sid = btn.getAttribute('data-surat-id');
+      var csrf = btn.getAttribute('data-csrf');
+      if (!sid || !csrf) return alert('Invalid data');
+      var confirmMsg = isStart ? 'Mulai perjalanan sekarang?' : 'Selesaikan perjalanan?';
+      if (!confirm(confirmMsg)) return;
+      btn.disabled = true;
+      var payload = { csrf_token: csrf };
+      if (isStart) payload.start_surat_id = sid; else payload.finish_surat_id = sid;
+      submitForm(payload);
+    });
+  })();
+  </script>
   <?php
   exit;
 }
@@ -667,7 +772,7 @@ if ($action === 'detail_surat') {
   <div class="page-header">
     <h1><i class="fas fa-map-marked-alt"></i> Detail Surat - <?= htmlspecialchars($s['nomor_surat']) ?></h1>
     <div class="header-actions">
-      <a class="btn btn-secondary" href="?page=laporan_perjalanan&action=assigned"><i class="fas fa-arrow-left me-1"></i> Kembali</a>
+      <a class="btn btn-secondary" href="?page=laporan_perjalanan"><i class="fas fa-arrow-left me-1"></i> Kembali</a>
     </div>
   </div>
 
@@ -785,21 +890,48 @@ if ($action === 'list') {
   $total_pages = max(1, (int)ceil($total/$limit)); if ($pg>$total_pages) { $pg=$total_pages; $offset=($pg-1)*$limit; }
 
   // Data
-  $sql = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km,
-           k.id AS kendaraan_id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar,
-           p.id AS pengguna_id, p.nama_lengkap, p.pangkat, p.nrp_nip
-      FROM laporan_perjalanan lp
-      JOIN kendaraan k ON lp.kendaraan_id = k.id
-      LEFT JOIN pengguna p ON lp.pengguna_id = p.id
-      $where
-      ORDER BY lp.tanggal DESC, lp.id DESC
-      LIMIT ? OFFSET ?";
-  $params2 = $params; $types2 = $types . 'ii'; $params2[] = $limit; $params2[] = $offset;
-  $stmt = $mysqli->prepare($sql);
-  if ($where || true) { $bind2 = [$types2]; foreach ($params2 as $i=>$_) { $bind2[] = &$params2[$i]; } call_user_func_array([$stmt,'bind_param'],$bind2); }
-  $stmt->execute(); $res = $stmt->get_result();
-  $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
-  $stmt->close();
+  if (function_exists('can_admin') && can_admin()) {
+    // Admin: include laporan_perjalanan plus surat_tugas with status 'Selesai' that don't have a laporan yet
+    $sql_lp = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km, (SELECT estimasi_km FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_berangkat) = DATE(lp.tanggal) LIMIT 1) AS surat_estimasi_km, k.id AS kendaraan_id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, p.id AS pengguna_id, p.nama_lengkap, p.pangkat, p.nrp_nip, 'laporan' AS source FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id LEFT JOIN pengguna p ON lp.pengguna_id = p.id";
+    $sql_st = "SELECT DISTINCT NULL AS id, st.tanggal_berangkat AS tanggal, COALESCE(st.laporan_perjalanan, st.keperluan, st.nomor_surat, '') AS uraian_kegiatan, st.tujuan AS route, NULL AS jarak_km, st.estimasi_km AS surat_estimasi_km, k.id AS kendaraan_id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, NULL AS pengguna_id, NULL AS nama_lengkap, NULL AS pangkat, NULL AS nrp_nip, 'surat' AS source FROM surat_tugas st JOIN kendaraan k ON st.kendaraan_id = k.id WHERE LOWER(TRIM(st.status)) = 'selesai' AND NOT EXISTS (SELECT 1 FROM laporan_perjalanan lp2 WHERE lp2.kendaraan_id = st.kendaraan_id AND DATE(lp2.tanggal) = DATE(st.tanggal_berangkat))";
+    $sql = "($sql_lp) UNION ALL ($sql_st) ORDER BY tanggal DESC LIMIT ? OFFSET ?";
+    $stmt = $mysqli->prepare($sql);
+    $stmt->bind_param('ii', $limit, $offset);
+    $stmt->execute(); $res = $stmt->get_result();
+    $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+    $stmt->close();
+    // For admin, compute total as count of union (simple non-paginated count)
+    $ct = $mysqli->query("SELECT COUNT(*) c FROM (($sql_lp) UNION ALL ($sql_st)) t");
+    $total = $ct ? (int)($ct->fetch_assoc()['c'] ?? 0) : 0;
+    $total_pages = max(1, (int)ceil($total/$limit)); if ($pg>$total_pages) { $pg=$total_pages; $offset=($pg-1)*$limit; }
+  } else {
+    $sql = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km, (SELECT estimasi_km FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_berangkat) = DATE(lp.tanggal) LIMIT 1) AS surat_estimasi_km, k.id AS kendaraan_id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, p.id AS pengguna_id, p.nama_lengkap, p.pangkat, p.nrp_nip FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id LEFT JOIN pengguna p ON lp.pengguna_id = p.id $where ORDER BY lp.tanggal DESC, lp.id DESC LIMIT ? OFFSET ?";
+    $params2 = $params; $types2 = $types . 'ii'; $params2[] = $limit; $params2[] = $offset;
+    $stmt = $mysqli->prepare($sql);
+    if ($where || true) { $bind2 = [$types2]; foreach ($params2 as $i=>$_) { $bind2[] = &$params2[$i]; } call_user_func_array([$stmt,'bind_param'],$bind2); }
+    $stmt->execute(); $res = $stmt->get_result();
+    $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+    $stmt->close();
+  }
+}
+
+// Preload today's surat_tugas for drivers so action buttons can use them
+$surat_map = [];
+if ($current_role === 'driver' && $current_user_id && db_table_exists('surat_tugas')) {
+  $today = date('Y-m-d');
+  $hasApproval = false;
+  $colQ = $mysqli->query("SHOW COLUMNS FROM surat_tugas LIKE 'approval_pimpinan_status'");
+  if ($colQ && $colQ->num_rows > 0) $hasApproval = true;
+  $sqlSt = "SELECT s.id, s.kendaraan_id, s.status, s.tanggal_berangkat FROM surat_tugas s LEFT JOIN kendaraan k ON s.kendaraan_id = k.id WHERE (s.pengguna_id = ? OR COALESCE(k.pengguna_id,0) = ?) AND DATE(s.tanggal_berangkat) = ? AND s.status IN ('Disetujui','Dalam Perjalanan')";
+  if ($hasApproval) $sqlSt .= " AND s.approval_pimpinan_status = 'Approved'";
+  $stQ = $mysqli->prepare($sqlSt);
+  if ($stQ) {
+    $stQ->bind_param('iis', $current_user_id, $current_user_id, $today);
+    $stQ->execute();
+    $stRes = $stQ->get_result();
+    while ($s = $stRes->fetch_assoc()) { $surat_map[(int)$s['kendaraan_id']] = $s; }
+    $stQ->close();
+  }
 }
 
 ?>
@@ -955,6 +1087,30 @@ if ($action === 'list') {
     computeBBM();
   })();
 </script>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const csrfToken = '<?= generate_csrf_token() ?>';
+  document.querySelectorAll('.start-link').forEach(function(el){
+    el.addEventListener('click', function(e){
+      e.preventDefault();
+      if (el.classList.contains('disabled')) return;
+      if (!confirm('Mulai perjalanan?')) return;
+      const suratId = el.getAttribute('data-surat-id') || '';
+      if (!suratId) { window.location = el.href; return; }
+      const body = 'csrf_token=' + encodeURIComponent(csrfToken) + '&start_surat_id=' + encodeURIComponent(suratId);
+      fetch('index.php?page=laporan_perjalanan', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body
+      }).then(function(resp){
+        // On success or failure, navigate to the detail page to show the map
+        window.location = el.href;
+      }).catch(function(err){ console.error(err); window.location = el.href; });
+    });
+  });
+});
+</script>
 
 <?php elseif ($action === 'edit'): ?>
 <?php
@@ -973,17 +1129,74 @@ if ($action === 'list') {
       // If driver, attempt to mark associated surat_tugas as 'Dalam Perjalanan' for today
       if ($current_role === 'driver' && db_table_exists('surat_tugas')) {
         $today = date('Y-m-d');
-        $stq = $mysqli->prepare("SELECT id, status FROM surat_tugas WHERE kendaraan_id = ? AND pengguna_id = ? AND DATE(tanggal_berangkat) = ? LIMIT 1");
-        $stq->bind_param('iis', $lp['kendaraan_id'], $current_user_id, $today);
+        $hasApproval2 = false;
+        $colQ3 = $mysqli->query("SHOW COLUMNS FROM surat_tugas LIKE 'approval_pimpinan_status'");
+        if ($colQ3 && $colQ3->num_rows > 0) $hasApproval2 = true;
+
+        $sql2 = "SELECT s.id, s.status FROM surat_tugas s LEFT JOIN kendaraan k ON s.kendaraan_id = k.id WHERE s.kendaraan_id = ? AND (s.pengguna_id = ? OR COALESCE(k.pengguna_id,0) = ?) AND DATE(s.tanggal_berangkat) = ? LIMIT 1";
+        if ($hasApproval2) $sql2 = str_replace('LIMIT 1', "AND s.approval_pimpinan_status = 'Approved' LIMIT 1", $sql2);
+        $stq = $mysqli->prepare($sql2);
+        $stq->bind_param('iiis', $lp['kendaraan_id'], $current_user_id, $current_user_id, $today);
         $stq->execute();
         $stres = $stq->get_result()->fetch_assoc();
         $stq->close();
         if ($stres && strtolower(trim($stres['status'] ?? '')) !== 'dalam perjalanan') {
+          $st_id_to_start = (int)$stres['id'];
           $up = $mysqli->prepare("UPDATE surat_tugas SET status = 'Dalam Perjalanan', updated_at = NOW() WHERE id = ?");
-          $up->bind_param('i', $stres['id']);
+          $up->bind_param('i', $st_id_to_start);
           $up->execute();
           $up->close();
-          if (function_exists('log_activity')) log_activity('SURAT_START', "Surat tugas id={$stres['id']} set to Dalam Perjalanan oleh pengguna {$current_user_id}");
+          if (function_exists('log_activity')) log_activity('SURAT_START', "Surat tugas id={$st_id_to_start} set to Dalam Perjalanan oleh pengguna {$current_user_id}");
+
+          // Ensure a laporan_perjalanan exists for this surat (use tanggal_berangkat); create if missing and redirect to edit laporan
+          $lp_id = null;
+          $stfull = $mysqli->prepare("SELECT kendaraan_id, pengguna_id, tanggal_berangkat, estimasi_km, nomor_surat, tujuan, keperluan, laporan_perjalanan FROM surat_tugas WHERE id = ? LIMIT 1");
+          if ($stfull) {
+            $stfull->bind_param('i', $st_id_to_start);
+            $stfull->execute();
+            $srow = $stfull->get_result()->fetch_assoc();
+            $stfull->close();
+            $tanggal = $srow['tanggal_berangkat'] ?? null;
+            $estimasi_km_val = null;
+            if (isset($srow['estimasi_km']) && $srow['estimasi_km'] !== '' && is_numeric($srow['estimasi_km'])) {
+              $estimasi_km_val = (float)$srow['estimasi_km'];
+            }
+            if ($tanggal) {
+              $chk = $mysqli->prepare("SELECT id FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? LIMIT 1");
+              if ($chk) {
+                $kend_id_chk = (int)$srow['kendaraan_id'];
+                $chk->bind_param('is', $kend_id_chk, $tanggal);
+                $chk->execute();
+                $rowc = $chk->get_result()->fetch_assoc();
+                $chk->close();
+                if ($rowc && !empty($rowc['id'])) {
+                  $lp_id = (int)$rowc['id'];
+                } else {
+                  $uraian = trim($srow['laporan_perjalanan'] ?? $srow['keperluan'] ?? $srow['nomor_surat'] ?? ('Surat Tugas ' . $st_id_to_start));
+                  $route = $srow['tujuan'] ?? '';
+                  if ($estimasi_km_val === null) {
+                    $ins = $mysqli->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, NULL, NOW())");
+                    if ($ins) {
+                      $ins->bind_param('siiss', $tanggal, $kend_id_chk, $srow['pengguna_id'], $uraian, $route);
+                      if ($ins->execute()) { $lp_id = (int)$mysqli->insert_id; }
+                      $ins->close();
+                    }
+                  } else {
+                    $ins = $mysqli->prepare("INSERT INTO laporan_perjalanan (tanggal, kendaraan_id, pengguna_id, uraian_kegiatan, route, jarak_km, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+                    if ($ins) {
+                      $kms = $estimasi_km_val;
+                      $ins->bind_param('siissd', $tanggal, $kend_id_chk, $srow['pengguna_id'], $uraian, $route, $kms);
+                      if ($ins->execute()) { $lp_id = (int)$mysqli->insert_id; }
+                      $ins->close();
+                    }
+                  }
+                }
+              }
+            }
+          }
+          // Redirect to surat detail map so driver can see tracking started
+          header('Location: index.php?page=laporan_perjalanan&action=detail_surat&surat_id=' . $st_id_to_start);
+          exit;
         }
       }
       // Fetch dropdowns for kendaraan and pengguna (reuse create logic)
@@ -1118,7 +1331,15 @@ if ($action === 'list') {
             <tbody>
             <?php if (empty($rows)): ?>
                 <tr><td colspan="10" class="text-center text-muted">Belum ada data</td></tr>
-            <?php else: foreach ($rows as $r): $bbm = hitung_bbm_liter($r['jarak_km'], $r['bahan_bakar'], true); ?>
+            <?php else: foreach ($rows as $r):
+                          // For drivers prefer surat_tugas.estimasi_km; for admin/others prefer laporan.jarak_km
+                          if ($current_role === 'driver') {
+                            $jarak_display = (isset($r['surat_estimasi_km']) && $r['surat_estimasi_km'] !== null) ? $r['surat_estimasi_km'] : (isset($r['jarak_km']) ? $r['jarak_km'] : null);
+                          } else {
+                            $jarak_display = (isset($r['jarak_km']) && $r['jarak_km'] !== null) ? $r['jarak_km'] : (isset($r['surat_estimasi_km']) ? $r['surat_estimasi_km'] : null);
+                          }
+                            $bbm = hitung_bbm_liter($jarak_display, $r['bahan_bakar'], true);
+                      ?>
                 <tr>
                 <td><?= htmlspecialchars($r['tanggal']) ?></td>
                 <td><?= htmlspecialchars($r['no_reg'] ?: $r['no_polisi']) ?></td>
@@ -1127,20 +1348,17 @@ if ($action === 'list') {
                 <td><?= htmlspecialchars($r['merk'] . ($r['tipe']? ' ' . $r['tipe'] : '')) ?></td>
                 <td><?= htmlspecialchars($r['uraian_kegiatan']) ?></td>
                 <td><?= htmlspecialchars($r['route']) ?></td>
-                <td><?= htmlspecialchars($r['jarak_km'] ?? '') ?> Km</td>
+                <td><?= $jarak_display !== null ? htmlspecialchars($jarak_display) . ' Km' : '-' ?></td>
                 <td>
-                  <?php if ($current_role === 'driver' && isset($surat_map[(int)$r['kendaraan_id']])): $st = $surat_map[(int)$r['kendaraan_id']]; ?>
-                    <a href="?page=laporan_perjalanan&action=edit&id=<?= (int)$r['id'] ?>" class="btn btn-sm btn-outline-primary me-1"><i class="fas fa-edit"></i> Edit</a>
-                    <form method="post" style="display:inline" class="d-inline" onsubmit="return confirm('Selesaikan perjalanan?');">
-                      <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
-                      <input type="hidden" name="finish_surat_id" value="<?= (int)$st['id'] ?>">
-                      <button class="btn btn-sm btn-success" type="submit" title="Selesaikan Perjalanan"><i class="fas fa-check"></i></button>
-                    </form>
-                  <?php elseif (can_admin()): ?>
-                    <a href="?page=laporan_perjalanan&action=edit&id=<?= (int)$r['id'] ?>" class="btn btn-sm btn-outline-primary"><i class="fas fa-edit"></i> Edit</a>
-                  <?php else: ?>
-                    -
-                  <?php endif; ?>
+                  <?php
+                    
+                      // Drivers should not see Mulai/Selesai or Edit buttons here.
+                      if (can_admin()):
+                        ?><a href="?page=laporan_perjalanan&action=edit&id=<?= (int)$r['id'] ?>" class="btn btn-sm btn-outline-primary"><i class="fas fa-edit"></i> Edit</a><?php
+                      else:
+                        echo '<span class="text-muted">-</span>';
+                      endif;
+                    ?>
                 </td>
                 <td><span class="badge bg-info text-dark"><?= $bbm !== null ? number_format($bbm, 0) : '-' ?> L</span></td>
                 </tr>
