@@ -8,6 +8,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Ensure auth helpers are available
+require_once __DIR__ . '/auth.php';
+
 /**
  * Check if user is logged in
  * @return bool
@@ -98,8 +101,10 @@ if (!function_exists('has_role')) {
  */
 if (!function_exists('is_admin')) {
     function is_admin() {
-        // Treat 'admin' and 'operator' as elevated roles
-        return in_array(get_current_role(), ['admin', 'operator']);
+        if (function_exists('is_admin_like')) {
+            return is_admin_like();
+        }
+        return in_array(get_current_role(), ['admin', 'pimpinan'], true);
     }
 }
 
@@ -251,11 +256,23 @@ if (!function_exists('can_access')) {
     function can_access($required_role) {
         $user_role = get_current_role();
 
+        if (function_exists('is_admin_like') && is_admin_like()) {
+            return true;
+        }
+
+        if (function_exists('get_current_role_level') && function_exists('get_role_level_by_code')) {
+            $current_level = get_current_role_level();
+            $required_level = get_role_level_by_code($required_role);
+            if ($current_level !== null && $required_level !== null) {
+                return $current_level <= $required_level;
+            }
+        }
+
         $role_hierarchy = [
             'user' => 1,
             'driver' => 1,
-            'operator' => 2,
-            'admin' => 3
+            'pimpinan' => 2,
+            'admin' => 2
         ];
 
         $required = strtolower($required_role);
@@ -272,7 +289,7 @@ function get_page_title($page) {
     $titles = [
         'dashboard_user' => 'Dashboard User',
         'dashboard_admin' => 'Dashboard Admin',
-        'dashboard_operator' => 'Dashboard Driver',
+        'dashboard_driver' => 'Dashboard Driver',
         'profil' => 'Profil Pengguna',
         'surat_tugas' => 'Surat Tugas',
         'peminjaman' => 'Peminjaman Kendaraan',

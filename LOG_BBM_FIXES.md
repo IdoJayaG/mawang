@@ -68,7 +68,7 @@ After cleanup, fuel logging related files:
 
 ## Usage Guidelines
 
-### For Operators
+### For Admin/Pimpinan
 1. Record every refueling transaction
 2. Include odometer reading when possible
 3. Upload photos for verification

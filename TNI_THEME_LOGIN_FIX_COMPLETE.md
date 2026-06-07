@@ -6,8 +6,8 @@
 - **Problem**: Login dengan credentials benar tidak redirect ke dashboard
 - **Root Cause**: Password di database menggunakan bcrypt hash, tetapi tidak match dengan input
 - **Solution**: 
-  - Update password admin, operator, user dengan hash yang benar
-  - Password sekarang: `admin/admin`, `operator/operator`, `user/user`
+- Update password admin, pimpinan, driver, user dengan hash yang benar
+- Password sekarang: `admin/admin`, `pimpinan/pimpinan`, `driver/driver`, `user/user`
   - Verifikasi password menggunakan `password_verify()` function
 
 ### 2. **TNI Theme Implementation** 🎨
@@ -56,7 +56,8 @@
 ### Login Credentials:
 ```
 Admin:    admin / admin
-Operator: operator / operator  
+Pimpinan: pimpinan / pimpinan
+Driver:   driver / driver
 User:     user / user
 ```
 

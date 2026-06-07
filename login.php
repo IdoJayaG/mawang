@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($password === $hash || verify_password($password, $hash)) {
             $_SESSION['user_id'] = $id;
             $_SESSION['username'] = $user;
-            // Simpan slug/keyword role ke session (mis. 'admin','operator','driver','user')
+            // Simpan slug/keyword role ke session (mis. 'admin','pimpinan','driver','user')
             $role_slug = strtolower(trim($kode_role));
             $role_slug = preg_replace('/[^a-z0-9_\-]+/', '_', $role_slug);
             $role_slug = trim($role_slug, '_');

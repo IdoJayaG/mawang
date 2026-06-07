@@ -29,7 +29,7 @@ $stmt->close();
 $vehicles = $mysqli->query("SELECT id, no_polisi, merk, tipe FROM kendaraan ORDER BY no_polisi")->fetch_all(MYSQLI_ASSOC);
 
 // Get document types
-$jenis_dokumen = ['STNK', 'BPKB', 'KIR', 'Pajak', 'Asuransi', 'SIM Driver', 'Lainnya'];
+$jenis_dokumen = ['Bukti Nomor Kendaraan Bermotor', 'Lainnya'];
 
 // Generate form HTML
 ob_start();

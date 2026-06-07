@@ -6,7 +6,7 @@ $current_role = get_current_role();
 $current_user_id = get_current_user_id();
 
 // Check access
-if (!in_array($current_role, ['admin', 'operator', 'driver'], true)) {
+if (!is_admin_like() && $current_role !== 'driver') {
     header('Location: pages/403.php');
     exit;
 }
@@ -358,7 +358,7 @@ $kendaraan_sql .= " ORDER BY COALESCE(no_reg, no_polisi)";
 $kendaraan_list = $mysqli->query($kendaraan_sql)->fetch_all(MYSQLI_ASSOC);
 
 // Get document types for tabs
-$jenis_dokumen = ['STNK', 'BPKB', 'KIR', 'Pajak', 'Asuransi', 'SIM Driver', 'Lainnya'];
+$jenis_dokumen = ['Bukti Nomor Kendaraan Bermotor', 'Lainnya'];
 
 function getStatusBadge($status) {
     $badges = [

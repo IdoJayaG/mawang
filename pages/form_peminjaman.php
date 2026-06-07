@@ -154,6 +154,27 @@ if (!empty($_GET['return_to'])) {
                 $columns = $mysqli->query("SHOW COLUMNS FROM peminjaman_kendaraan")->fetch_all(MYSQLI_ASSOC);
                 $cols = array_column($columns, 'Field');
 
+                // Ensure approval columns exist for two-step approval (admin -> pimpinan)
+                $approval_defs = [
+                    'approval_admin_status' => "ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Pending'",
+                    'approval_admin_by' => 'INT NULL',
+                    'approval_admin_at' => 'DATETIME NULL',
+                    'approval_pimpinan_status' => "ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Pending'",
+                    'approval_pimpinan_by' => 'INT NULL',
+                    'approval_pimpinan_at' => 'DATETIME NULL'
+                ];
+                $needs_refresh = false;
+                foreach ($approval_defs as $col => $def) {
+                    if (!in_array($col, $cols, true)) {
+                        @$mysqli->query("ALTER TABLE peminjaman_kendaraan ADD COLUMN {$col} {$def}");
+                        $needs_refresh = true;
+                    }
+                }
+                if ($needs_refresh) {
+                    $columns = $mysqli->query("SHOW COLUMNS FROM peminjaman_kendaraan")->fetch_all(MYSQLI_ASSOC);
+                    $cols = array_column($columns, 'Field');
+                }
+
                 // Find an applicant column if present in the schema
                 $applicant_col = null;
                 foreach (['pemohon_id', 'peminjam_id', 'pengguna_id', 'user_id'] as $c) {
@@ -177,6 +198,12 @@ if (!empty($_GET['return_to'])) {
                 $desired_map['estimasi_km'] = ['type' => 'i', 'value' => $estimasi_km];
                 $desired_map['estimasi_bbm'] = ['type' => 'i', 'value' => $estimasi_bbm];
                 $desired_map['status'] = ['type' => 's', 'value' => 'Pending'];
+                if (in_array('approval_admin_status', $cols, true)) {
+                    $desired_map['approval_admin_status'] = ['type' => 's', 'value' => 'Pending'];
+                }
+                if (in_array('approval_pimpinan_status', $cols, true)) {
+                    $desired_map['approval_pimpinan_status'] = ['type' => 's', 'value' => 'Pending'];
+                }
                 $desired_map['created_by'] = ['type' => 'i', 'value' => $current_user_id];
                 // Include no_reg and satker if available (will be filtered out later if table has no such columns)
                 $desired_map['no_reg'] = ['type' => 's', 'value' => $no_reg];
@@ -220,22 +247,31 @@ if (!empty($_GET['return_to'])) {
 
 
             if ($stmt->execute()) {
-                $msg = '<div class="alert alert-success">Pengajuan peminjaman berhasil disubmit! Menunggu persetujuan operator/admin.</div>';
+                $msg = '<div class="alert alert-success">Pengajuan peminjaman berhasil disubmit! Menunggu persetujuan admin.</div>';
                 log_user_activity("Mengajukan peminjaman kendaraan ID: $kendaraan_id untuk keperluan: $keperluan");
 
-                        // Create notification for admins/operators
+                        // Create notification for admin role (first approval)
                         $kendaraan_info = $mysqli->query("SELECT no_polisi, merk, tipe, no_reg, satker FROM kendaraan WHERE id = $kendaraan_id")->fetch_assoc();
                         $current_user = get_logged_in_user();
                         $username = $current_user ? $current_user['nama_lengkap'] : 'Unknown User';
                         $display_reg = !empty($kendaraan_info['no_reg']) ? "Reg: {$kendaraan_info['no_reg']}" : '';
                         $display_nopol = !empty($kendaraan_info['no_polisi']) ? (empty($display_reg) ? "Nopol: {$kendaraan_info['no_polisi']}" : " (Nopol: {$kendaraan_info['no_polisi']})") : '';
                         $display_satker = !empty($kendaraan_info['satker']) ? " - Satker: {$kendaraan_info['satker']}" : '';
-                        $notification_msg = "Pengajuan peminjaman kendaraan {$display_reg}{$display_nopol} ({$kendaraan_info['merk']} {$kendaraan_info['tipe']}){$display_satker} dari " . $username . " untuk keperluan: $keperluan";
+                        $notification_msg = "Pengajuan peminjaman kendaraan {$display_reg}{$display_nopol} ({$kendaraan_info['merk']} {$kendaraan_info['tipe']}){$display_satker} dari " . $username . " untuk keperluan: $keperluan. Menunggu persetujuan admin.";
 
-                        // Notify all operators and admins (role_id 2 and 3)
-                        $admin_operators = $mysqli->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id IN (2, 3)");
+                        $admin_role_id = function_exists('get_role_id_by_code') ? get_role_id_by_code('ADMIN') : null;
+                        $admin_like_users = null;
+                        if ($admin_role_id) {
+                            $admin_like_users = $mysqli->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id = " . (int)$admin_role_id);
+                        } else {
+                            $admin_role_ids = function_exists('get_admin_like_role_ids') ? get_admin_like_role_ids() : [];
+                            if (!empty($admin_role_ids)) {
+                                $in_ids = implode(',', array_map('intval', $admin_role_ids));
+                                $admin_like_users = $mysqli->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id IN ({$in_ids})");
+                            }
+                        }
                         $escaped_msg = $mysqli->real_escape_string($notification_msg);
-                        while ($admin = $admin_operators->fetch_assoc()) {
+                        while ($admin_like_users && ($admin = $admin_like_users->fetch_assoc())) {
                             // Use existing columns on `notifikasi` (message, title, type, category)
                             $mysqli->query("INSERT INTO notifikasi (user_id, message, title, type, category) VALUES ({$admin['id']}, '$escaped_msg', 'Pengajuan Peminjaman', 'info', 'vehicle')");
                         }

@@ -10,13 +10,13 @@ if ($current_role === 'guest') {
     exit;
 }
 
-$can_crud = can_operate(); // operator dan admin
+$can_crud = can_operate(); // admin-like
 $can_view = is_logged_in();
 $is_user = in_array($current_role, ['user', 'driver'], true);
-$can_submit = in_array($current_role, ['admin', 'operator', 'pimpinan', 'user', 'driver'], true);
+$can_submit = is_logged_in();
 
 function can_access_surat_tugas($conn, $role, $userId, $suratId) {
-    if (in_array($role, ['admin', 'operator'], true)) {
+    if (function_exists('is_admin_like') && is_admin_like()) {
         return true;
     }
     if (!in_array($role, ['user', 'driver'], true) || empty($userId) || empty($suratId)) {
@@ -465,10 +465,10 @@ if ($_POST) {
                         $mulai_dt = $tanggal_berangkat ? ($tanggal_berangkat . ' 00:00:00') : null;
                         $selesai_dt = $tanggal_kembali ? ($tanggal_kembali . ' 23:59:59') : null;
 
-                        // If the creator is an admin/operator, create scheduled peminjaman and jadwal immediately.
+                        // If the creator is admin-like, create scheduled peminjaman and jadwal immediately.
                         // If creator is a regular user/driver, create a peminjaman_kendaraan request (status=Pending) linked to this surat_tugas for admin approval.
                         $role_creator = strtolower((string)$current_role);
-                        $is_admin_like = in_array($role_creator, ['admin', 'operator'], true);
+                        $is_admin_like = function_exists('is_admin_like') && is_admin_like();
 
                         if ($is_admin_like) {
                             // 1) Create peminjaman_terjadwal (approved) if table exists, using dynamic columns
@@ -585,11 +585,16 @@ if ($_POST) {
                                             call_user_func_array([$ins_pk, 'bind_param'], $bind_params);
                                             if ($ins_pk->execute()) {
                                                 $pk_id = $conn->insert_id;
-                                                // Notify admins/operators about new peminjaman request
-                                                $admin_operators = $conn->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id IN (2,3)");
+                                                // Notify admin-like roles about new peminjaman request
+                                                $admin_role_ids = function_exists('get_admin_like_role_ids') ? get_admin_like_role_ids() : [];
+                                                $admin_like_users = null;
+                                                if (!empty($admin_role_ids)) {
+                                                    $in_ids = implode(',', array_map('intval', $admin_role_ids));
+                                                    $admin_like_users = $conn->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id IN ({$in_ids})");
+                                                }
                                                 $noteMsg = 'Pengajuan peminjaman dari user telah dibuat untuk Surat Tugas: ' . ($nomor_surat ?? '') . '. Mohon persetujuan.';
-                                                if ($admin_operators) {
-                                                    while ($adm = $admin_operators->fetch_assoc()) {
+                                                if ($admin_like_users) {
+                                                    while ($adm = $admin_like_users->fetch_assoc()) {
                                                         insert_notification($conn, (int)$adm['id'], $noteMsg, 'Permohonan Peminjaman');
                                                     }
                                                 }
@@ -707,7 +712,7 @@ if ($_POST) {
                 if (empty($msg)) {
                     $status_changed = ($status !== $prev_status);
                     $status_target = strtolower(trim((string)$status));
-                    if ($status_changed && $status_target === 'disetujui' && !in_array($current_role, ['admin','pimpinan'], true)) {
+                    if ($status_changed && $status_target === 'disetujui' && !is_admin_like()) {
                         $msg = '<div class="alert alert-danger">Status Disetujui hanya dapat ditetapkan oleh admin atau pimpinan.</div>';
                     }
                 }
@@ -997,7 +1002,7 @@ if ($_POST) {
                     // If status moved to Selesai, create a laporan_perjalanan entry if not already present
                     $prev_status_l = strtolower(trim((string)$prev_status));
                     $new_status_l = strtolower(trim((string)$status));
-                    if ($new_status_l === 'selesai' && $prev_status_l !== 'selesai') {
+                    if ($new_status_l === 'selesai') {
                         try {
                             $tblLp = $conn->query("SHOW TABLES LIKE 'laporan_perjalanan'");
                             if ($tblLp && $tblLp->num_rows > 0) {
@@ -1024,11 +1029,13 @@ if ($_POST) {
                                         $jarak_km_val = (int)$estimasi_km;
                                     }
 
-                                    // avoid duplicate laporan for same kendaraan+tanggal
-                                    $chkLp = $conn->prepare("SELECT COUNT(*) c FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? LIMIT 1");
+                                    // avoid duplicate laporan for same kendaraan+tanggal (berangkat/kembali)
+                                    $tgl_ber = $tanggal_berangkat ?: null;
+                                    $tgl_kem = $tanggal_kembali ?: null;
+                                    $chkLp = $conn->prepare("SELECT COUNT(*) c FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal IN (?, ?) LIMIT 1");
                                     $dupLp = false;
                                     if ($chkLp) {
-                                        $chkLp->bind_param('is', $kend_id, $tanggal_lp);
+                                        $chkLp->bind_param('iss', $kend_id, $tgl_ber, $tgl_kem);
                                         $chkLp->execute();
                                         $cres = $chkLp->get_result()->fetch_assoc();
                                         $dupLp = ((int)($cres['c'] ?? 0)) > 0;
@@ -1356,7 +1363,7 @@ if ($users_result) {
                                         <?php
                                             $approval_raw = strtolower(trim((string)($row['approval_pimpinan_status'] ?? 'pending')));
                                             $approval_badge = 'secondary';
-                                            $approval_label = 'Menunggu Pimpinan';
+                                            $approval_label = 'Menunggu Persetujuan';
                                             if ($approval_raw === 'approved') {
                                                 $approval_badge = 'success';
                                                 $approval_label = 'Disetujui Pimpinan';
@@ -1986,7 +1993,7 @@ if ($users_result) {
                                                                    : '(Tidak tersedia)') ?>">
                                                 <input type="hidden" name="pengguna_id" value="<?= isset($surat_data) ? (int)$surat_data['pengguna_id'] : '' ?>">
                                             <?php else: ?>
-                                                <!-- Create mode: Editable select (for admin/operator) or hidden for users -->
+                                                <!-- Create mode: Editable select (for admin-like) or hidden for users -->
                                                 <select name="pengguna_id" id="pengguna_id" class="form-control" <?= $is_user ? 'style="display:none"' : 'required' ?>>
                                                     <option value="">Pilih Pengguna (atau pilih kendaraan terlebih dahulu)</option>
                                                     <?php foreach ($users as $user): ?>

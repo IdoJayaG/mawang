@@ -14,7 +14,7 @@ if (!$user_id) {
 }
 
 // Fetch user with role
-$stmt = $mysqli->prepare("SELECT p.nama_lengkap as nama, COALESCE(r.nama_role, '') as role FROM pengguna p LEFT JOIN user_account ua ON p.id = ua.pengguna_id LEFT JOIN role r ON ua.role_id = r.id WHERE p.id = ?");
+$stmt = $mysqli->prepare("SELECT p.nama_lengkap as nama, COALESCE(r.kode_role, r.nama_role, '') as role_code, COALESCE(r.nama_role, '') as role_name FROM pengguna p LEFT JOIN user_account ua ON p.id = ua.pengguna_id LEFT JOIN role r ON ua.role_id = r.id WHERE p.id = ?");
 $stmt->bind_param('i', $user_id);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
@@ -74,14 +74,30 @@ function getActionBadgeColor($action) {
                             <div class="card bg-light">
                                 <div class="card-body text-center">
                                     <div class="user-avatar-large mb-3">
-                                        <div class="bg-<?= strtolower($user['role'] ?? '') == 'admin' ? 'danger' : (strtolower($user['role'] ?? '') == 'operator' ? 'warning' : 'info') ?> text-white d-flex align-items-center justify-content-center" 
+                                        <?php
+                                            $role_code = strtoupper(trim((string)($user['role_code'] ?? '')));
+                                            $role_label = trim((string)($user['role_name'] ?? ''));
+                                            if ($role_label === '') { $role_label = $role_code ?: '-'; }
+                                            if (function_exists('is_role_admin_like') && is_role_admin_like($role_code)) {
+                                                $role_color = 'danger';
+                                            } elseif ($role_code === 'DRIVER') {
+                                                $role_color = 'primary';
+                                            } elseif ($role_code === 'USER') {
+                                                $role_color = 'info';
+                                            } elseif ($role_code === '') {
+                                                $role_color = 'secondary';
+                                            } else {
+                                                $role_color = 'info';
+                                            }
+                                        ?>
+                                        <div class="bg-<?= $role_color ?> text-white d-flex align-items-center justify-content-center" 
                                              style="width:80px;height:80px;border-radius:50%;margin:0 auto;">
                                             <i class="fas fa-user fa-2x"></i>
                                         </div>
                                     </div>
                                     <h5 class="text-primary"><?= htmlspecialchars($user['nama']) ?></h5>
-                                    <span class="badge bg-<?= strtolower($user['role'] ?? '') == 'admin' ? 'danger' : (strtolower($user['role'] ?? '') == 'operator' ? 'warning' : 'info') ?> text-white badge-lg">
-                                        <?= strtoupper($user['role']) ?>
+                                    <span class="badge bg-<?= $role_color ?> text-white badge-lg">
+                                        <?= htmlspecialchars(strtoupper($role_label)) ?>
                                     </span>
                                 </div>
                             </div>

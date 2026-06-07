@@ -1,11 +1,9 @@
 <?php
-// pages/map_kendaraan.php
-// Simple map page showing latest positions from traccar via AJAX polling
 ?>
 
 <div class="gradient-header">
     <h2>Map Kendaraan</h2>
-    <p>Menampilkan lokasi terakhir dan lini masa per harian kendaraan dari Traccar.</p>
+    <p>Menampilkan lokasi terakhir kendaraan.</p>
 </div>
 
 <div class="content">
@@ -468,7 +466,8 @@ document.addEventListener('DOMContentLoaded', function(){
 
     async function fetchPositions(){
         try {
-            const res = await fetch('ajax/traccar_positions.php', {credentials: 'same-origin'});
+            const url = 'ajax/traccar_positions.php?live=1&max_age=4&_ts=' + Date.now();
+            const res = await fetch(url, {credentials: 'same-origin', cache: 'no-store'});
             if (!res.ok) throw new Error('Network response not ok');
             const data = await res.json();
             const bounds = [];

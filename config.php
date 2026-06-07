@@ -12,9 +12,25 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // Error reporting (development mode)
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+// Avoid HTML error output for AJAX/JSON responses to keep JSON parseable.
+$__is_ajax = false;
+if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+    $__is_ajax = true;
+}
+if (!$__is_ajax && isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], '/ajax/') !== false) {
+    $__is_ajax = true;
+}
+if (!$__is_ajax && isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false) {
+    $__is_ajax = true;
+}
+if (!$__is_ajax && isset($_SERVER['CONTENT_TYPE']) && strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false) {
+    $__is_ajax = true;
+}
+
+$__display_errors = !$__is_ajax;
+ini_set('display_errors', $__display_errors ? '1' : '0');
+ini_set('display_startup_errors', $__display_errors ? '1' : '0');
+error_reporting($__display_errors ? E_ALL : 0);
 
 // Timezone & Date format
 date_default_timezone_set('Asia/Jakarta');

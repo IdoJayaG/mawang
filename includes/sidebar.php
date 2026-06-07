@@ -19,25 +19,28 @@
     <ul class="sidebar-menu">
         <?php 
         $current_role = get_current_role();
-        // Normalize role string to lowercase to avoid capitalization mismatch (eg. 'Operator' vs 'operator')
+        // Normalize role string to lowercase to avoid capitalization mismatch (eg. 'Pimpinan' vs 'pimpinan')
         if (is_string($current_role)) {
             $current_role = strtolower($current_role);
         }
         $is_logged_in = is_logged_in();
         $current_page = $_GET['page'] ?? '';
+        $is_admin_like = function_exists('is_admin_like') && is_admin_like();
+        if (!$is_admin_like && $current_role === 'pimpinan') {
+            $is_admin_like = true;
+        }
         ?>
         
         <?php
         // Unified Dashboard link per role — replace legacy 'Beranda' link so sidebar shows role-specific dashboard
         $dashboard_map = [
             'admin' => 'dashboard_admin',
-            'operator' => 'dashboard_operator',
             'pimpinan' => 'dashboard_pimpinan',
             'user' => 'dashboard_user',
             'driver' => 'dashboard_driver',
             'guest' => 'home'
         ];
-        $dash_page = $dashboard_map[$current_role] ?? 'dashboard_user';
+        $dash_page = $dashboard_map[$current_role] ?? ($is_admin_like ? 'dashboard_admin' : 'dashboard_user');
         ?>
         <li><a href="index.php?page=<?= $dash_page ?>" class="<?= ($current_page == $dash_page) ? 'active' : '' ?>">
             <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
@@ -53,7 +56,7 @@
             </a></li>
             
         <?php elseif ($current_role === 'driver'): ?>
-            <!-- Menu untuk Driver (akses setara operator, data tetap dibatasi kendaraan driver) -->
+            <!-- Menu untuk Driver (akses terbatas pada kendaraan penugasan) -->
             <li class="has-submenu <?= in_array($current_page, ['kendaraan', 'log_bahan_bakar', 'map_kendaraan']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-car"></i><span>Kendaraan</span>
@@ -122,88 +125,7 @@
                 <i class="fas fa-sign-out-alt"></i><span>Logout</span>
             </a></li>
 
-        <?php elseif ($current_role === 'pimpinan'): ?>
-            <!-- Menu untuk Pimpinan -->
-            <!-- Vehicle menu for Pimpinan: List + Map -->
-            <li class="has-submenu <?= in_array($current_page, ['list_kendaraan', 'map_kendaraan']) ? 'active' : '' ?>">
-                <a href="javascript:void(0)" class="submenu-toggle">
-                    <i class="fas fa-car"></i><span>Kendaraan</span>
-                    <i class="fas fa-chevron-down submenu-arrow"></i>
-                </a>
-                <ul class="submenu">
-                    <li><a href="index.php?page=list_kendaraan" class="<?= ($current_page == 'list_kendaraan') ? 'active' : '' ?>">List Kendaraan</a></li>
-                    <li><a href="index.php?page=map_kendaraan" class="<?= ($current_page == 'map_kendaraan') ? 'active' : '' ?>">Peta Kendaraan</a></li>
-                </ul>
-            </li>
-
-            <li><a href="index.php?page=persetujuan_peminjaman" class="<?= ($current_page == 'persetujuan_peminjaman') ? 'active' : '' ?>">
-                <i class="fas fa-clipboard-check"></i><span>Persetujuan Peminjaman</span>
-            </a></li>
-            <li><a href="index.php?page=jadwal_perawatan" class="<?= ($current_page == 'jadwal_perawatan') ? 'active' : '' ?>">
-                <i class="fas fa-calendar-alt"></i><span>Jadwal Perawatan</span>
-            </a></li>
-            <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">
-                <i class="fas fa-file-signature"></i><span>Surat Tugas</span>
-            </a></li>
-            <li><a href="index.php?page=profil" class="<?= ($current_page == 'profil') ? 'active' : '' ?>">
-                <i class="fas fa-user"></i><span>Profil</span>
-            </a></li>
-            <li><a class="btn-logout" href="logout.php">
-                <i class="fas fa-sign-out-alt"></i><span>Logout</span>
-            </a></li>
-            
-        <?php elseif ($current_role === 'operator'): ?>
-            <!-- Menu untuk Operator -->
-            <!-- <li><a href="index.php?page=dashboard_operator" class="<?= ($current_page == 'dashboard_operator') ? 'active' : '' ?>">
-                <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
-            </a></li> -->
-            
-            <!-- Penugasan (hidden for operator) -->
-            
-            <li class="has-submenu <?= in_array($current_page, ['kendaraan', 'log_bahan_bakar']) ? 'active' : '' ?>">
-                <a href="javascript:void(0)" class="submenu-toggle">
-                    <i class="fas fa-car"></i><span>Kendaraan</span>
-                    <i class="fas fa-chevron-down submenu-arrow"></i>
-                </a>
-                <ul class="submenu">
-                    <li><a href="index.php?page=kendaraan" class="<?= ($current_page == 'kendaraan') ? 'active' : '' ?>">Data Kendaraan</a></li>
-                    <li><a href="index.php?page=log_bahan_bakar" class="<?= ($current_page == 'log_bahan_bakar') ? 'active' : '' ?>">Log BBM</a></li>
-                    <li><a href="index.php?page=map_kendaraan" class="<?= ($current_page == 'map_kendaraan') ? 'active' : '' ?>">Peta Kendaraan</a></li>
-                </ul>
-            </li>
-            
-            <li class="has-submenu <?= in_array($current_page, ['jadwal_perawatan', 'riwayat_perawatan', 'riwayat_perbaikan']) ? 'active' : '' ?>">
-                <a href="javascript:void(0)" class="submenu-toggle">
-                    <i class="fas fa-tools"></i><span>Perawatan</span>
-                    <i class="fas fa-chevron-down submenu-arrow"></i>
-                </a>
-                <ul class="submenu">
-                    <li><a href="index.php?page=jadwal_perawatan" class="<?= ($current_page == 'jadwal_perawatan') ? 'active' : '' ?>">Jadwal Perawatan</a></li>
-                    <li><a href="index.php?page=riwayat_perawatan" class="<?= ($current_page == 'riwayat_perawatan') ? 'active' : '' ?>">Riwayat Perawatan</a></li>
-                    <li><a href="index.php?page=riwayat_perbaikan" class="<?= ($current_page == 'riwayat_perbaikan') ? 'active' : '' ?>">Riwayat Perbaikan</a></li>
-                </ul>
-            </li>
-            
-            <li class="has-submenu <?= in_array($current_page, ['dokumen_kendaraan', 'surat_tugas', 'laporan_perjalanan']) ? 'active' : '' ?>">
-                <a href="javascript:void(0)" class="submenu-toggle">
-                    <i class="fas fa-file-alt"></i><span>Dokumen</span>
-                    <i class="fas fa-chevron-down submenu-arrow"></i>
-                </a>
-                <ul class="submenu">
-                    <li><a href="index.php?page=dokumen_kendaraan" class="<?= ($current_page == 'dokumen_kendaraan') ? 'active' : '' ?>">Dokumen Kendaraan</a></li>
-                    <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">Surat Tugas</a></li>
-                    <li><a href="index.php?page=laporan_perjalanan&action=assigned" class="<?= ($current_page == 'laporan_perjalanan' && ($_GET['action'] ?? '') === 'assigned') ? 'active' : '' ?>">Laporan Perjalanan</a></li>
-                </ul>
-            </li>
-            
-            <li><a href="index.php?page=profil" class="<?= ($current_page == 'profil') ? 'active' : '' ?>">
-                <i class="fas fa-user"></i><span>Profil</span>
-            </a></li>
-            <li><a class="btn-logout" href="logout.php">
-                <i class="fas fa-sign-out-alt"></i><span>Logout</span>
-            </a></li>
-            
-        <?php elseif ($current_role === 'admin'): ?>
+        <?php elseif ($is_admin_like): ?>
 
     <li class="has-submenu <?= in_array($current_page, ['kendaraan', 'pengguna_kendaraan']) ? 'active' : (($current_page=='dashboard_admin'||$current_page=='') ? '' : '') ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">

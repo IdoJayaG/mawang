@@ -12,12 +12,13 @@ if ($current_role === 'guest') {
     exit;
 }
 
-$can_crud = can_operate(); // operator dan admin
+$can_crud = can_operate(); // admin-like roles
 $can_add = $can_crud || in_array($current_role, ['user','driver'], true);
 $can_view = is_logged_in();
+$driver_status_options = ['Dalam Proses', 'Menunggu Sparepart', 'Ditunda', 'Selesai'];
 
-$action = $_GET['action'] ?? 'list';
-$perbaikan_id = $_GET['id'] ?? null;
+$action = $_POST['action'] ?? ($_GET['action'] ?? 'list');
+$perbaikan_id = $_POST['id'] ?? ($_GET['id'] ?? null);
 $kendaraan_id = $_GET['kendaraan_id'] ?? null;
 $msg = '';
 
@@ -366,9 +367,93 @@ if ($_POST) {
     if (!$csrf_ok) {
         $msg = '<div class="alert alert-danger">Token keamanan tidak valid!</div>';
     } else {
-    if ($action === 'add' && $can_add) {
+    if ($action === 'update_status_inline' && $perbaikan_id) {
+            $repair_stmt = $conn->prepare("SELECT id, kendaraan_id, status FROM riwayat_perbaikan WHERE id = ? LIMIT 1");
+            if (!$repair_stmt) {
+                $msg = '<div class="alert alert-danger">Gagal memuat data perbaikan!</div>';
+            } else {
+                $repair_stmt->bind_param('i', $perbaikan_id);
+                $repair_stmt->execute();
+                $repair_data = $repair_stmt->get_result()->fetch_assoc();
+                $repair_stmt->close();
+
+                if (!$repair_data) {
+                    $msg = '<div class="alert alert-danger">Data perbaikan tidak ditemukan!</div>';
+                } else {
+                    $kendaraan_id_inline = (int)$repair_data['kendaraan_id'];
+                    $status_now_lc = strtolower((string)($repair_data['status'] ?? ''));
+                    $can_inline_role = $can_crud || ($current_role === 'driver' && can_access_vehicle($kendaraan_id_inline));
+
+                    if (!$can_inline_role) {
+                        $msg = '<div class="alert alert-danger">Anda tidak memiliki hak untuk mengubah status perbaikan ini!</div>';
+                    } elseif ($status_now_lc === 'selesai') {
+                        $msg = '<div class="alert alert-warning">Status selesai tidak dapat diubah lagi.</div>';
+                    } else {
+                        $status_input = trim($_POST['status'] ?? '');
+                        $status_lc = strtolower($status_input);
+                        if (in_array($status_lc, ['dalam proses', 'dalam progress'], true)) {
+                            $status_db = 'Dalam Proses';
+                        } elseif ($status_lc === 'menunggu sparepart') {
+                            $status_db = 'Menunggu Sparepart';
+                        } elseif ($status_lc === 'ditunda') {
+                            $status_db = 'Ditunda';
+                        } elseif ($status_lc === 'selesai') {
+                            $status_db = 'Selesai';
+                        } else {
+                            $status_db = null;
+                        }
+
+                        if ($status_db === null || !in_array($status_db, $driver_status_options, true)) {
+                            $msg = '<div class="alert alert-danger">Status tidak valid!</div>';
+                        } else {
+                            $status_kendaraan = $status_db === 'Selesai' ? 'Operasional' : 'Perbaikan';
+                            $status_peminjaman = $status_db === 'Selesai' ? 'Tersedia' : 'Maintenance';
+
+                            $conn->begin_transaction();
+                            try {
+                                $stmt = $conn->prepare("UPDATE riwayat_perbaikan SET status=?, updated_by=? WHERE id=?");
+                                if (!$stmt) throw new Exception('Gagal menyiapkan update status.');
+                                $stmt->bind_param('sii', $status_db, $current_user_id, $perbaikan_id);
+                                if (!$stmt->execute()) throw new Exception($stmt->error);
+                                $stmt->close();
+
+                                if ($upd = $conn->prepare("UPDATE kendaraan SET status_kendaraan = ?, status_peminjaman = ? WHERE id = ?")) {
+                                    $upd->bind_param('ssi', $status_kendaraan, $status_peminjaman, $kendaraan_id_inline);
+                                    $upd->execute();
+                                    $upd->close();
+                                }
+
+                                if (function_exists('log_activity')) {
+                                    $vehLabel = '';
+                                    if ($stVeh = $conn->prepare("SELECT COALESCE(NULLIF(TRIM(no_reg),''), NULLIF(TRIM(no_polisi),'')) AS label FROM kendaraan WHERE id = ?")) {
+                                        $stVeh->bind_param('i', $kendaraan_id_inline);
+                                        $stVeh->execute();
+                                        $vehLabel = (string)($stVeh->get_result()->fetch_assoc()['label'] ?? '');
+                                        $stVeh->close();
+                                    }
+                                    $vehText = $vehLabel !== '' ? ('No.Reg ' . $vehLabel) : ('ID ' . $kendaraan_id_inline);
+                                    log_activity('EDIT_RIWAYAT_PERBAIKAN_STATUS', "Inline status update ke {$status_db} untuk kendaraan {$vehText}");
+                                }
+
+                                $conn->commit();
+                                $return_to = trim((string)($_POST['return_to'] ?? ''));
+                                if ($return_to !== '' && strpos($return_to, 'index.php?page=riwayat_perbaikan') !== false) {
+                                    header('Location: ' . $return_to);
+                                } else {
+                                    header('Location: index.php?page=riwayat_perbaikan');
+                                }
+                                exit();
+                            } catch (Exception $e) {
+                                $conn->rollback();
+                                $msg = '<div class="alert alert-danger">Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
+                            }
+                        }
+                    }
+                }
+            }
+    } elseif ($action === 'add' && $can_add) {
             $kendaraan_id = (int)$_POST['kendaraan_id'];
-            // Non-operator users (driver/user) may only add repairs for vehicles
+            // Non-admin-like users (driver/user) may only add repairs for vehicles
             // they have access to (assigned pengguna, active surat/peminjaman, etc.)
             $vehicle_access_allowed = can_operate() || can_access_vehicle($kendaraan_id);
             file_put_contents($debug_log_file, "Vehicle check: kendaraan_id={$kendaraan_id} access_allowed=" . ($vehicle_access_allowed ? '1' : '0') . "\n", FILE_APPEND);
@@ -504,6 +589,84 @@ if ($_POST) {
                 }
                 $stmt->close();
             }
+            }
+    } elseif ($action === 'edit' && $current_role === 'driver' && $perbaikan_id) {
+            $repair_stmt = $conn->prepare("SELECT id, kendaraan_id, status FROM riwayat_perbaikan WHERE id = ? LIMIT 1");
+            if (!$repair_stmt) {
+                $msg = '<div class="alert alert-danger">Gagal memuat data perbaikan!</div>';
+            } else {
+                $repair_stmt->bind_param('i', $perbaikan_id);
+                $repair_stmt->execute();
+                $repair_data = $repair_stmt->get_result()->fetch_assoc();
+                $repair_stmt->close();
+
+                if (!$repair_data) {
+                    $msg = '<div class="alert alert-danger">Data perbaikan tidak ditemukan!</div>';
+                } elseif (!can_access_vehicle((int)$repair_data['kendaraan_id'])) {
+                    $msg = '<div class="alert alert-danger">Anda tidak memiliki hak untuk mengubah riwayat perbaikan ini!</div>';
+                } elseif (strtolower((string)($repair_data['status'] ?? '')) === 'selesai') {
+                    $msg = '<div class="alert alert-warning">Status selesai tidak dapat diubah lagi.</div>';
+                } else {
+                    $status_input = trim($_POST['status'] ?? '');
+                    $status_lc = strtolower($status_input);
+                    $status_db = null;
+                    if (in_array($status_input, $driver_status_options, true)) {
+                        $status_db = $status_input;
+                    } elseif (in_array($status_lc, ['dalam proses', 'dalam progress'], true)) {
+                        $status_db = 'Dalam Proses';
+                    } elseif ($status_lc === 'menunggu sparepart') {
+                        $status_db = 'Menunggu Sparepart';
+                    } elseif ($status_lc === 'ditunda') {
+                        $status_db = 'Ditunda';
+                    } elseif ($status_lc === 'selesai') {
+                        $status_db = 'Selesai';
+                    }
+
+                    if ($status_db === null) {
+                        $msg = '<div class="alert alert-danger">Status tidak valid untuk driver!</div>';
+                    } else {
+                        $kendaraan_id = (int)$repair_data['kendaraan_id'];
+                        $status_kendaraan = $status_db === 'Selesai' ? 'Operasional' : 'Perbaikan';
+                        $status_peminjaman = $status_db === 'Selesai' ? 'Tersedia' : 'Maintenance';
+
+                        $conn->begin_transaction();
+                        try {
+                            $stmt = $conn->prepare("UPDATE riwayat_perbaikan SET status=?, updated_by=? WHERE id=?");
+                            if (!$stmt) throw new Exception('Gagal menyiapkan update status.');
+                            $stmt->bind_param('sii', $status_db, $current_user_id, $perbaikan_id);
+                            if (!$stmt->execute()) throw new Exception($stmt->error);
+                            $stmt->close();
+
+                            if ($upd = $conn->prepare("UPDATE kendaraan SET status_kendaraan = ?, status_peminjaman = ? WHERE id = ?")) {
+                                $upd->bind_param('ssi', $status_kendaraan, $status_peminjaman, $kendaraan_id);
+                                $upd->execute();
+                                $upd->close();
+                            }
+
+                            $vehLabel = '';
+                            if ($stVeh = $conn->prepare("SELECT COALESCE(NULLIF(TRIM(no_reg),''), NULLIF(TRIM(no_polisi),'')) AS label FROM kendaraan WHERE id = ?")) {
+                                $stVeh->bind_param('i', $kendaraan_id);
+                                $stVeh->execute();
+                                $vehLabel = (string)($stVeh->get_result()->fetch_assoc()['label'] ?? '');
+                                $stVeh->close();
+                            }
+                            $vehText = $vehLabel !== '' ? ('No.Reg ' . $vehLabel) : ('ID ' . $kendaraan_id);
+                            $msgLog = "Driver mengubah status perbaikan menjadi {$status_db} untuk kendaraan {$vehText}";
+                            if (function_exists('log_activity')) {
+                                log_activity('EDIT_RIWAYAT_PERBAIKAN_STATUS', $msgLog);
+                            } else {
+                                log_user_activity($msgLog);
+                            }
+
+                            $conn->commit();
+                            header('Location: index.php?page=riwayat_perbaikan_detail&id=' . (int)$perbaikan_id . '&updated=1');
+                            exit();
+                        } catch (Exception $e) {
+                            $conn->rollback();
+                            $msg = '<div class="alert alert-danger">Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
+                        }
+                    }
+                }
             }
     } elseif ($action === 'edit' && $can_crud && $perbaikan_id) {
             $kendaraan_id = (int)$_POST['kendaraan_id'];
@@ -1145,12 +1308,60 @@ if (!function_exists('sort_link')) {
         </div>
     </div>
 
-<?php elseif ($can_crud && $action === 'edit' && $edit_data): ?>
+<?php elseif (($can_crud || $current_role === 'driver') && $action === 'edit' && $edit_data): ?>
     <div class="card">
         <div class="card-header">
             <h3><i class="fas fa-edit"></i> Edit Riwayat Perbaikan</h3>
         </div>
         <div class="card-body">
+            <?php if ($current_role === 'driver'): ?>
+            <form method="post" class="repair-form">
+                <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
+                <div class="alert alert-info">
+                    Driver hanya dapat mengubah status perbaikan. Status selesai tidak ditampilkan di dropdown.
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Riwayat Perbaikan</label>
+                        <div class="form-control-plaintext">
+                            ID <?= (int)($edit_data['id'] ?? 0) ?>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Status Saat Ini</label>
+                        <div class="form-control-plaintext"><?= htmlspecialchars((string)($edit_data['status'] ?? '-')) ?></div>
+                    </div>
+                </div>
+
+                <?php if (strtolower((string)($edit_data['status'] ?? '')) === 'selesai'): ?>
+                    <div class="alert alert-warning">Status selesai tidak bisa diubah lagi oleh driver.</div>
+                    <a href="index.php?page=riwayat_perbaikan_detail&id=<?= (int)$edit_data['id'] ?>" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Kembali
+                    </a>
+                <?php else: ?>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="status">Status Perbaikan</label>
+                            <select id="status" name="status" class="form-control" required>
+                                <?php foreach ($driver_status_options as $status_option): ?>
+                                    <option value="<?= htmlspecialchars($status_option) ?>" <?= ($edit_data['status'] === $status_option) ? 'selected' : '' ?>><?= htmlspecialchars($status_option) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Update Status
+                        </button>
+                        <a href="index.php?page=riwayat_perbaikan_detail&id=<?= (int)$edit_data['id'] ?>" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Batal
+                        </a>
+                    </div>
+                <?php endif; ?>
+            </form>
+            <?php else: ?>
             <form method="post" class="repair-form">
                 <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
                 
@@ -1293,6 +1504,7 @@ if (!function_exists('sort_link')) {
                     </a>
                 </div>
             </form>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -1431,11 +1643,35 @@ if (!function_exists('sort_link')) {
                                     <td><div class="text-truncate text-truncate-custom" title="<?= htmlspecialchars($repair['deskripsi'] ?? $repair['deskripsi_kerusakan'] ?? '-') ?>"><?= htmlspecialchars($repair['deskripsi'] ?? $repair['deskripsi_kerusakan'] ?? '-') ?></div></td>
                                     <td><?= htmlspecialchars($firstNama) ?></td>
                                     <td><?= htmlspecialchars($firstQty ?: '-') ?></td>
-                                    <td><?= render_repair_status_badge($repair['status'] ?? '') ?></td>
+                                    <?php
+                                        $repair_status = (string)($repair['status'] ?? '');
+                                        $repair_status_lc = strtolower($repair_status);
+                                        $can_inline_edit = $repair_status_lc !== 'selesai' && ($can_crud || ($current_role === 'driver' && can_access_vehicle((int)$repair['kendaraan_id'])));
+                                    ?>
+                                    <td>
+                                        <?php if ($can_inline_edit): ?>
+                                            <div class="dropdown">
+                                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                                    <?= htmlspecialchars($repair_status !== '' ? $repair_status : 'Pilih Status') ?>
+                                                </button>
+                                                <ul class="dropdown-menu">
+                                                    <?php foreach ($driver_status_options as $status_option): ?>
+                                                        <li>
+                                                            <button type="button" class="dropdown-item js-inline-status" data-id="<?= (int)$repair['id'] ?>" data-status="<?= htmlspecialchars($status_option) ?>">
+                                                                <?= htmlspecialchars($status_option) ?>
+                                                            </button>
+                                                        </li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            </div>
+                                        <?php else: ?>
+                                            <?= render_repair_status_badge($repair_status) ?>
+                                        <?php endif; ?>
+                                    </td>
                                     <td>
                                         <div class="btn-group" role="group">
                                             <a href="index.php?page=riwayat_perbaikan_detail&id=<?= $repair['id'] ?>" class="btn btn-sm btn-outline-info" title="Lihat Detail"><i class="fas fa-eye"></i></a>
-                                            <?php if ($can_crud): ?><a href="index.php?page=riwayat_perbaikan&action=edit&id=<?= $repair['id'] ?>" class="btn btn-sm btn-outline-primary" title="Edit"><i class="fas fa-edit"></i></a><?php endif; ?>
+                                            <?php if ($can_crud || ($current_role === 'driver' && strtolower((string)($repair['status'] ?? '')) !== 'selesai')): ?><a href="index.php?page=riwayat_perbaikan&action=edit&id=<?= $repair['id'] ?>" class="btn btn-sm btn-outline-primary" title="Edit Status"><i class="fas fa-edit"></i></a><?php endif; ?>
                                             <?php if (can_admin()): ?><a href="index.php?page=riwayat_perbaikan&action=delete&id=<?= $repair['id'] ?>" class="btn btn-sm btn-outline-danger" title="Hapus" onclick="return confirm('Yakin ingin menghapus riwayat perbaikan ini?')"><i class="fas fa-trash"></i></a><?php endif; ?>
                                         </div>
                                     </td>
@@ -1446,6 +1682,28 @@ if (!function_exists('sort_link')) {
                         </tbody>
                     </table>
                 </div>
+                <form method="post" id="inline-status-form" class="d-none">
+                    <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
+                    <input type="hidden" name="action" value="update_status_inline">
+                    <input type="hidden" name="id" value="">
+                    <input type="hidden" name="status" value="">
+                    <input type="hidden" name="return_to" value="<?= htmlspecialchars((string)($_SERVER['REQUEST_URI'] ?? '')) ?>">
+                </form>
+                <script>
+                (function(){
+                    document.addEventListener('DOMContentLoaded', function(){
+                        var form = document.getElementById('inline-status-form');
+                        if (!form) return;
+                        document.querySelectorAll('.js-inline-status').forEach(function(btn){
+                            btn.addEventListener('click', function(){
+                                form.querySelector('input[name="id"]').value = this.getAttribute('data-id') || '';
+                                form.querySelector('input[name="status"]').value = this.getAttribute('data-status') || '';
+                                form.submit();
+                            });
+                        });
+                    });
+                })();
+                </script>
 
                 <!-- Pagination (kept) -->
                 <?php if ($total_pages > 1): ?>

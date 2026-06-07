@@ -5,7 +5,7 @@ require_login();
 $current_user_id = get_current_user_id();
 $current_role = get_current_role();
 
-// Determine which user's profile to display. Admins/operators may pass ?id= to view another user.
+// Determine which user's profile to display. Admin-like roles may pass ?id= to view another user.
 $view_user_id = isset($_GET['id']) && is_numeric($_GET['id']) ? (int)$_GET['id'] : null;
 $profile_user_id = ($current_role !== 'user' && $view_user_id) ? $view_user_id : $current_user_id;
 
@@ -19,7 +19,7 @@ $current_pengguna_id = get_current_user_id();
 $profile_account_id = null; // user_account.id
 $profile_pengguna_id = null; // pengguna.id
 
-// If admin/operator passed ?id=, interpret that id as the requested profile (try account id first)
+// If admin-like passed ?id=, interpret that id as the requested profile (try account id first)
 if ($view_user_id !== null && $current_role !== 'user') {
     $v = (int)$view_user_id;
     $st = $mysqli->prepare("SELECT id, pengguna_id FROM user_account WHERE id = ? LIMIT 1");
@@ -200,7 +200,7 @@ if ($current_role === 'user') {
     $stats['riwayat_count'] = $riwayat_count;
     
 } else {
-    // Get general statistics for operator/admin
+    // Get general statistics for admin-like roles
     $stats['kendaraan_total'] = $mysqli->query("SELECT COUNT(*) as total FROM kendaraan")->fetch_assoc()['total'];
     // Determine users_total safely: some installations use user_account.role, others use role_id with a role table
     $users_total = 0;
@@ -214,7 +214,7 @@ if ($current_role === 'user') {
             $col2 = $mysqli->query("SHOW COLUMNS FROM user_account LIKE 'role_id'");
             if ($col2 && $col2->num_rows > 0) {
                 // Try to resolve admin id from role table
-                $adminRow = $mysqli->query("SELECT id FROM role WHERE nama_role = 'admin' LIMIT 1");
+                $adminRow = $mysqli->query("SELECT id FROM role WHERE UPPER(kode_role) = 'ADMIN' LIMIT 1");
                 if ($adminRow && $adminRow->num_rows > 0) {
                     $admin_id = (int)$adminRow->fetch_assoc()['id'];
                     $users_total = (int)$mysqli->query("SELECT COUNT(*) as total FROM user_account WHERE role_id != " . $admin_id)->fetch_assoc()['total'];

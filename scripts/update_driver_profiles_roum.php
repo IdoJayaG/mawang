@@ -1,8 +1,7 @@
 <?php
 /**
  * Update profil driver sesuai permintaan:
- * - email @gmail.com
- * - no_hp random
+ * - email
  * - nrp_nip
  * - jenis_personel
  * - pangkat/golongan
@@ -107,16 +106,6 @@ function pnsGolonganByIndex($index)
     return $gol[$index % count($gol)];
 }
 
-function random_phone_number($seed)
-{
-    mt_srand($seed + 2026);
-    $number = '08';
-    for ($i = 0; $i < 10; $i++) {
-        $number .= (string)mt_rand(0, 9);
-    }
-    return $number;
-}
-
 try {
     $conn->begin_transaction();
 
@@ -133,7 +122,7 @@ try {
     $stmtFind = $conn->prepare("SELECT p.id, ua.username FROM pengguna p JOIN user_account ua ON ua.pengguna_id = p.id WHERE ua.username = ? LIMIT 1");
     $stmtUpdate = $conn->prepare(
         "UPDATE pengguna
-         SET nrp_nip = ?, nama_lengkap = ?, pangkat = ?, jabatan = 'Pengemudi', satuan_pns = ?, email = ?, no_hp = ?, alamat = ?,
+         SET nrp_nip = ?, nama_lengkap = ?, pangkat = ?, jabatan = 'Pengemudi', satuan_pns = ?, email = ?, alamat = ?,
              status_pegawai = 'Aktif', status_aktif = 'Aktif', jenis_personel = ?, matra = ?, korps = ?, kesatuan = ?
          WHERE id = ?"
     );
@@ -157,8 +146,7 @@ try {
         }
 
         $penggunaId = (int)$found['id'];
-        $email = $username . '@gmail.com';
-        $noHp = random_phone_number($i + 1);
+        $email = $username . '@setjen.kemhan.go.id';
         $alamat = $alamatSekitarCawang[$idxAlamat % count($alamatSekitarCawang)];
         $idxAlamat++;
 
@@ -174,30 +162,29 @@ try {
         } else {
             // PNS, Honorer, PPPK dipetakan ke personel sipil/PNS
             $jenisPersonel = 'PNS';
+            $golongan = pnsGolonganByIndex($pnsCounter);
+            $pnsCounter++;
 
             if ($label === 'PNS') {
-                $pangkat = pnsGolonganByIndex($pnsCounter);
-                $pnsCounter++;
+                $pangkat = $golongan;
                 $nrpNip = '1978' . str_pad((string)($i + 1), 2, '0', STR_PAD_LEFT) . '2005011' . str_pad((string)($pnsCounter), 3, '0', STR_PAD_LEFT);
             } elseif ($label === 'PPPK') {
-                $pangkat = pnsGolonganByIndex($pnsCounter);
-                $pnsCounter++;
-                $nrpNip = '';
+                $pangkat = 'PPPK';
+                $nrpNip = 'PPPK-' . str_pad((string)($i + 1), 5, '0', STR_PAD_LEFT);
             } else {
-                $pangkat = '';
-                $nrpNip = '';
+                $pangkat = 'Honorer';
+                $nrpNip = 'HON-' . str_pad((string)($i + 1), 5, '0', STR_PAD_LEFT);
             }
             $matra = 'ASN Kemhan';
         }
 
         $stmtUpdate->bind_param(
-            'sssssssssssi',
+            'ssssssssssi',
             $nrpNip,
             $nama,
             $pangkat,
             $satuan,
             $email,
-            $noHp,
             $alamat,
             $jenisPersonel,
             $matra,
@@ -218,7 +205,7 @@ try {
 
     echo "\n=== HASIL UPDATE PROFIL DRIVER ===\n";
     echo "Total diperbarui: {$updated}\n";
-    echo "Email domain: @gmail.com\n";
+    echo "Email domain: @setjen.kemhan.go.id\n";
     echo "Jabatan: Pengemudi\n";
     echo "Kesatuan/Satuan: Sekretariat Jenderal Kementerian Pertahanan\n";
 

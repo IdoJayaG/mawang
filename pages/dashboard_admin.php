@@ -5,8 +5,8 @@ if (!is_logged_in()) {
     exit();
 }
 
-// Check admin access
-if (get_current_role() !== 'admin') {
+// Check admin-like access
+if (!is_admin_like()) {
     header('Location: index.php?page=403');
     exit();
 }
@@ -16,13 +16,13 @@ $current_user = get_logged_in_user();
 
 // Initial page head rendering removed (avoid duplicate); we'll render once later with JS includes
 
-// Get statistics (mysqli-based, similar to operator dashboard)
+// Get statistics (mysqli-based, similar to legacy dashboard)
 $stats = [];
 $master_counts = [];
 
 // Users by role
 $stats['users'] = [];
-$rres = $mysqli->query("SELECT r.kode_role as role, COUNT(*) as count FROM user_account ua JOIN role r ON ua.role_id = r.id WHERE ua.status = 'Aktif' AND LOWER(COALESCE(r.kode_role, r.nama_role, '')) <> 'operator' GROUP BY r.kode_role");
+$rres = $mysqli->query("SELECT r.kode_role as role, COUNT(*) as count FROM user_account ua JOIN role r ON ua.role_id = r.id WHERE ua.status = 'Aktif' AND UPPER(COALESCE(r.kode_role, r.nama_role, '')) IN ('ADMIN','PIMPINAN','DRIVER','USER') GROUP BY r.kode_role");
 if ($rres) {
     while ($r = $rres->fetch_assoc()) {
         $stats['users'][$r['role']] = intval($r['count']);

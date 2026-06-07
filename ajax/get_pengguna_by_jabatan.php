@@ -4,7 +4,7 @@ require_once '../config/db.php';
 
 header('Content-Type: application/json');
 
-// Only allow logged-in operator/admin to query
+// Only allow logged-in admin-like users to query
 if (!is_logged_in() || !can_operate()) {
     echo json_encode(['success' => false, 'message' => 'Tidak diizinkan']);
     exit;

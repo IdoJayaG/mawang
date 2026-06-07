@@ -6,7 +6,7 @@ $current_role = get_current_role();
 $current_user_id = get_current_user_id();
 
 // Check if user has access
-if (!in_array($current_role, ['admin', 'operator', 'driver'], true)) {
+if (!is_admin_like() && $current_role !== 'driver') {
     header('Location: pages/403.php');
     exit;
 }

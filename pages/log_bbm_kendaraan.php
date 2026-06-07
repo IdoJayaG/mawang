@@ -27,7 +27,7 @@ if (in_array(strtolower((string)get_current_role()), ['user', 'driver'], true) &
 
 // Get fuel logs
     $fuel_result = $mysqli->query("
-    SELECT lbb.*, COALESCE(u.nama_lengkap, '') as operator_nama
+    SELECT lbb.*, COALESCE(u.nama_lengkap, '') as petugas_nama
     FROM log_bahan_bakar lbb
     LEFT JOIN pengguna u ON lbb.user_id = u.id
     WHERE lbb.kendaraan_id = $kendaraan_id
@@ -228,8 +228,8 @@ $efficiency_result = $mysqli->query("
                                                         <strong><?php echo number_format($fuel['km_saat_isi'] ?: 0, 0, ',', '.'); ?> km</strong>
                                                     </div>
                                                     <div class="col-md-3">
-                                                        <small class="text-muted">Operator:</small><br>
-                                                        <strong><?php echo htmlspecialchars($fuel['operator_nama'] ?: 'Tidak tercatat'); ?></strong>
+                                                        <small class="text-muted">Petugas:</small><br>
+                                                        <strong><?php echo htmlspecialchars($fuel['petugas_nama'] ?: 'Tidak tercatat'); ?></strong>
                                                     </div>
                                                     <div class="col-md-3">
                                                         <small class="text-muted">SPBU:</small><br>

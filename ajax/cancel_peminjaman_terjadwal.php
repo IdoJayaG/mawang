@@ -21,13 +21,13 @@ try {
     $row = $res->fetch_assoc();
     $stmt->close();
 
-    // Only owner or admin/operator may cancel; owners may cancel only when pending
+    // Only owner or admin-like may cancel; owners may cancel only when pending
     $is_owner = ((int)($row['pemohon_id'] ?? $row['peminjam_id'] ?? $row['created_by'] ?? 0) === (int)$current_user['id']);
     $role = get_current_role();
 
     if ($is_owner && $row['status'] === 'pending') {
         $new_status = 'cancelled';
-    } elseif (in_array($role, ['admin', 'operator'])) {
+    } elseif (is_admin_like()) {
         $new_status = 'cancelled';
     } else {
         throw new Exception('Tidak berwenang membatalkan peminjaman ini');

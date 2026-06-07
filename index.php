@@ -37,9 +37,6 @@ if (empty($page)) {
         case 'admin':
             $page = 'dashboard_admin';
             break;
-        case 'operator':
-            $page = 'dashboard_operator';
-            break;
         case 'pimpinan':
             $page = 'dashboard_pimpinan';
             break;
@@ -50,7 +47,7 @@ if (empty($page)) {
             $page = 'dashboard_driver';
             break;
         default:
-            $page = 'home';
+            $page = (function_exists('is_admin_like') && is_admin_like()) ? 'dashboard_admin' : 'home';
             break;
     }
 }

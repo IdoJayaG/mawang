@@ -10,3 +10,39 @@ Insert OK new_id=23
 CSRF present=1 ok=1
 Vehicle check: kendaraan_id=77 access_allowed=1
 Insert OK new_id=24
+2026-05-31 23:44:10 [riwayat_perbaikan POST] user=55 role=driver action=add
+CSRF present=1 ok=1
+Vehicle check: kendaraan_id=116 access_allowed=1
+Insert OK new_id=25
+2026-06-01 00:54:21 [riwayat_perbaikan POST] user=55 role=driver action=update_status_inline
+CSRF present=1 ok=1
+2026-06-01 00:54:55 [riwayat_perbaikan POST] user=55 role=driver action=add
+CSRF present=1 ok=1
+Vehicle check: kendaraan_id=116 access_allowed=1
+Insert OK new_id=26
+2026-06-01 00:55:02 [riwayat_perbaikan POST] user=55 role=driver action=update_status_inline
+CSRF present=1 ok=1
+2026-06-01 00:55:04 [riwayat_perbaikan POST] user=55 role=driver action=update_status_inline
+CSRF present=1 ok=1
+2026-06-01 00:55:25 [riwayat_perbaikan POST] user=1 role=admin action=update_status_inline
+CSRF present=1 ok=1
+2026-06-01 13:42:57 [riwayat_perbaikan POST] user=83 role=driver action=add
+CSRF present=1 ok=1
+Vehicle check: kendaraan_id=77 access_allowed=1
+Insert OK new_id=27
+2026-06-01 13:43:03 [riwayat_perbaikan POST] user=83 role=driver action=update_status_inline
+CSRF present=1 ok=1
+2026-06-01 13:49:06 [riwayat_perbaikan POST] user=83 role=driver action=add
+CSRF present=1 ok=1
+Vehicle check: kendaraan_id=77 access_allowed=1
+Insert OK new_id=28
+2026-06-01 13:49:29 [riwayat_perbaikan POST] user=83 role=driver action=update_status_inline
+CSRF present=1 ok=1
+2026-06-01 13:51:04 [riwayat_perbaikan POST] user=83 role=driver action=edit
+CSRF present=1 ok=1
+2026-06-01 13:52:52 [riwayat_perbaikan POST] user=83 role=driver action=add
+CSRF present=1 ok=1
+Vehicle check: kendaraan_id=77 access_allowed=1
+Insert OK new_id=29
+2026-06-01 14:10:56 [riwayat_perbaikan POST] user=83 role=driver action=update_status_inline
+CSRF present=1 ok=1

@@ -6,10 +6,10 @@ if (!is_logged_in()) {
 
 $role = get_current_role();
 if ($role === 'driver') {
-    header('Location: index.php?page=dashboard_user');
+    header('Location: index.php?page=dashboard_driver');
     exit();
 }
-if (!in_array($role, ['operator', 'pimpinan'], true)) {
+if (!is_admin_like()) {
     header('Location: index.php?page=403');
     exit();
 }
@@ -97,7 +97,7 @@ function getStatusBadge($status) {
     <div class="container-fluid">
         <div class="row align-items-center">
             <div class="col-md-8">
-                <h1 class="mb-1"><i class="fas fa-tachometer-alt me-2"></i>Dashboard Operator</h1>
+                <h1 class="mb-1"><i class="fas fa-tachometer-alt me-2"></i>Dashboard Admin</h1>
                 <p class="mb-0 opacity-75">Selamat datang, <?= htmlspecialchars($current_user['nama_lengkap']) ?></p>
             </div>
             <div class="col-md-4 text-md-end">
@@ -177,7 +177,6 @@ function getStatusBadge($status) {
     <!-- Charts Row -->
     </div>
     <!-- Jenis distribution chart removed (jenis field deprecated) -->
-    <!-- Peminjaman Bulan Ini removed for operator view -->
     </div>
 
     <!-- Alerts & Quick Access -->
@@ -394,7 +393,6 @@ function getStatusBadge($status) {
         </div>
     </div>
 
-    <!-- Aktivitas Peminjaman Terbaru removed for operator -->
 
     <!-- Quick Actions -->
     <div class="row">
@@ -437,5 +435,4 @@ function getStatusBadge($status) {
 
 <script>
 // Chart untuk peminjaman bulan ini
-// peminjaman chart removed for operator
 </script>

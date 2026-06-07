@@ -519,7 +519,7 @@ if (isset($_GET['mark_upcoming_shown']) && $_GET['mark_upcoming_shown'] == '1' &
                         <i class="fas fa-file-alt"></i>
                     </div>
                     <h3>Dokumentasi Digital</h3>
-                    <p>Penyimpanan dokumen kendaraan (STNK, BPKB, Asuransi) dalam format digital yang aman dan mudah diakses.</p>
+                    <p>Penyimpanan dokumen kendaraan dalam format digital yang aman dan mudah diakses.</p>
                 </div>
             </div>
         </div>

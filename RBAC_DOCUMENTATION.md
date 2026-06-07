@@ -5,7 +5,7 @@ RANDIS implements a comprehensive Role-Based Access Control system to ensure pro
 
 ## Role Hierarchy
 
-### 1. Admin (Level 3)
+### 1. Admin (Level 1)
 **Full System Access**
 - User management (create, edit, delete users)
 - Vehicle management (all operations)
@@ -16,42 +16,55 @@ RANDIS implements a comprehensive Role-Based Access Control system to ensure pro
 
 **Typical Users:** System administrators, IT personnel
 
-### 2. Operator (Level 2) 
-**Operational Management**
-- Vehicle data entry and updates
-- Maintenance scheduling
-- Fuel logging
-- Usage tracking
-- Generate operational reports
-- Manage vehicle assignments
+### 2. Pimpinan (Level 1)
+**Leadership Access**
+- Review and approve requests
+- Reports and analytics
+- Audit logs access
+- Oversight of vehicle and maintenance data
 
-**Typical Users:** Fleet managers, logistics officers
+**Typical Users:** Command staff, leadership
 
-### 3. User (Level 1)
-**Basic Access**
+### 3. Driver (Level 3)
+**Operational Access**
 - View assigned vehicles
 - Log fuel usage for assigned vehicles
 - View maintenance schedules
 - Submit maintenance requests
+- View own usage history
+
+**Typical Users:** Drivers, vehicle users
+
+### 4. User (Level 3)
+**Basic Access**
+- Request vehicle usage
+- View request status and assigned vehicles
+- View maintenance schedules
 - Basic reporting for own vehicles
 
-**Typical Users:** Drivers, vehicle users, field personnel
+**Typical Users:** General users, field personnel
 
 ## Database Implementation
 
 ### Role Table
 ```sql
 CREATE TABLE `role` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `nama_role` varchar(50) NOT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `nama_role` (`nama_role`)
+    `id` int(11) NOT NULL AUTO_INCREMENT,
+    `kode_role` varchar(50) NOT NULL,
+    `nama_role` varchar(50) NOT NULL,
+    `level_akses` int(11) NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `kode_role` (`kode_role`)
 );
 
-INSERT INTO `role` VALUES 
-(1, 'user'),
-(2, 'operator'), 
-(3, 'admin');
+INSERT INTO `role` (`kode_role`, `nama_role`, `level_akses`) VALUES
+('ADMIN', 'Admin', 1),
+('PIMPINAN', 'Pimpinan', 1),
+('DRIVER', 'Driver', 3),
+('USER', 'User', 3);
+
+-- Lower level_akses means higher privilege. Admin-like roles are those
+-- with the minimum level_akses value.
 ```
 
 ### User Account Linking
@@ -83,12 +96,18 @@ function get_current_role() {
 }
 
 // Check permissions
+function is_admin_like() {
+    $current_level = get_current_role_level();
+    $min_level = get_min_role_level();
+    return $current_level !== null && $min_level !== null && $current_level <= $min_level;
+}
+
 function can_admin() {
-    return get_current_role() === 'admin';
+    return is_admin_like();
 }
 
 function can_operate() {
-    return in_array(get_current_role(), ['admin', 'operator']);
+    return is_admin_like();
 }
 
 function can_access_vehicle($vehicle_id) {
@@ -105,16 +124,16 @@ require_once 'includes/auth.php';
 check_login(); // Redirect if not logged in
 
 // Role-specific checks
-if (!can_operate()) {
-    die("Access denied. Operator level required.");
+if (!is_admin_like()) {
+    die("Access denied. Admin-like level required.");
 }
 ```
 
 ### Menu System
 The system dynamically shows menu items based on user role:
-- **Admin**: All menu items visible
-- **Operator**: Vehicle management, maintenance, reporting
-- **User**: Limited to assigned vehicles and basic functions
+- **Admin/Pimpinan**: All menu items visible
+- **Driver**: Assigned vehicle tools, fuel logs, schedules
+- **User**: Limited to own requests and basic functions
 
 ## Security Features
 
@@ -150,13 +169,20 @@ CREATE TABLE `log_aktivitas` (
 ### Test Accounts (Change in Production!)
 ```sql
 -- Admin account
-INSERT INTO user_account VALUES (1, 1, 'admin', 'admin', 3, 'Aktif');
+INSERT INTO user_account (pengguna_id, username, password_hash, role_id, status)
+SELECT 1, 'admin', '<bcrypt-hash>', id, 'Aktif' FROM role WHERE UPPER(kode_role) = 'ADMIN';
 
--- Operator account  
-INSERT INTO user_account VALUES (3, 1, 'operator', 'operator', 2, 'Aktif');
+-- Pimpinan account
+INSERT INTO user_account (pengguna_id, username, password_hash, role_id, status)
+SELECT 2, 'pimpinan', '<bcrypt-hash>', id, 'Aktif' FROM role WHERE UPPER(kode_role) = 'PIMPINAN';
+
+-- Driver account
+INSERT INTO user_account (pengguna_id, username, password_hash, role_id, status)
+SELECT 3, 'driver', '<bcrypt-hash>', id, 'Aktif' FROM role WHERE UPPER(kode_role) = 'DRIVER';
 
 -- User account
-INSERT INTO user_account VALUES (2, 2, 'user', 'user', 1, 'Aktif');
+INSERT INTO user_account (pengguna_id, username, password_hash, role_id, status)
+SELECT 4, 'user', '<bcrypt-hash>', id, 'Aktif' FROM role WHERE UPPER(kode_role) = 'USER';
 ```
 
 **⚠️ IMPORTANT:** Change default passwords before production deployment!
@@ -172,7 +198,8 @@ c:\xampp\htdocs\randis\
 ├── index.php             # Main app with role-based routing
 └── pages/                # Role-protected pages
     ├── dashboard_admin.php
-    ├── dashboard_operator.php
+    ├── dashboard_pimpinan.php
+    ├── dashboard_driver.php
     └── dashboard_user.php
 ```
 

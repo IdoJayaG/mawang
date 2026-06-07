@@ -38,13 +38,50 @@ if ($peminjam_col) {
     $user_select = ', u.nama_lengkap as nama, u.nrp_nip as nrp, u.pangkat, u.jabatan, u.email, u.no_hp as telepon';
 }
 
+// Surat tugas linkage (creator, driver, status)
+$join_surat = '';
+$join_creator = '';
+$join_driver = '';
+$creator_select = '';
+$surat_select = '';
+$driver_select = '';
+$creator_join_col = '';
+
+$tblRes = $mysqli->query("SHOW TABLES LIKE 'surat_tugas'");
+$has_surat_tbl = ($tblRes && $tblRes->num_rows > 0);
+if ($has_surat_tbl && in_array('surat_tugas_id', $cols_names, true)) {
+    $st_cols_res = $mysqli->query("SHOW COLUMNS FROM surat_tugas");
+    $st_cols = $st_cols_res ? array_column($st_cols_res->fetch_all(MYSQLI_ASSOC), 'Field') : [];
+
+    $join_surat = ' LEFT JOIN surat_tugas s ON p.surat_tugas_id = s.id';
+
+    $creator_join_col = 's.pengguna_id';
+    if (in_array('created_by', $st_cols, true)) {
+        $creator_join_col = 's.created_by';
+    } elseif (in_array('pembuat_id', $st_cols, true)) {
+        $creator_join_col = 's.pembuat_id';
+    }
+
+    $join_creator = " LEFT JOIN pengguna pembuat ON {$creator_join_col} = pembuat.id";
+    $creator_select = ', pembuat.nama_lengkap as pembuat_nama, pembuat.nrp_nip as pembuat_nrp, pembuat.pangkat as pembuat_pangkat, pembuat.jabatan as pembuat_jabatan';
+    $surat_select = ", s.status as surat_status, {$creator_join_col} as surat_pembuat_id";
+
+    if (in_array('driver_id', $st_cols, true)) {
+        $join_driver = ' LEFT JOIN pengguna drv ON s.driver_id = drv.id';
+        $driver_select = ', drv.nama_lengkap as nama_pengemudi';
+    }
+}
+
 $sql = "SELECT p.*, k.no_polisi, k.merk, k.tipe, k.tahun_pembuatan, k.jenis, k.warna, k.satker, k.no_reg"
-    . $user_select . $select_extra .
+    . $user_select . $select_extra . $creator_select . $surat_select . $driver_select .
     " FROM peminjaman_kendaraan p"
-    . $join_user .
-    " LEFT JOIN kendaraan k ON p.kendaraan_id = k.id"
-    . $join_approver .
-    " WHERE p.id = ?";
+    . $join_user
+    . $join_surat
+    . $join_creator
+    . $join_driver
+    . " LEFT JOIN kendaraan k ON p.kendaraan_id = k.id"
+    . $join_approver
+    . " WHERE p.id = ?";
 
 $stmt = $mysqli->prepare($sql);
 $stmt->bind_param('i', $peminjaman_id);
@@ -57,11 +94,11 @@ if ($res->num_rows === 0) {
 $row = $res->fetch_assoc();
 $stmt->close();
 
-// Authorization: owner (pemohon/peminjam) or admin/operator
+// Authorization: owner (pemohon/peminjam atau pembuat surat) or admin-like
 $current = get_logged_in_user();
 $role = get_current_role();
-$owner_id = (int)($row[$peminjam_col] ?? $row['created_by'] ?? 0);
-if ($current['id'] !== $owner_id && !in_array($role, ['admin','operator'])) {
+$owner_id = (int)($row['surat_pembuat_id'] ?? ($row[$peminjam_col] ?? ($row['created_by'] ?? 0)));
+if ($current['id'] !== $owner_id && !is_admin_like()) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
     exit();
 }
@@ -82,6 +119,20 @@ function durasi($mulai, $selesai){
     } catch (Throwable $e) { return '-'; }
 }
 
+// Display helpers for peminjam, driver, status
+$peminjam_name = $row['pembuat_nama'] ?? ($row['nama'] ?? '');
+$peminjam_nrp = $row['pembuat_nrp'] ?? ($row['nrp'] ?? '');
+$peminjam_pangkat = $row['pembuat_pangkat'] ?? ($row['pangkat'] ?? '');
+$peminjam_jabatan = $row['pembuat_jabatan'] ?? ($row['jabatan'] ?? '');
+$status_display = $row['surat_status'] ?? ($row['status'] ?? '');
+$driver_label = $row['nama_pengemudi'] ?? '';
+if ($driver_label === '' && !empty($row['nama_sopir'])) {
+    $driver_label = $row['nama_sopir'];
+}
+if ($driver_label === '' && !empty($row['sopir_sendiri'])) {
+    $driver_label = 'Sopir Sendiri';
+}
+
 ob_start();
 ?>
 <div class="row">
@@ -89,9 +140,9 @@ ob_start();
         <div class="card mb-2">
             <div class="card-header bg-primary text-white"><strong>Peminjam</strong></div>
             <div class="card-body small">
-                <p class="mb-1"><strong>Nama:</strong> <?= h($row['nama'] ?? '') ?></p>
-                <p class="mb-1"><strong>NRP/NIP:</strong> <?= h($row['nrp'] ?? '') ?></p>
-                <p class="mb-1"><strong>Pangkat/Jabatan:</strong> <?= h($row['pangkat'] ?? '') ?><?= !empty($row['jabatan']) ? ' | ' . h($row['jabatan']) : '' ?></p>
+                <p class="mb-1"><strong>Nama:</strong> <?= h($peminjam_name) ?></p>
+                <p class="mb-1"><strong>NRP/NIP:</strong> <?= h($peminjam_nrp) ?></p>
+                <p class="mb-1"><strong>Pangkat/Jabatan:</strong> <?= h($peminjam_pangkat) ?><?= !empty($peminjam_jabatan) ? ' | ' . h($peminjam_jabatan) : '' ?></p>
                 <?php if (!empty($row['email']) || !empty($row['telepon'])): ?>
                 <p class="mb-1"><strong>Kontak:</strong> <?= h($row['email'] ?? '') ?><?= !empty($row['telepon']) ? ' | ' . h($row['telepon']) : '' ?></p>
                 <?php endif; ?>
@@ -107,6 +158,9 @@ ob_start();
                 <p class="mb-1"><strong>Jenis:</strong> <?= h($row['jenis'] ?? '') ?></p>
                 <p class="mb-1"><strong>Satker:</strong> <?= h($row['satker'] ?? '') ?></p>
                 <p class="mb-1"><strong>No. Reg:</strong> <?= h($row['no_reg'] ?? '') ?></p>
+                <?php if (!empty($driver_label)): ?>
+                <p class="mb-1"><strong>Pengemudi:</strong> <?= h($driver_label) ?></p>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -118,7 +172,7 @@ ob_start();
         <p class="mb-1"><strong>Tanggal Mulai:</strong> <?= fmt($row['tanggal_mulai']) ?></p>
         <p class="mb-1"><strong>Tanggal Selesai:</strong> <?= fmt($row['tanggal_selesai']) ?></p>
         <p class="mb-1"><strong>Durasi:</strong> <?= durasi($row['tanggal_mulai'] ?? null, $row['tanggal_selesai'] ?? null) ?></p>
-        <p class="mb-1"><strong>Status:</strong> <?= h($row['status']) ?></p>
+        <p class="mb-1"><strong>Status:</strong> <?= h($status_display) ?></p>
         <p class="mb-1"><strong>Keperluan:</strong> <?= nl2br(h($row['keperluan'])) ?></p>
         <?php if (!empty($row['approved_at'])): ?>
         <p class="mb-1"><strong>Disetujui:</strong> <?= fmt($row['approved_at']) ?><?= !empty($row['admin_nama']) ? ' oleh ' . h($row['admin_nama']) : '' ?></p>
@@ -144,13 +198,13 @@ ob_start();
 </div>
 <?php endif; ?>
 
-<?php if (in_array($role, ['admin','operator']) || $current['id'] === $owner_id): ?>
+<?php if (is_admin_like() || $current['id'] === $owner_id): ?>
 <div class="text-right mt-2">
-    <?php if (strtolower($row['status']) === 'pending' && in_array($role, ['admin','operator'])): ?>
+    <?php if (strtolower($row['status']) === 'pending' && is_admin_like()): ?>
         <a href="index.php?page=persetujuan_peminjaman&action=approve&id=<?= (int)$row['id'] ?>" class="btn btn-sm btn-success">Setujui</a>
         <a href="index.php?page=persetujuan_peminjaman&action=reject&id=<?= (int)$row['id'] ?>" class="btn btn-sm btn-danger">Tolak</a>
     <?php endif; ?>
-    <?php if (strtolower($row['status']) === 'ongoing' && in_array($role, ['admin','operator'])): ?>
+    <?php if (strtolower($row['status']) === 'ongoing' && is_admin_like()): ?>
         <button class="btn btn-sm btn-info" onclick="markCompleted(<?= (int)$row['id'] ?>)">Tandai Selesai</button>
     <?php endif; ?>
 </div>

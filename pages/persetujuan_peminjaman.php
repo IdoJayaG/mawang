@@ -54,6 +54,31 @@ foreach (['approved_by','approval_by','approver_id','approved_by_id','approver']
 $has_approved_at = in_array('approved_at', $peminjaman_cols);
 $has_surat_tugas_id = in_array('surat_tugas_id', $peminjaman_cols, true);
 
+// Ensure two-step approval columns exist (admin -> pimpinan)
+function ensure_peminjaman_approval_columns($mysqli) {
+    $cols = get_table_columns($mysqli, 'peminjaman_kendaraan');
+    $defs = [
+        'approval_admin_status' => "ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Pending'",
+        'approval_admin_by' => 'INT NULL',
+        'approval_admin_at' => 'DATETIME NULL',
+        'approval_pimpinan_status' => "ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Pending'",
+        'approval_pimpinan_by' => 'INT NULL',
+        'approval_pimpinan_at' => 'DATETIME NULL'
+    ];
+    $refresh = false;
+    foreach ($defs as $col => $def) {
+        if (!in_array($col, $cols, true)) {
+            @$mysqli->query("ALTER TABLE peminjaman_kendaraan ADD COLUMN {$col} {$def}");
+            $refresh = true;
+        }
+    }
+    return $refresh ? get_table_columns($mysqli, 'peminjaman_kendaraan') : $cols;
+}
+
+$peminjaman_cols = ensure_peminjaman_approval_columns($mysqli);
+$has_admin_approval = in_array('approval_admin_status', $peminjaman_cols, true);
+$has_pimpinan_approval = in_array('approval_pimpinan_status', $peminjaman_cols, true);
+
 // Ensure optional linkage columns exist to support surat_tugas -> peminjaman -> surat_tugas flow.
 if (!$has_surat_tugas_id) {
     @$mysqli->query("ALTER TABLE peminjaman_kendaraan ADD COLUMN surat_tugas_id INT NULL AFTER kendaraan_id");
@@ -106,168 +131,208 @@ if ($_POST && in_array($action, ['approve', 'reject', 'edit'])) {
                 if ($conflict > 0) {
                     $msg = '<div class="alert alert-danger">Tidak dapat menyetujui: Ada konflik jadwal dengan peminjaman lain!</div>';
                 } else {
-                    // Approve the request
-                    // Detect available columns and only include notes-like column if present
-                    $cols_now = $mysqli->query("SHOW COLUMNS FROM peminjaman_kendaraan");
-                    $fields_now = $cols_now ? array_column($cols_now->fetch_all(MYSQLI_ASSOC), 'Field') : [];
+                    $is_pimpinan = ($current_role === 'pimpinan');
+                    $cols_now = get_table_columns($mysqli, 'peminjaman_kendaraan');
+                    $fields_now = $cols_now;
                     $notes_col = null;
                     foreach (['notes','note','catatan_approval','catatan_pengembalian','catatan'] as $c) {
-                        if (in_array($c, $fields_now)) { $notes_col = $c; break; }
+                        if (in_array($c, $fields_now, true)) { $notes_col = $c; break; }
                     }
+                    $updated_by_exists = in_array('updated_by', $fields_now, true);
 
-                    $update_cols = "status = 'Approved'";
-                    if ($approver_col) {
-                        $update_cols .= ", {$approver_col} = ?";
-                    }
-                    if ($has_approved_at) {
-                        $update_cols .= ", approved_at = NOW()";
-                    }
-                    // include notes column placeholder only when present
-                    if ($notes_col) {
-                        $update_cols .= ", {$notes_col} = ?";
-                    }
-
-                    // determine if updated_by column exists in this schema
-                    $updated_by_exists = in_array('updated_by', $fields_now);
-                    if ($updated_by_exists) {
-                        $update_cols .= ", updated_by = ?, updated_at = NOW()";
-                    } else {
-                        $update_cols .= ", updated_at = NOW()";
-                    }
-
-                    $sql_up = "UPDATE peminjaman_kendaraan SET " . $update_cols . " WHERE id = ?";
-                    $stmt = $mysqli->prepare($sql_up);
-
-                    // Build params/types in the exact placeholder order: approver, notes, updated_by(if present), id
-                    $bind_params = [];
+                    $update_parts = [];
                     $bind_types = '';
-                    if ($approver_col) {
-                        $bind_params[] = $current_user_id;
-                        $bind_types .= 'i';
+                    $bind_params = [];
+
+                    if ($is_pimpinan) {
+                        $update_parts[] = "status = 'Approved'";
+                        if ($has_pimpinan_approval) {
+                            $update_parts[] = "approval_pimpinan_status = 'Approved'";
+                            if (in_array('approval_pimpinan_by', $fields_now, true)) {
+                                $update_parts[] = "approval_pimpinan_by = ?";
+                                $bind_types .= 'i';
+                                $bind_params[] = $current_user_id;
+                            }
+                            if (in_array('approval_pimpinan_at', $fields_now, true)) {
+                                $update_parts[] = "approval_pimpinan_at = NOW()";
+                            }
+                        }
+                        // If pimpinan approves directly, mark admin approval as approved (without admin by)
+                        if ($has_admin_approval) {
+                            $update_parts[] = "approval_admin_status = 'Approved'";
+                            if (in_array('approval_admin_at', $fields_now, true)) {
+                                $update_parts[] = "approval_admin_at = NOW()";
+                            }
+                        }
+                        if ($approver_col) {
+                            $update_parts[] = "{$approver_col} = ?";
+                            $bind_types .= 'i';
+                            $bind_params[] = $current_user_id;
+                        }
+                        if ($has_approved_at) {
+                            $update_parts[] = "approved_at = NOW()";
+                        }
+                    } else {
+                        // Admin approval (step 1): keep status pending, forward to pimpinan
+                        if ($has_admin_approval) {
+                            $update_parts[] = "approval_admin_status = 'Approved'";
+                            if (in_array('approval_admin_by', $fields_now, true)) {
+                                $update_parts[] = "approval_admin_by = ?";
+                                $bind_types .= 'i';
+                                $bind_params[] = $current_user_id;
+                            }
+                            if (in_array('approval_admin_at', $fields_now, true)) {
+                                $update_parts[] = "approval_admin_at = NOW()";
+                            }
+                        }
+                        if ($has_pimpinan_approval) {
+                            $update_parts[] = "approval_pimpinan_status = 'Pending'";
+                        }
                     }
+
                     if ($notes_col) {
-                        $bind_params[] = $notes;
+                        $update_parts[] = "{$notes_col} = ?";
                         $bind_types .= 's';
+                        $bind_params[] = $notes;
                     }
                     if ($updated_by_exists) {
-                        $bind_params[] = $current_user_id;
+                        $update_parts[] = "updated_by = ?";
                         $bind_types .= 'i';
+                        $bind_params[] = $current_user_id;
                     }
-                    // id param
-                    $bind_params[] = $peminjaman_id;
-                    $bind_types .= 'i';
+                    $update_parts[] = "updated_at = NOW()";
 
+                    $sql_up = "UPDATE peminjaman_kendaraan SET " . implode(', ', $update_parts) . " WHERE id = ? AND status = 'Pending'";
+                    $bind_types .= 'i';
+                    $bind_params[] = $peminjaman_id;
+
+                    $stmt = $mysqli->prepare($sql_up);
                     if ($bind_params) {
                         $stmt->bind_param($bind_types, ...$bind_params);
                     }
-                    
+
                     if ($stmt->execute()) {
-                        // Update vehicle status using available column
-                        $vcol = vehicle_status_column($mysqli);
-                        if ($vcol) {
-                            $vid = (int)$peminjaman['kendaraan_id'];
-                            $val = $mysqli->real_escape_string('Dipinjam');
-                            $mysqli->query("UPDATE kendaraan SET `{$vcol}` = '{$val}' WHERE id = {$vid}");
-                        }
-
-                        // If there is no linked surat_tugas yet, create a minimal surat_tugas record
-                        $has_st_table = table_exists($mysqli, 'surat_tugas');
-                        $current_suratt_id = (int)($peminjaman['surat_tugas_id'] ?? 0);
-                        if ($has_st_table && $current_suratt_id <= 0) {
-                            $st_cols = get_table_columns($mysqli, 'surat_tugas');
-                            $desired = [];
-                            if (in_array('nomor_surat', $st_cols, true)) $desired['nomor_surat'] = ['type'=>'s','value'=>'AUTO-' . time()];
-                            if (in_array('tanggal_surat', $st_cols, true)) $desired['tanggal_surat'] = ['type'=>'s','value'=>date('Y-m-d')];
-                            if (in_array('berangkat_dari', $st_cols, true)) $desired['berangkat_dari'] = ['type'=>'s','value'=>'SPBT Kemhan Cawang'];
-                            if (in_array('kendaraan_id', $st_cols, true)) $desired['kendaraan_id'] = ['type'=>'i','value'=> (int)$peminjaman['kendaraan_id']];
-                            // determine pengguna/pemohon
-                            $pengguna_id = null;
-                            foreach (['peminjam_id','pemohon_id','pengguna_id','user_id'] as $c) {
-                                if (!empty($peminjaman[$c])) { $pengguna_id = (int)$peminjaman[$c]; break; }
+                        if ($is_pimpinan) {
+                            // Update vehicle status using available column
+                            $vcol = vehicle_status_column($mysqli);
+                            if ($vcol) {
+                                $vid = (int)$peminjaman['kendaraan_id'];
+                                $val = $mysqli->real_escape_string('Dipinjam');
+                                $mysqli->query("UPDATE kendaraan SET `{$vcol}` = '{$val}' WHERE id = {$vid}");
                             }
-                            if ($pengguna_id && in_array('pengguna_id', $st_cols, true)) $desired['pengguna_id'] = ['type'=>'i','value'=>$pengguna_id];
-                            if (in_array('tujuan', $st_cols, true)) $desired['tujuan'] = ['type'=>'s','value'=>$peminjaman['tujuan'] ?? ''];
-                            if (in_array('keperluan', $st_cols, true)) $desired['keperluan'] = ['type'=>'s','value'=>$peminjaman['keperluan'] ?? ''];
-                            if (in_array('tanggal_berangkat', $st_cols, true)) $desired['tanggal_berangkat'] = ['type'=>'s','value'=>$peminjaman['tanggal_mulai'] ?? null];
-                            if (in_array('tanggal_kembali', $st_cols, true)) $desired['tanggal_kembali'] = ['type'=>'s','value'=>$peminjaman['tanggal_selesai'] ?? null];
-                            if (in_array('estimasi_km', $st_cols, true)) $desired['estimasi_km'] = ['type'=>'i','value'=> (int)($peminjaman['estimasi_km'] ?? 0)];
-                            if (in_array('estimasi_bbm', $st_cols, true)) $desired['estimasi_bbm'] = ['type'=>'d','value'=> ($peminjaman['estimasi_bbm'] ?? 0)];
-                            if (in_array('status', $st_cols, true)) $desired['status'] = ['type'=>'s','value'=>'Disetujui'];
-                            if (in_array('created_by', $st_cols, true)) $desired['created_by'] = ['type'=>'i','value'=>$current_user_id];
 
-                            if (!empty($desired)) {
-                                $insert_cols = array_keys($desired);
-                                $types = '';
-                                $vals = [];
-                                foreach ($desired as $meta) { $types .= $meta['type']; $vals[] = $meta['value']; }
-                                $placeholders = implode(', ', array_fill(0, count($insert_cols), '?'));
-                                $sql_ins = "INSERT INTO surat_tugas (" . implode(', ', $insert_cols) . ") VALUES (" . $placeholders . ")";
-                                $ins = $mysqli->prepare($sql_ins);
-                                if ($ins) {
-                                    $bind_params = [];
-                                    $bind_params[] = & $types;
-                                    for ($i = 0; $i < count($vals); $i++) { $bind_params[] = & $vals[$i]; }
-                                    call_user_func_array([$ins, 'bind_param'], $bind_params);
-                                    if ($ins->execute()) {
-                                        $new_st_id = $ins->insert_id;
-                                        // link back to peminjaman_kendaraan if column exists
-                                        if ($has_surat_tugas_id) {
-                                            $upd = $mysqli->prepare("UPDATE peminjaman_kendaraan SET surat_tugas_id = ? WHERE id = ?");
-                                            if ($upd) { $upd->bind_param('ii', $new_st_id, $peminjaman_id); $upd->execute(); $upd->close(); }
+                            // If there is no linked surat_tugas yet, create a minimal surat_tugas record
+                            $has_st_table = table_exists($mysqli, 'surat_tugas');
+                            $current_suratt_id = (int)($peminjaman['surat_tugas_id'] ?? 0);
+                            if ($has_st_table && $current_suratt_id <= 0) {
+                                $st_cols = get_table_columns($mysqli, 'surat_tugas');
+                                $desired = [];
+                                if (in_array('nomor_surat', $st_cols, true)) $desired['nomor_surat'] = ['type'=>'s','value'=>'AUTO-' . time()];
+                                if (in_array('tanggal_surat', $st_cols, true)) $desired['tanggal_surat'] = ['type'=>'s','value'=>date('Y-m-d')];
+                                if (in_array('berangkat_dari', $st_cols, true)) $desired['berangkat_dari'] = ['type'=>'s','value'=>'SPBT Kemhan Cawang'];
+                                if (in_array('kendaraan_id', $st_cols, true)) $desired['kendaraan_id'] = ['type'=>'i','value'=> (int)$peminjaman['kendaraan_id']];
+                                // determine pengguna/pemohon
+                                $pengguna_id = null;
+                                foreach (['peminjam_id','pemohon_id','pengguna_id','user_id'] as $c) {
+                                    if (!empty($peminjaman[$c])) { $pengguna_id = (int)$peminjaman[$c]; break; }
+                                }
+                                if ($pengguna_id && in_array('pengguna_id', $st_cols, true)) $desired['pengguna_id'] = ['type'=>'i','value'=>$pengguna_id];
+                                if (in_array('tujuan', $st_cols, true)) $desired['tujuan'] = ['type'=>'s','value'=>$peminjaman['tujuan'] ?? ''];
+                                if (in_array('keperluan', $st_cols, true)) $desired['keperluan'] = ['type'=>'s','value'=>$peminjaman['keperluan'] ?? ''];
+                                if (in_array('tanggal_berangkat', $st_cols, true)) $desired['tanggal_berangkat'] = ['type'=>'s','value'=>$peminjaman['tanggal_mulai'] ?? null];
+                                if (in_array('tanggal_kembali', $st_cols, true)) $desired['tanggal_kembali'] = ['type'=>'s','value'=>$peminjaman['tanggal_selesai'] ?? null];
+                                if (in_array('estimasi_km', $st_cols, true)) $desired['estimasi_km'] = ['type'=>'i','value'=> (int)($peminjaman['estimasi_km'] ?? 0)];
+                                if (in_array('estimasi_bbm', $st_cols, true)) $desired['estimasi_bbm'] = ['type'=>'d','value'=> ($peminjaman['estimasi_bbm'] ?? 0)];
+                                if (in_array('status', $st_cols, true)) $desired['status'] = ['type'=>'s','value'=>'Disetujui'];
+                                if (in_array('created_by', $st_cols, true)) $desired['created_by'] = ['type'=>'i','value'=>$current_user_id];
+
+                                if (!empty($desired)) {
+                                    $insert_cols = array_keys($desired);
+                                    $types = '';
+                                    $vals = [];
+                                    foreach ($desired as $meta) { $types .= $meta['type']; $vals[] = $meta['value']; }
+                                    $placeholders = implode(', ', array_fill(0, count($insert_cols), '?'));
+                                    $sql_ins = "INSERT INTO surat_tugas (" . implode(', ', $insert_cols) . ") VALUES (" . $placeholders . ")";
+                                    $ins = $mysqli->prepare($sql_ins);
+                                    if ($ins) {
+                                        $bind_params = [];
+                                        $bind_params[] = & $types;
+                                        for ($i = 0; $i < count($vals); $i++) { $bind_params[] = & $vals[$i]; }
+                                        call_user_func_array([$ins, 'bind_param'], $bind_params);
+                                        if ($ins->execute()) {
+                                            $new_st_id = $ins->insert_id;
+                                            // link back to peminjaman_kendaraan if column exists
+                                            if ($has_surat_tugas_id) {
+                                                $upd = $mysqli->prepare("UPDATE peminjaman_kendaraan SET surat_tugas_id = ? WHERE id = ?");
+                                                if ($upd) { $upd->bind_param('ii', $new_st_id, $peminjaman_id); $upd->execute(); $upd->close(); }
+                                            }
                                         }
+                                        $ins->close();
                                     }
-                                    $ins->close();
                                 }
                             }
-                        }
 
-                        // If this approval originated from surat_tugas flow, finalize surat_tugas for driver visibility.
-                        $surat_tugas_id = (int)($peminjaman['surat_tugas_id'] ?? 0);
-                        if ($surat_tugas_id > 0 && table_exists($mysqli, 'surat_tugas')) {
-                            $st_cols = get_table_columns($mysqli, 'surat_tugas');
-                            $set_parts = ["status = 'Disetujui'", "updated_at = NOW()"];
-                            $types_st = '';
-                            $vals_st = [];
-                            if (in_array('approval_pimpinan_status', $st_cols, true)) {
-                                $set_parts[] = "approval_pimpinan_status = 'Approved'";
-                            }
-                            if (in_array('approval_pimpinan_at', $st_cols, true)) {
-                                $set_parts[] = "approval_pimpinan_at = NOW()";
-                            }
-                            if (in_array('approval_pimpinan_by', $st_cols, true)) {
-                                $set_parts[] = "approval_pimpinan_by = ?";
+                            // If this approval originated from surat_tugas flow, finalize surat_tugas for driver visibility.
+                            $surat_tugas_id = (int)($peminjaman['surat_tugas_id'] ?? 0);
+                            if ($surat_tugas_id > 0 && table_exists($mysqli, 'surat_tugas')) {
+                                $st_cols = get_table_columns($mysqli, 'surat_tugas');
+                                $set_parts = ["status = 'Disetujui'", "updated_at = NOW()"];
+                                $types_st = '';
+                                $vals_st = [];
+                                if (in_array('approval_pimpinan_status', $st_cols, true)) {
+                                    $set_parts[] = "approval_pimpinan_status = 'Approved'";
+                                }
+                                if (in_array('approval_pimpinan_at', $st_cols, true)) {
+                                    $set_parts[] = "approval_pimpinan_at = NOW()";
+                                }
+                                if (in_array('approval_pimpinan_by', $st_cols, true)) {
+                                    $set_parts[] = "approval_pimpinan_by = ?";
+                                    $types_st .= 'i';
+                                    $vals_st[] = $current_user_id;
+                                }
+                                if (in_array('updated_by', $st_cols, true)) {
+                                    $set_parts[] = "updated_by = ?";
+                                    $types_st .= 'i';
+                                    $vals_st[] = $current_user_id;
+                                }
+
+                                $sql_st = "UPDATE surat_tugas SET " . implode(', ', $set_parts) . " WHERE id = ?";
                                 $types_st .= 'i';
-                                $vals_st[] = $current_user_id;
-                            }
-                            if (in_array('updated_by', $st_cols, true)) {
-                                $set_parts[] = "updated_by = ?";
-                                $types_st .= 'i';
-                                $vals_st[] = $current_user_id;
+                                $vals_st[] = $surat_tugas_id;
+                                $st_upd = $mysqli->prepare($sql_st);
+                                if ($st_upd) {
+                                    $st_upd->bind_param($types_st, ...$vals_st);
+                                    $st_upd->execute();
+                                    $st_upd->close();
+                                }
                             }
 
-                            $sql_st = "UPDATE surat_tugas SET " . implode(', ', $set_parts) . " WHERE id = ?";
-                            $types_st .= 'i';
-                            $vals_st[] = $surat_tugas_id;
-                            $st_upd = $mysqli->prepare($sql_st);
-                            if ($st_upd) {
-                                $st_upd->bind_param($types_st, ...$vals_st);
-                                $st_upd->execute();
-                                $st_upd->close();
+                            // Notify user
+                            $user_id = (int)($peminjaman['peminjam_id'] ?? 0);
+                            if ($user_id) {
+                                $label_kendaraan = $peminjaman['no_reg'] ?: ($peminjaman['no_polisi'] ?? '');
+                                $message = "Pengajuan peminjaman kendaraan {$label_kendaraan} telah disetujui pimpinan";
+                                insert_notification($mysqli, $user_id, $message, 'Peminjaman Disetujui');
                             }
+
+                            $msg = '<div class="alert alert-success">Pengajuan peminjaman berhasil disetujui pimpinan!</div>';
+                            log_user_activity("Menyetujui peminjaman kendaraan ID: {$peminjaman['kendaraan_id']} untuk user ID: {$peminjaman['peminjam_id']}");
+                            log_peminjaman_role_activity($current_role, "Menyetujui peminjaman ID: {$peminjaman_id}");
+                        } else {
+                            // Admin approval: notify pimpinan for second approval
+                            $pimpinan_role_id = function_exists('get_role_id_by_code') ? get_role_id_by_code('PIMPINAN') : null;
+                            if ($pimpinan_role_id) {
+                                $res = $mysqli->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id = " . (int)$pimpinan_role_id);
+                                $label_kendaraan = $peminjaman['no_reg'] ?: ($peminjaman['no_polisi'] ?? '');
+                                $msg_note = "Pengajuan peminjaman kendaraan {$label_kendaraan} menunggu persetujuan pimpinan.";
+                                while ($res && ($row = $res->fetch_assoc())) {
+                                    insert_notification($mysqli, (int)$row['id'], $msg_note, 'Persetujuan Pimpinan');
+                                }
+                            }
+                            $msg = '<div class="alert alert-success">Pengajuan disetujui admin. Menunggu persetujuan pimpinan.</div>';
+                            log_user_activity("Menyetujui (admin) peminjaman ID: {$peminjaman_id}");
+                            log_peminjaman_role_activity($current_role, "Menyetujui (admin) peminjaman ID: {$peminjaman_id}");
                         }
-                        
-                        // Create notification for user
-                        // Create notification for user (defensive)
-                        $user_id = (int)($peminjaman['peminjam_id'] ?? 0);
-                        if ($user_id) {
-                            $label_kendaraan = $peminjaman['no_reg'] ?: ($peminjaman['no_polisi'] ?? '');
-                            $message = "Pengajuan peminjaman kendaraan {$label_kendaraan} telah disetujui";
-                            insert_notification($mysqli, $user_id, $message, 'Peminjaman Disetujui');
-                        }
-                        
-                        $msg = '<div class="alert alert-success">Pengajuan peminjaman berhasil disetujui!</div>';
-                        log_user_activity("Menyetujui peminjaman kendaraan ID: {$peminjaman['kendaraan_id']} untuk user ID: {$peminjaman['peminjam_id']}");
-                        log_peminjaman_role_activity($current_role, "Menyetujui peminjaman ID: {$peminjaman_id}");
                     } else {
                         $msg = '<div class="alert alert-danger">Error: ' . $stmt->error . '</div>';
                     }
@@ -292,10 +357,31 @@ if ($_POST && in_array($action, ['approve', 'reject', 'edit'])) {
 
                     $updated_by_exists = in_array('updated_by', $fields_now);
 
-                    $update_parts = ["status = 'Rejected'"];
                     $bind_types = '';
                     $bind_params = [];
-
+                    $update_parts = ["status = 'Rejected'"];
+                    if ($current_role === 'admin' && in_array('approval_admin_status', $fields_now, true)) {
+                        $update_parts[] = "approval_admin_status = 'Rejected'";
+                        if (in_array('approval_admin_by', $fields_now, true)) {
+                            $update_parts[] = "approval_admin_by = ?";
+                            $bind_types .= 'i';
+                            $bind_params[] = $current_user_id;
+                        }
+                        if (in_array('approval_admin_at', $fields_now, true)) {
+                            $update_parts[] = "approval_admin_at = NOW()";
+                        }
+                    }
+                    if ($current_role === 'pimpinan' && in_array('approval_pimpinan_status', $fields_now, true)) {
+                        $update_parts[] = "approval_pimpinan_status = 'Rejected'";
+                        if (in_array('approval_pimpinan_by', $fields_now, true)) {
+                            $update_parts[] = "approval_pimpinan_by = ?";
+                            $bind_types .= 'i';
+                            $bind_params[] = $current_user_id;
+                        }
+                        if (in_array('approval_pimpinan_at', $fields_now, true)) {
+                            $update_parts[] = "approval_pimpinan_at = NOW()";
+                        }
+                    }
                     // Include rejected_reason only if column exists; otherwise fold into notes
                     $rejected_reason_col_exists = in_array('rejected_reason', $fields_now);
                     if ($rejected_reason_col_exists) {
@@ -474,6 +560,16 @@ if ($status_filter) {
     $where_conditions[] = "p.status = ?";
     $params[] = $status_filter;
     $param_types .= 's';
+}
+
+// Two-step approval filter for pending records
+if ($status_filter === 'Pending') {
+    if ($current_role === 'admin' && $has_admin_approval) {
+        $where_conditions[] = "p.approval_admin_status = 'Pending'";
+    }
+    if ($current_role === 'pimpinan' && $has_pimpinan_approval) {
+        $where_conditions[] = "p.approval_pimpinan_status = 'Pending'";
+    }
 }
 
 // Note: allow pimpinan to see all peminjaman (not only those linked to surat_tugas)
@@ -855,7 +951,7 @@ function getStatusBadge($status) {
                         <tr>
                             <th>No</th>
                             <th>Tanggal Ajuan</th>
-                            <th>Pemohon</th>
+                            <th>Driver</th>
                             <th>Kendaraan</th>
                             <th>Keperluan</th>
                             <th>Periode</th>

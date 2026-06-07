@@ -19,7 +19,7 @@ if (!$user_id) {
 
 try {
     // Get user info (join role via user_account)
-    $stmt = $mysqli->prepare("SELECT p.nama_lengkap as nama, COALESCE(r.nama_role, '') as role FROM pengguna p LEFT JOIN user_account ua ON p.id = ua.pengguna_id LEFT JOIN role r ON ua.role_id = r.id WHERE p.id = ?");
+    $stmt = $mysqli->prepare("SELECT p.nama_lengkap as nama, COALESCE(r.kode_role, r.nama_role, '') as role_code, COALESCE(r.nama_role, '') as role_name FROM pengguna p LEFT JOIN user_account ua ON p.id = ua.pengguna_id LEFT JOIN role r ON ua.role_id = r.id WHERE p.id = ?");
     $stmt->bind_param('i', $user_id);
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
@@ -42,6 +42,20 @@ try {
     $logs = $stmt->get_result();
     $stmt->close();
     
+    $role_code = strtoupper(trim((string)($user['role_code'] ?? '')));
+    $role_label = trim((string)($user['role_name'] ?? ''));
+    if ($role_label === '') { $role_label = $role_code; }
+    $badge_class = 'info';
+    if ($role_code !== '') {
+        if (function_exists('is_role_admin_like') && is_role_admin_like($role_code)) {
+            $badge_class = 'danger';
+        } elseif ($role_code === 'DRIVER') {
+            $badge_class = 'primary';
+        } elseif ($role_code === 'USER') {
+            $badge_class = 'info';
+        }
+    }
+
     ob_start();
 ?>
 <div class="user-summary mb-4">
@@ -50,14 +64,14 @@ try {
             <div class="card bg-light">
                 <div class="card-body text-center">
                     <div class="user-avatar-large mb-3">
-                        <div class="bg-<?= $user['role'] == 'admin' ? 'danger' : ($user['role'] == 'operator' ? 'warning' : 'info') ?> text-white d-flex align-items-center justify-content-center" 
+                        <div class="bg-<?= $badge_class ?> text-white d-flex align-items-center justify-content-center" 
                              style="width: 80px; height: 80px; border-radius: 50%; margin: 0 auto;">
                             <i class="fas fa-user fa-2x"></i>
                         </div>
                     </div>
                     <h5 class="text-primary"><?= htmlspecialchars($user['nama']) ?></h5>
-                    <span class="badge badge-<?= $user['role'] == 'admin' ? 'danger' : ($user['role'] == 'operator' ? 'warning' : 'info') ?> badge-lg">
-                        <?= strtoupper($user['role']) ?>
+                    <span class="badge badge-<?= $badge_class ?> badge-lg">
+                        <?= htmlspecialchars(strtoupper($role_label)) ?>
                     </span>
                 </div>
             </div>

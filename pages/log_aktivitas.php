@@ -41,7 +41,7 @@ if (!function_exists('is_admin')) {
     }
 }
 
-// Role-based access control - hanya admin dan operator yang bisa melihat log aktivitas
+// Role-based access control - hanya admin-like yang bisa melihat log aktivitas
 if (!can_operate()) {
     header('Location: index.php?page=403');
     exit;
@@ -56,7 +56,7 @@ $limit = 15;
 $offset = ($current_page - 1) * $limit;
 
 // Get log aktivitas grouped by user
-$query = "SELECT u.id as user_id, u.nama_lengkap as nama, COALESCE(r.nama_role, '') as role,
+$query = "SELECT u.id as user_id, u.nama_lengkap as nama, COALESCE(r.kode_role, r.nama_role, '') as role_code, COALESCE(r.nama_role, '') as role_name,
                 COUNT(la.id) as total_aktivitas,
                 MAX(la.created_at) as aktivitas_terakhir,
                 SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(IFNULL(la.activity_type, ''), ': ', IFNULL(la.description, '')) ORDER BY la.created_at DESC SEPARATOR '||'), '||', 5) as aksi_terakhir
@@ -64,7 +64,7 @@ $query = "SELECT u.id as user_id, u.nama_lengkap as nama, COALESCE(r.nama_role, 
     LEFT JOIN user_account ua ON u.id = ua.pengguna_id
     LEFT JOIN role r ON ua.role_id = r.id
     LEFT JOIN log_aktivitas la ON u.id = la.user_id
-    GROUP BY u.id, u.nama_lengkap, r.nama_role
+    GROUP BY u.id, u.nama_lengkap, r.kode_role, r.nama_role
     HAVING total_aktivitas > 0
     ORDER BY aktivitas_terakhir DESC
     LIMIT ? OFFSET ?";
@@ -85,7 +85,7 @@ $total_pages = ceil($total_records / $limit);
 // If detail view requested, render full page detail similar to riwayat_pemakaian
 if ($action === 'view' && $id > 0) {
     // fetch user and role
-    $s = $mysqli->prepare("SELECT p.nama_lengkap as nama, COALESCE(r.nama_role, '') as role FROM pengguna p LEFT JOIN user_account ua ON p.id = ua.pengguna_id LEFT JOIN role r ON ua.role_id = r.id WHERE p.id = ?");
+    $s = $mysqli->prepare("SELECT p.nama_lengkap as nama, COALESCE(r.kode_role, r.nama_role, '') as role_code, COALESCE(r.nama_role, '') as role_name FROM pengguna p LEFT JOIN user_account ua ON p.id = ua.pengguna_id LEFT JOIN role r ON ua.role_id = r.id WHERE p.id = ?");
     $s->bind_param('i', $id);
     $s->execute();
     $user = $s->get_result()->fetch_assoc();
@@ -206,23 +206,27 @@ if ($action === 'view' && $id > 0) {
                         <div class="col-md-4">
                             <div class="card bg-light">
                                 <div class="card-body text-center">
-                                        <div class="bg-<?= strtolower($user['role'] ?? '') == 'admin' ? 'danger' : (strtolower($user['role'] ?? '') == 'operator' ? 'warning' : 'info') ?> text-white d-flex align-items-center justify-content-center">
-                                        </div>
-                                    <h5 class="text-primary"><?= htmlspecialchars($user['nama']) ?></h5>
-                                        <?php 
-                                            $uRoleNorm = strtolower(trim($user['role'] ?? ''));
-                                            if ($uRoleNorm === 'admin' || strpos($uRoleNorm, 'administr') === 0) {
+                                        <?php
+                                            $role_code = strtoupper(trim((string)($user['role_code'] ?? '')));
+                                            $role_label = trim((string)($user['role_name'] ?? ''));
+                                            if ($role_label === '') { $role_label = $role_code ?: '-'; }
+                                            if (function_exists('is_role_admin_like') && is_role_admin_like($role_code)) {
                                                 $uRoleColor = 'danger';
-                                            } elseif ($uRoleNorm === 'operator') {
-                                                $uRoleColor = 'warning';
-                                            } elseif ($uRoleNorm === '') {
+                                            } elseif ($role_code === 'DRIVER') {
+                                                $uRoleColor = 'primary';
+                                            } elseif ($role_code === 'USER') {
+                                                $uRoleColor = 'info';
+                                            } elseif ($role_code === '') {
                                                 $uRoleColor = 'secondary';
                                             } else {
                                                 $uRoleColor = 'info';
                                             }
                                         ?>
+                                        <div class="bg-<?= $uRoleColor ?> text-white d-flex align-items-center justify-content-center">
+                                        </div>
+                                    <h5 class="text-primary"><?= htmlspecialchars($user['nama']) ?></h5>
                                     <span class="badge bg-<?= $uRoleColor ?> text-white badge-lg">
-                                        <?= strtoupper($user['role'] ?: '-') ?>
+                                        <?= htmlspecialchars(strtoupper($role_label)) ?>
                                     </span>
                                 </div>
                             </div>
@@ -449,8 +453,23 @@ if ($action === 'view' && $id > 0) {
                                     <td>
                                         <div class="d-flex align-items-center">
                                             <div class="flex-shrink-0 me-3">
-                                                <?php $roleClass = strtolower($row['role'] ?? ''); ?>
-                                                <div class="bg-<?= $roleClass == 'admin' ? 'danger' : ($roleClass == 'operator' ? 'warning' : 'info') ?> text-white d-flex align-items-center justify-content-center" 
+                                                <?php
+                                                    $role_code = strtoupper(trim((string)($row['role_code'] ?? '')));
+                                                    $role_label = trim((string)($row['role_name'] ?? ''));
+                                                    if ($role_label === '') { $role_label = $role_code ?: '-'; }
+                                                    if (function_exists('is_role_admin_like') && is_role_admin_like($role_code)) {
+                                                        $roleColor = 'danger';
+                                                    } elseif ($role_code === 'DRIVER') {
+                                                        $roleColor = 'primary';
+                                                    } elseif ($role_code === 'USER') {
+                                                        $roleColor = 'info';
+                                                    } elseif ($role_code === '') {
+                                                        $roleColor = 'secondary';
+                                                    } else {
+                                                        $roleColor = 'info';
+                                                    }
+                                                ?>
+                                                <div class="bg-<?= $roleColor ?> text-white d-flex align-items-center justify-content-center" 
                                                      class="rounded-circle img-small">
                                                 </div>
                                             </div>
@@ -461,18 +480,7 @@ if ($action === 'view' && $id > 0) {
                                     </td>
                                     <td>
                                         <?php 
-                                            $roleUpper = strtoupper($row['role'] ?? '');
-                                            $roleNorm = strtolower(trim($row['role'] ?? ''));
-                                            // accept variations like 'administrator'
-                                            if ($roleNorm === 'admin' || strpos($roleNorm, 'administr') === 0) {
-                                                $roleColor = 'danger';
-                                            } elseif ($roleNorm === 'operator') {
-                                                $roleColor = 'warning';
-                                            } elseif ($roleNorm === '') {
-                                                $roleColor = 'secondary';
-                                            } else {
-                                                $roleColor = 'info';
-                                            }
+                                            $roleUpper = strtoupper($role_label);
                                         ?>
                                         <span class="badge bg-<?= $roleColor ?> text-white">
                                             <?= $roleUpper ?: '-' ?>

@@ -111,7 +111,7 @@ try {
     $current_user = get_logged_in_user();
     $current_role = get_current_role();
     
-    if (!in_array($current_role, ['admin', 'operator', 'pimpinan'])) {
+    if (!is_admin_like()) {
         throw new Exception('Unauthorized access');
     }
 
@@ -132,6 +132,12 @@ try {
     $valid_statuses = ['pending', 'approved', 'rejected', 'ongoing', 'completed', 'cancelled'];
     if (!in_array($new_status, $valid_statuses)) {
         throw new Exception('Status tidak valid');
+    }
+
+    $pk_cols = get_table_columns($mysqli, 'peminjaman_kendaraan');
+    $has_pimpinan_approval = in_array('approval_pimpinan_status', $pk_cols, true);
+    if ($new_status === 'approved' && $has_pimpinan_approval && strtolower($current_role) !== 'pimpinan') {
+        throw new Exception('Menunggu persetujuan pimpinan');
     }
     
     // Get current peminjaman data
@@ -228,13 +234,14 @@ try {
     }
 
     // Update peminjaman status
+    $pk_cols = get_table_columns($mysqli, 'peminjaman_kendaraan');
     $update_query = "UPDATE peminjaman_kendaraan SET status = ?";
     $params = [$new_status];
     $types = 's';
     
     // Add approval info for certain statuses (detect approver/notes/approved_at columns)
     if (in_array($new_status, ['approved', 'rejected'])) {
-        $cols = get_table_columns($mysqli, 'peminjaman_kendaraan');
+        $cols = $pk_cols;
 
         // detect approver column variant
         $approver_col = null;
@@ -271,26 +278,40 @@ try {
         }
     }
 
-    // always set updated_by when updating status
-    $update_query .= ", updated_by = ?, updated_at = NOW()";
-    $params[] = $current_user['id'];
-    $types .= 'i';
+    // set updated_by/updated_at only when columns exist
+    $has_updated_by = in_array('updated_by', $pk_cols, true);
+    $has_updated_at = in_array('updated_at', $pk_cols, true);
+    if ($has_updated_by) {
+        $update_query .= ", updated_by = ?";
+        $params[] = $current_user['id'];
+        $types .= 'i';
+    }
+    if ($has_updated_at) {
+        $update_query .= ", updated_at = NOW()";
+    }
 
     $update_query .= " WHERE id = ?";
     $params[] = $peminjaman_id;
     $types .= 'i';
     
     $update_stmt = $mysqli->prepare($update_query);
+    if (!$update_stmt) {
+        throw new Exception('Gagal menyiapkan query update: ' . $mysqli->error);
+    }
     $update_stmt->bind_param($types, ...$params);
     
     if (!$update_stmt->execute()) {
         throw new Exception('Gagal mengupdate status: ' . $mysqli->error);
     }
 
-    // When a peminjaman is approved, create a corresponding surat_tugas (defensive, only if table exists)
+    // When a peminjaman is approved, create a corresponding surat_tugas only after pimpinan approval
     if (strtolower($new_status) === 'approved' && table_exists($mysqli, 'surat_tugas')) {
         $stCols = get_table_columns($mysqli, 'surat_tugas');
         $pkCols = get_table_columns($mysqli, 'peminjaman_kendaraan');
+        $has_pimpinan_approval = in_array('approval_pimpinan_status', $pkCols, true);
+        if (strtolower($current_role) !== 'pimpinan' && $has_pimpinan_approval) {
+            // Skip surat_tugas creation until pimpinan final approval
+        } else {
 
         // Determine applicant/pengguna for surat_tugas from peminjaman columns
         $applicant = 0;
@@ -413,6 +434,7 @@ try {
             }
         }
     }
+    }
     
     // Create notification for status change
     $status_messages = [
@@ -449,7 +471,11 @@ try {
     
     // Log activity
     $activity = "Updated peminjaman status to '$new_status' for peminjaman ID: $peminjaman_id";
-    log_user_activity($current_user['id'], 'update_peminjaman_status', $activity);
+    if (function_exists('logActivity')) {
+        logActivity($current_user['id'], 'update_peminjaman_status', $activity);
+    } elseif (function_exists('log_user_activity')) {
+        log_user_activity($activity);
+    }
     
     // Return success response
     echo json_encode([

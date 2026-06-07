@@ -139,19 +139,24 @@ if ($_POST) {
                                 }
                             }
 
-                            // notify admins/operators
+                            // notify admin-like roles
                             $kendaraan_info = $mysqli->query("SELECT no_polisi, merk, tipe FROM kendaraan WHERE id = $kendaraan_id")->fetch_assoc();
                             $current_user = get_logged_in_user();
                             $username = $current_user ? $current_user['nama_lengkap'] : 'Unknown User';
                             $notification_msg = "Pengajuan peminjaman kendaraan {$kendaraan_info['no_polisi']} ({$kendaraan_info['merk']} {$kendaraan_info['tipe']}) dari " . $username . " untuk keperluan: $keperluan";
 
-                            $admin_operators = $mysqli->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id IN (2, 3)");
+                            $admin_role_ids = function_exists('get_admin_like_role_ids') ? get_admin_like_role_ids() : [];
+                            $admin_like_users = null;
+                            if (!empty($admin_role_ids)) {
+                                $in_ids = implode(',', array_map('intval', $admin_role_ids));
+                                $admin_like_users = $mysqli->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id IN ({$in_ids})");
+                            }
                             $escaped_msg = $mysqli->real_escape_string($notification_msg);
-                            while ($admin = $admin_operators->fetch_assoc()) {
+                            while ($admin_like_users && ($admin = $admin_like_users->fetch_assoc())) {
                                 $mysqli->query("INSERT INTO notifikasi (user_id, message, title, type, category) VALUES ({$admin['id']}, '$escaped_msg', 'Pengajuan Peminjaman Terjadwal', 'info', 'vehicle')");
                             }
 
-                            $msg = '<div class="alert alert-success">Pengajuan peminjaman terjadwal berhasil disubmit! Menunggu persetujuan operator/admin.</div>';
+                            $msg = '<div class="alert alert-success">Pengajuan peminjaman terjadwal berhasil disubmit! Menunggu persetujuan admin/pimpinan.</div>';
                             log_user_activity("Mengajukan peminjaman terjadwal kendaraan ID: $kendaraan_id untuk keperluan: $keperluan");
                         } else {
                             $msg = '<div class="alert alert-danger">Error: ' . $stmt->error . '</div>';

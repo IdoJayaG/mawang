@@ -58,12 +58,12 @@ if ($action === 'export_excel') {
             $params = [$like, $like, $like];
             $types = 'sss';
         }
-        // Exclude Operator role from admin listing/export
-        $excludeOp = "LOWER(COALESCE(r.kode_role, r.nama_role, '')) <> 'operator'";
+        // Limit to allowed roles only
+        $roleFilter = "UPPER(COALESCE(r.kode_role, r.nama_role, '')) IN ('ADMIN','PIMPINAN','DRIVER','USER')";
         if ($where === '') {
-            $where = ' WHERE ' . $excludeOp;
+            $where = ' WHERE ' . $roleFilter;
         } else {
-            $where .= ' AND ' . $excludeOp;
+            $where .= ' AND ' . $roleFilter;
         }
 
         $sql = 'SELECT ua.username, ua.status, COALESCE(ll.last_login, ua.last_login) AS last_login, ua.created_at, '
@@ -191,12 +191,12 @@ if ($action === 'list') {
         $types = 'sss';
     }
 
-    // Exclude Operator role from admin listing
-    $excludeOp = "LOWER(COALESCE(r.kode_role, r.nama_role, '')) <> 'operator'";
+    // Limit to allowed roles only
+    $roleFilter = "UPPER(COALESCE(r.kode_role, r.nama_role, '')) IN ('ADMIN','PIMPINAN','DRIVER','USER')";
     if ($where === '') {
-        $where = ' WHERE ' . $excludeOp;
+        $where = ' WHERE ' . $roleFilter;
     } else {
-        $where .= ' AND ' . $excludeOp;
+        $where .= ' AND ' . $roleFilter;
     }
 
     // Count total
@@ -468,10 +468,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             // Prefetch roles and default role (user)
                             $rolesMap = [];
                             $defaultRoleId = null;
-                            $rs = $mysqli->query("SELECT id, nama_role FROM role");
+                            $rs = $mysqli->query("SELECT id, kode_role, nama_role FROM role WHERE UPPER(kode_role) IN ('ADMIN','PIMPINAN','DRIVER','USER')");
                             if ($rs) {
                                 while ($r = $rs->fetch_assoc()) {
-                                    $rolesMap[strtolower($r['nama_role'])] = (int)$r['id'];
+                                    if (!empty($r['kode_role'])) {
+                                        $rolesMap[strtolower($r['kode_role'])] = (int)$r['id'];
+                                    }
+                                    if (!empty($r['nama_role'])) {
+                                        $rolesMap[strtolower($r['nama_role'])] = (int)$r['id'];
+                                    }
                                 }
                             }
                             $defaultRoleId = $rolesMap['user'] ?? null;
@@ -561,6 +566,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     if ($role_input !== '') {
                                         $role_key = $role_input;
                                         if ($role_key === 'admin') { $role_key = 'administrator'; }
+                                        if ($role_key === 'operator') { $role_key = 'admin'; }
                                         if ($role_key === 'sopir') { $role_key = 'driver'; }
                                         if ($role_key === 'leader') { $role_key = 'pimpinan'; }
                                         if (isset($rolesMap[$role_key])) { $role_id = $rolesMap[$role_key]; }
@@ -895,7 +901,7 @@ if ($action === 'edit' && $user_id) {
     <?php
     // fetch roles
     $roles = [];
-    $rres = $mysqli->query("SELECT id, nama_role FROM role WHERE LOWER(nama_role) IN ('administrator','pimpinan','driver','user') ORDER BY id");
+    $rres = $mysqli->query("SELECT id, nama_role FROM role WHERE UPPER(kode_role) IN ('ADMIN','PIMPINAN','DRIVER','USER') ORDER BY id");
     if ($rres) {
         while ($rr = $rres->fetch_assoc()) $roles[] = $rr;
     }
@@ -1146,7 +1152,7 @@ if ($action === 'edit' && $user_id) {
     <?php
     // roles for select
     $roles = [];
-    $rres = $mysqli->query("SELECT id, nama_role FROM role WHERE LOWER(nama_role) IN ('administrator','pimpinan','driver','user') ORDER BY id");
+    $rres = $mysqli->query("SELECT id, nama_role FROM role WHERE UPPER(kode_role) IN ('ADMIN','PIMPINAN','DRIVER','USER') ORDER BY id");
     if ($rres) { while ($rr = $rres->fetch_assoc()) $roles[] = $rr; }
     // kesatuan list
     $kesatuans = [];
@@ -1423,7 +1429,7 @@ document.addEventListener('click', function(e){
                     <?php
                     // fetch roles and pengguna lists for modal (lightweight)
                     $roles_modal = [];
-                    $rres_modal = $mysqli->query("SELECT id, nama_role FROM role WHERE LOWER(nama_role) IN ('administrator','pimpinan','driver','user') ORDER BY id");
+                    $rres_modal = $mysqli->query("SELECT id, nama_role FROM role WHERE UPPER(kode_role) IN ('ADMIN','PIMPINAN','DRIVER','USER') ORDER BY id");
                     if ($rres_modal) { while ($rrm = $rres_modal->fetch_assoc()) $roles_modal[] = $rrm; }
 
                     $penggunas_modal = [];

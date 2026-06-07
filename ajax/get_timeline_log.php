@@ -17,7 +17,7 @@ if (!$user_id) {
 
 try {
     // Get user info
-    $stmt = $mysqli->prepare("SELECT p.nama_lengkap as nama, COALESCE(ua.role, '') as role FROM pengguna p LEFT JOIN user_account ua ON p.id = ua.pengguna_id WHERE p.id = ?");
+    $stmt = $mysqli->prepare("SELECT p.nama_lengkap as nama, COALESCE(r.kode_role, r.nama_role, '') as role_code, COALESCE(r.nama_role, '') as role_name FROM pengguna p LEFT JOIN user_account ua ON p.id = ua.pengguna_id LEFT JOIN role r ON ua.role_id = r.id WHERE p.id = ?");
     $stmt->bind_param('i', $user_id);
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
@@ -46,6 +46,20 @@ try {
     $timeline_items = $stmt->get_result();
     $stmt->close();
     
+    $role_code = strtoupper(trim((string)($user['role_code'] ?? '')));
+    $role_label = trim((string)($user['role_name'] ?? ''));
+    if ($role_label === '') { $role_label = $role_code; }
+    $badge_class = 'info';
+    if ($role_code !== '') {
+        if (function_exists('is_role_admin_like') && is_role_admin_like($role_code)) {
+            $badge_class = 'danger';
+        } elseif ($role_code === 'DRIVER') {
+            $badge_class = 'primary';
+        } elseif ($role_code === 'USER') {
+            $badge_class = 'info';
+        }
+    }
+
     ob_start();
 ?>
 <div class="timeline-container">
@@ -55,8 +69,8 @@ try {
             <?= htmlspecialchars($user['nama']) ?> - Timeline Aktivitas
         </h5>
         <p class="text-center text-muted">
-            <span class="badge badge-<?= $user['role'] == 'admin' ? 'danger' : ($user['role'] == 'operator' ? 'warning' : 'info') ?>">
-                <?= strtoupper($user['role']) ?>
+            <span class="badge badge-<?= $badge_class ?>">
+                <?= htmlspecialchars(strtoupper($role_label)) ?>
             </span>
         </p>
     </div>

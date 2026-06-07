@@ -23,17 +23,34 @@ Aplikasi membaca konfigurasi dari environment variable berikut (lihat `config.ph
 
 Catatan:
 - Jika `MAIL_TRANSPORT=smtp`, gunakan PHPMailer.
+- Jika memakai Gmail, gunakan App Password (bukan password akun).
 - Install dependency:
 
 ```powershell
 composer require phpmailer/phpmailer
 ```
 
-## 3) Queue reminder otomatis (H-1 jadwal perawatan)
-
-Script berikut membuat email reminder untuk jadwal perawatan besok, untuk role: `admin`, `pimpinan`, `driver`.
+Contoh konfigurasi Gmail (Windows, gunakan placeholder):
 
 ```powershell
+setx MAIL_TRANSPORT "smtp"
+setx MAIL_HOST "smtp.gmail.com"
+setx MAIL_PORT "587"
+setx MAIL_ENCRYPTION "tls"
+setx MAIL_USERNAME "your@gmail.com"
+setx MAIL_PASSWORD "YOUR_APP_PASSWORD"
+setx MAIL_FROM_ADDRESS "your@gmail.com"
+setx MAIL_FROM_NAME "Sistem Randis"
+```
+
+Catatan: jangan simpan App Password di file repo. Set langsung di environment machine.
+
+## 3) Queue reminder otomatis (H-1 dan Hari H)
+
+Script berikut membuat email reminder untuk H-1 dan Hari H.
+
+```powershell
+php scripts/queue_surat_tugas_email_reminders.php
 php scripts/queue_maintenance_email_reminders.php
 ```
 
@@ -51,15 +68,21 @@ php scripts/send_scheduled_emails.php --limit=100
 
 ## 5) Jadwalkan otomatis (Windows Task Scheduler)
 
-Disarankan membuat 2 task:
+Disarankan membuat 3 task:
 
-1. Queue task (misalnya setiap hari jam 06:00)
+1. Queue surat_tugas (misalnya setiap 1 jam)
+
+```powershell
+php C:\xampp\htdocs\mawang\scripts\queue_surat_tugas_email_reminders.php
+```
+
+2. Queue maintenance (misalnya setiap 1 jam)
 
 ```powershell
 php C:\xampp\htdocs\mawang\scripts\queue_maintenance_email_reminders.php
 ```
 
-2. Sender task (misalnya setiap 5 menit)
+3. Sender task (misalnya setiap 5 menit)
 
 ```powershell
 php C:\xampp\htdocs\mawang\scripts\send_scheduled_emails.php --limit=100

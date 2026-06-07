@@ -10,7 +10,7 @@ if ($current_role === 'guest') {
     exit;
 }
 
-$can_crud = can_operate(); // operator dan admin
+$can_crud = can_operate(); // admin-like roles
 $can_view = is_logged_in();
 
 $action = $_GET['action'] ?? 'list';

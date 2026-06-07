@@ -3,7 +3,7 @@ require_once 'includes/auth.php';
 require_login();
 
 $current_role = get_current_role();
-if (!in_array($current_role, ['admin','operator','driver'], true)) {
+if (!is_admin_like() && $current_role !== 'driver') {
     header('Location: pages/403.php');
     exit;
 }

@@ -108,5 +108,42 @@
         });
     };
 </script>
+<?php if (is_logged_in()): ?>
+<script>
+    (function(){
+        var lastCheck = new Date().toISOString();
+        function pollApprovals(){
+            $.ajax({
+                url: 'ajax/check_surat_approved.php',
+                method: 'GET',
+                dataType: 'json',
+                data: { last_check: lastCheck },
+                cache: false,
+                success: function(resp){
+                    if (!resp) return;
+                    if (Array.isArray(resp.items) && resp.items.length > 0) {
+                        resp.items.forEach(function(it){
+                            var tgl = it.tanggal_berangkat ? it.tanggal_berangkat : '';
+                            var msg = 'Surat Tugas ' + (it.nomor_surat || ('#' + it.id)) + ' telah <strong>Disetujui</strong>.\nTujuan: ' + (it.tujuan || '-') + '\nTanggal: ' + (tgl || '-');
+                            Swal.fire({
+                                title: 'Surat Tugas Disetujui',
+                                html: msg,
+                                icon: 'info',
+                                timer: 15000,
+                                showConfirmButton: true
+                            });
+                        });
+                    }
+                    if (resp.last_check) lastCheck = resp.last_check;
+                }
+            });
+        }
+        // Start polling every 12 seconds
+        setInterval(pollApprovals, 12000);
+        // Run once on load after short delay
+        setTimeout(pollApprovals, 3000);
+    })();
+</script>
+<?php endif; ?>
 </body>
 </html>

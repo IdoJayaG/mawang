@@ -216,7 +216,7 @@ if (in_array($current_role, ['user', 'driver'], true)) {
         call_user_func_array([$kendaraan_stmt, 'bind_param'], $bind);
     }
 } else {
-    // Operator dan admin bisa melihat semua kendaraan
+    // Admin-like roles bisa melihat semua kendaraan
     $kendaraan_stmt = $mysqli->prepare("SELECT * FROM kendaraan ORDER BY no_reg, no_polisi");
 }
 $kendaraan_stmt->execute();
@@ -293,7 +293,7 @@ if (in_array($current_role, ['user', 'driver'], true)) {
     
     // (user/driver branch) $log_stmt already prepared above as $sql_l with dynamic bindings
 } else {
-    // Operator dan admin melihat semua kendaraan dengan summary BBM
+    // Admin-like roles melihat semua kendaraan dengan summary BBM
     $log_sql = "
         SELECT 
             k.id as kendaraan_id,

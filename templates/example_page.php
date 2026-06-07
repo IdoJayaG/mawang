@@ -23,7 +23,7 @@ $user_info = [
 render_page_head($page_title, $additional_css, $additional_js);
 
 // Render sidebar
-render_sidebar($current_page, 'user'); // user, operator, admin
+render_sidebar($current_page, 'user'); // user, driver, admin, pimpinan
 ?>
 
 <main>

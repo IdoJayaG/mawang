@@ -193,6 +193,15 @@ if ($current_role === 'driver' && $current_user_id) {
                         <span class="badge badge-<?= strtolower(str_replace(' ', '-', (string)($repair['status'] ?? ''))) ?>">
                             <?= htmlspecialchars((string)($repair['status'] ?? '')) ?>
                         </span>
+                        <?php if ($current_role === 'driver' && strtolower((string)($repair['status'] ?? '')) !== 'selesai'): ?>
+                            <div class="mt-2">
+                                <a href="index.php?page=riwayat_perbaikan&action=edit&id=<?= (int)$repair['id'] ?>" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-edit"></i> Ubah Status
+                                </a>
+                            </div>
+                        <?php elseif ($current_role === 'driver' && strtolower((string)($repair['status'] ?? '')) === 'selesai'): ?>
+                            <div class="mt-2 text-muted">Status selesai tidak dapat diubah lagi.</div>
+                        <?php endif; ?>
                     </div>
                 </div>
 

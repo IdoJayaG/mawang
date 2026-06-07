@@ -73,11 +73,11 @@ try {
     $row = $res->fetch_assoc();
     $stmt->close();
 
-    // Authorization: recipient or creator or admin/operator
+    // Authorization: recipient or creator or admin-like
     $current = get_logged_in_user();
     $role = get_current_role();
     $owner_id = (int)($row['penerima_id'] ?? $row['pengguna_id'] ?? 0);
-    if ($current['id'] !== $owner_id && !in_array($role, ['admin','operator'])) {
+    if ($current['id'] !== $owner_id && !is_admin_like()) {
         send_json_and_exit(['success' => false, 'message' => 'Unauthorized']);
     }
 

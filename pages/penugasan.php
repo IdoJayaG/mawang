@@ -1,10 +1,12 @@
 <?php
 require_once 'includes/auth.php';
 require_login();
-require_role(['operator', 'admin']);
+require_admin();
 
 $user_id = get_current_user_id();
 $msg = '';
+$current_role = get_current_role();
+$dashboard_page = ($current_role === 'pimpinan') ? 'dashboard_pimpinan' : 'dashboard_admin';
 
 // Helper: check if a table exists in the current database
 function table_exists($mysqli, $table) {
@@ -116,23 +118,7 @@ if ($_POST && isset($_POST['action'])) {
                     $notification_msg = "Anda mendapat surat tugas baru: \"$judul_tugas\" menggunakan kendaraan " . ($kendaraan_info['no_polisi'] ?? '') . " (" . ($kendaraan_info['merk'] ?? '') . " " . ($kendaraan_info['tipe'] ?? '') . ") dari tanggal " . date('d/m/Y', strtotime($tanggal_mulai)) . " sampai " . date('d/m/Y', strtotime($tanggal_selesai));
                     insert_notification($mysqli, $penerima_id, $notification_msg, 'Surat Tugas Baru');
                     
-                    // Notify admin for approval (if created by operator)
-                    $current_user = get_logged_in_user();
-                    $current_role = get_user_role();
-                    if ($current_role === 'operator') {
-                        $admin_notification = "Surat tugas baru \"$judul_tugas\" untuk {$user_info['nama_lengkap']} memerlukan persetujuan. Nomor: $nomor_surat";
-                        $admins = $mysqli->query("
-                            SELECT p.id 
-                            FROM pengguna p 
-                            JOIN user_account ua ON p.id = ua.pengguna_id 
-                            WHERE ua.role_id = 3
-                        ");
-                        while ($admin = $admins->fetch_assoc()) {
-                            insert_notification($mysqli, (int)$admin['id'], $admin_notification, 'Surat Tugas Perlu Persetujuan');
-                        }
-                    }
-                    
-                    $msg = '<div class="alert alert-success">Surat tugas berhasil dibuat dengan nomor: <strong>' . $nomor_surat . '</strong>. ' . ($current_role === 'operator' ? 'Menunggu persetujuan admin.' : 'Langsung aktif.') . '</div>';
+                    $msg = '<div class="alert alert-success">Surat tugas berhasil dibuat dengan nomor: <strong>' . $nomor_surat . '</strong>. Langsung aktif.</div>';
                     log_user_activity("Membuat surat tugas $nomor_surat untuk user ID: $penerima_id");
                 } else {
                     $msg = '<div class="alert alert-danger">Gagal membuat surat tugas. Silakan coba lagi.</div>';
@@ -147,18 +133,20 @@ if ($_POST && isset($_POST['action'])) {
 
 // Get users for assignment
 $users = $mysqli->query("
-    SELECT p.id, p.nama_lengkap, p.pangkat, p.jabatan, p.nrp_nip
-    FROM pengguna p 
-    JOIN user_account ua ON p.id = ua.pengguna_id 
-    WHERE ua.role_id = 1 AND (ua.status = 'Aktif' OR ua.status = 'aktif')
-    ORDER BY p.nama_lengkap
+        SELECT p.id, p.nama_lengkap, p.pangkat, p.jabatan, p.nrp_nip
+        FROM pengguna p 
+        JOIN user_account ua ON p.id = ua.pengguna_id 
+        JOIN role r ON ua.role_id = r.id
+        WHERE UPPER(COALESCE(r.kode_role, '')) IN ('USER','DRIVER')
+            AND (ua.status = 'Aktif' OR ua.status = 'aktif')
+        ORDER BY p.nama_lengkap
 ")->fetch_all(MYSQLI_ASSOC);
 
 // Get available vehicles
 $kendaraan = $mysqli->query("SELECT * FROM kendaraan WHERE status_peminjaman = 'Tersedia' ORDER BY merk, tipe")->fetch_all(MYSQLI_ASSOC);
 
 // Get surat tugas list
-$current_role = get_user_role();
+$current_role = get_current_role();
 $surat_tugas_query = "
     SELECT st.*, 
            pembuat.nama_lengkap as pembuat_name,
@@ -171,10 +159,6 @@ $surat_tugas_query = "
     LEFT JOIN kendaraan k ON st.kendaraan_id = k.id
     LEFT JOIN pengguna admin ON st.approval_admin_id = admin.id
 ";
-
-if ($current_role === 'operator') {
-    $surat_tugas_query .= " WHERE st.pembuat_id = $user_id";
-}
 
 $surat_tugas_query .= " ORDER BY st.created_at DESC";
 $surat_tugas_list = $mysqli->query($surat_tugas_query)->fetch_all(MYSQLI_ASSOC);
@@ -308,7 +292,7 @@ function getPriorityBadge($prioritas) {
                     <h6><i class="fas fa-info-circle"></i> Informasi:</h6>
                     <ul class="mb-0">
                         <li>Surat tugas akan dikirim notifikasi ke user yang ditugaskan</li>
-                        <li><?= $current_role === 'operator' ? 'Sebagai operator, surat tugas perlu persetujuan admin' : 'Sebagai admin, surat tugas langsung aktif' ?></li>
+                        <li>Sebagai admin/pimpinan, surat tugas langsung aktif</li>
                         <li>Kendaraan akan terjadwal otomatis sesuai periode tugas</li>
                         <li>User dapat menerima atau menolak penugasan</li>
                     </ul>
@@ -321,7 +305,7 @@ function getPriorityBadge($prioritas) {
                     <button type="submit" class="btn btn-primary btn-lg">
                         <i class="fas fa-file-signature"></i> Buat Surat Tugas
                     </button>
-                    <a href="index.php?page=dashboard_<?= $current_role ?>" class="btn btn-secondary">
+                    <a href="index.php?page=<?= $dashboard_page ?>" class="btn btn-secondary">
                         <i class="fas fa-arrow-left"></i> Kembali
                     </a>
                 </div>
@@ -387,7 +371,7 @@ function getPriorityBadge($prioritas) {
                                         <button class="btn btn-sm btn-success" onclick="generateSurat(<?= $st['id'] ?>)">
                                             <i class="fas fa-file-pdf"></i> PDF
                                         </button>
-                                        <?php if ($st['status'] === 'draft' || ($st['status'] === 'pending_approval' && $current_role === 'admin')): ?>
+                                        <?php if ($st['status'] === 'draft' || ($st['status'] === 'pending_approval' && is_admin_like())): ?>
                                             <button class="btn btn-sm btn-warning" onclick="editSurat(<?= $st['id'] ?>)">
                                                 <i class="fas fa-edit"></i> Edit
                                             </button>

@@ -83,13 +83,18 @@ if ($_POST && isset($_POST['action'])) {
                     if ($stmt->execute()) {
                         $pinjam_pakai_id = $mysqli->insert_id;
 
-                        // Notify operators and admins
+                        // Notify admin-like roles
                         $kendaraan_info = $mysqli->query("SELECT no_polisi, merk, tipe FROM kendaraan WHERE id = $kendaraan_id")->fetch_assoc();
                         $current_user = get_logged_in_user();
                         $notification_msg = "Pengajuan pinjam pakai kendaraan {$kendaraan_info['no_polisi']} ({$kendaraan_info['merk']} {$kendaraan_info['tipe']}) dari {$current_user['nama_lengkap']} untuk keperluan: $keperluan. Estimasi durasi: $estimasi_durasi";
 
-                        $admin_operators = $mysqli->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id IN (2, 3)");
-                        while ($admin = $admin_operators->fetch_assoc()) {
+                        $admin_role_ids = function_exists('get_admin_like_role_ids') ? get_admin_like_role_ids() : [];
+                        $admin_like_users = null;
+                        if (!empty($admin_role_ids)) {
+                            $in_ids = implode(',', array_map('intval', $admin_role_ids));
+                            $admin_like_users = $mysqli->query("SELECT p.id FROM pengguna p JOIN user_account ua ON p.id = ua.pengguna_id WHERE ua.role_id IN ({$in_ids})");
+                        }
+                        while ($admin_like_users && ($admin = $admin_like_users->fetch_assoc())) {
                             $uid = (int)$admin['id'];
                             $escaped = $notification_msg;
                             insert_notification($mysqli, $uid, $escaped, 'Pengajuan Pinjam Pakai Baru');

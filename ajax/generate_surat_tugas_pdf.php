@@ -52,11 +52,11 @@ if ($res->num_rows === 0) {
 $surat = $res->fetch_assoc();
 $stmt->close();
 
-// Authorization: allow recipient, creator, admin/operator
+// Authorization: allow recipient, creator, admin-like
 $current = get_logged_in_user();
 $role = get_current_role();
 $owner_id = (int)($surat['penerima_id'] ?? $surat['pengguna_id'] ?? 0);
-if ($current['id'] !== $owner_id && !in_array($role, ['admin','operator'])) {
+if ($current['id'] !== $owner_id && !is_admin_like()) {
     header('HTTP/1.1 403 Forbidden');
     echo 'Unauthorized';
     exit();

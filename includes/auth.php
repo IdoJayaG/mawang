@@ -135,6 +135,150 @@ function get_current_role() {
     return 'guest';
 }
 
+// Role helpers (dynamic RBAC based on role.level_akses)
+if (!function_exists('get_role_cache')) {
+    function get_role_cache() {
+        static $cache = null;
+        if ($cache !== null) return $cache;
+
+        $cache = [
+            'by_id' => [],
+            'by_code' => [],
+            'min_level' => null,
+        ];
+
+        if (!function_exists('db_table_exists') || !db_table_exists('role')) {
+            return $cache;
+        }
+
+        global $mysqli;
+        $res = $mysqli->query("SELECT id, kode_role, nama_role, level_akses FROM role");
+        if ($res) {
+            while ($row = $res->fetch_assoc()) {
+                $id = (int)($row['id'] ?? 0);
+                $code = strtoupper(trim((string)($row['kode_role'] ?? $row['nama_role'] ?? '')));
+                $level = isset($row['level_akses']) ? (int)$row['level_akses'] : null;
+                if ($id <= 0) continue;
+                $cache['by_id'][$id] = [
+                    'id' => $id,
+                    'kode_role' => $code,
+                    'nama_role' => $row['nama_role'] ?? $code,
+                    'level_akses' => $level,
+                ];
+                if ($code !== '') {
+                    $cache['by_code'][$code] = $cache['by_id'][$id];
+                }
+                if ($level !== null) {
+                    $cache['min_level'] = ($cache['min_level'] === null) ? $level : min($cache['min_level'], $level);
+                }
+            }
+        }
+
+        return $cache;
+    }
+}
+
+if (!function_exists('get_role_by_code')) {
+    function get_role_by_code($code) {
+        $code = strtoupper(trim((string)$code));
+        if ($code === '') return null;
+        $cache = get_role_cache();
+        return $cache['by_code'][$code] ?? null;
+    }
+}
+
+if (!function_exists('get_role_level_by_code')) {
+    function get_role_level_by_code($code) {
+        $role = get_role_by_code($code);
+        return $role && isset($role['level_akses']) ? (int)$role['level_akses'] : null;
+    }
+}
+
+if (!function_exists('get_role_id_by_code')) {
+    function get_role_id_by_code($code) {
+        $role = get_role_by_code($code);
+        return $role && isset($role['id']) ? (int)$role['id'] : null;
+    }
+}
+
+if (!function_exists('get_min_role_level')) {
+    function get_min_role_level() {
+        $cache = get_role_cache();
+        return $cache['min_level'];
+    }
+}
+
+if (!function_exists('get_current_role_level')) {
+    function get_current_role_level() {
+        $role = get_current_role();
+        $level = get_role_level_by_code($role);
+        if ($level !== null) return $level;
+
+        // Fallback: derive from user_account if session role slug is missing
+        if (function_exists('get_current_account_id')) {
+            $account_id = get_current_account_id();
+            if ($account_id) {
+                global $mysqli;
+                $stmt = $mysqli->prepare("SELECT r.level_akses FROM user_account ua JOIN role r ON ua.role_id = r.id WHERE ua.id = ? LIMIT 1");
+                if ($stmt) {
+                    $stmt->bind_param('i', $account_id);
+                    $stmt->execute();
+                    $row = $stmt->get_result()->fetch_assoc();
+                    $stmt->close();
+                    if ($row && isset($row['level_akses'])) return (int)$row['level_akses'];
+                }
+            }
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('is_admin_like')) {
+    function is_admin_like() {
+        $current_role = strtolower(trim((string)get_current_role()));
+        // Policy: pimpinan is admin-like even if level_akses has not been normalized yet.
+        if ($current_role === 'pimpinan') return true;
+
+        $current_level = get_current_role_level();
+        $min_level = get_min_role_level();
+        if ($current_level === null || $min_level === null) {
+            return in_array($current_role, ['admin', 'pimpinan'], true);
+        }
+        return $current_level <= $min_level;
+    }
+}
+
+if (!function_exists('is_role_admin_like')) {
+    function is_role_admin_like($role_code) {
+        $role_code_norm = strtolower(trim((string)$role_code));
+        if ($role_code_norm === 'pimpinan') return true;
+
+        $level = get_role_level_by_code($role_code);
+        $min_level = get_min_role_level();
+        if ($level === null || $min_level === null) {
+            return in_array($role_code_norm, ['admin', 'pimpinan'], true);
+        }
+        return $level <= $min_level;
+    }
+}
+
+if (!function_exists('get_admin_like_role_ids')) {
+    function get_admin_like_role_ids() {
+        $cache = get_role_cache();
+        if (empty($cache['by_id'])) return [];
+
+        $ids = [];
+        foreach ($cache['by_id'] as $id => $role) {
+            $code = $role['kode_role'] ?? $role['nama_role'] ?? '';
+            if (is_role_admin_like($code)) {
+                $ids[] = (int)$id;
+            }
+        }
+        return $ids;
+    }
+}
+
 // Get current user ID
 function get_current_user_id() {
     // Return the canonical pengguna.id for the currently logged-in user.
@@ -197,14 +341,14 @@ function require_login() {
     }
 }
 
-// Check if user can perform admin actions
+// Check if user can perform admin-like actions
 function can_admin() {
-    return get_current_role() === 'admin';
+    return is_admin_like();
 }
 
-// Check if user can perform operator actions
+// Check if user can perform admin-like actions
 function can_operate() {
-    return in_array(get_current_role(), ['admin', 'operator', 'pimpinan'], true);
+    return is_admin_like();
 }
 
 // Check if user can access specific vehicle
@@ -315,7 +459,7 @@ function get_accessible_vehicles($role, $user_id = null, $search = '', $limit = 
             $where_conditions[] = '1=0';
         }
     }
-    // Operator and Admin: See all vehicles (no additional filtering)
+    // Admin-like roles: see all vehicles (no additional filtering)
     
     // Search filtering
     if (!empty($search)) {
@@ -573,7 +717,7 @@ function get_dashboard_stats($role, $user_id = null) {
         ];
         
     } elseif (can_operate()) {
-        // Operator/Admin system statistics without pengguna_kendaraan
+        // Admin-like system statistics without pengguna_kendaraan
         $totalPenggunaExpr = '0';
         $parts = [];
         if (db_table_exists('peminjaman_kendaraan')) {
@@ -621,35 +765,18 @@ function check_login() {
 // Redirect to appropriate dashboard based on role
 function redirect_to_dashboard() {
     $role = get_current_role();
-    // Flexible mapping: support multiple kode_role variants/aliases
-    // Make `driver` an explicit dashboard target to avoid sending drivers to the generic user dashboard
-    $mapping = [
-        'dashboard_admin' => ['admin', 'administrator', 'superadmin', 'adm', 'manajer'],
-        'dashboard_operator' => ['operator', 'petugas', 'staff', 'ops', 'pimpinan'],
-        'dashboard_driver' => ['driver', 'sopir'],
-        'dashboard_user' => ['user', 'pegawai', 'pns', 'anggota']
-    ];
+    $role_upper = strtoupper((string)$role);
+    $page = 'home';
 
-    // Exact match first
-    foreach ($mapping as $page => $aliases) {
-        if (in_array($role, $aliases, true)) {
-            header("Location: index.php?page={$page}");
-            exit;
-        }
+    if (is_admin_like()) {
+        $page = ($role_upper === 'PIMPINAN') ? 'dashboard_pimpinan' : 'dashboard_admin';
+    } elseif (in_array($role_upper, ['DRIVER', 'SOPIR'], true)) {
+        $page = 'dashboard_driver';
+    } elseif (in_array($role_upper, ['USER', 'PEGAWAI', 'PNS', 'ANGGOTA'], true)) {
+        $page = 'dashboard_user';
     }
 
-    // Substring match fallback (e.g. 'senior_admin' -> admin)
-    foreach ($mapping as $page => $aliases) {
-        foreach ($aliases as $alias) {
-            if (strpos($role, $alias) !== false) {
-                header("Location: index.php?page={$page}");
-                exit;
-            }
-        }
-    }
-
-    // Last resort: if role looks like numeric or unknown, send to public home
-    header('Location: index.php?page=home');
+    header("Location: index.php?page={$page}");
     exit;
 }
 
@@ -834,17 +961,14 @@ function require_admin() {
 }
 
 function require_operator() {
-    require_login();
-    if (!can_operate()) {
-        header('Location: index.php?page=403');
-        exit;
-    }
+    // Legacy alias for admin-like access
+    require_admin();
 }
 
 function require_user() {
     require_login();
     $role = get_current_role();
-    if (!in_array($role, ['admin', 'pimpinan', 'user', 'driver'], true)) {
+    if (!is_admin_like() && !in_array($role, ['user', 'driver'], true)) {
         header('Location: index.php?page=403');
         exit;
     }
@@ -854,62 +978,78 @@ function require_user() {
 function require_role($required_role) {
     require_login();
     $current_role = get_current_role();
-    
-    // Allow admins to access everything
-    if ($current_role === 'admin') {
-        return;
-    }
-    
-    // Handle array of roles
-    if (is_array($required_role)) {
-        if (!in_array($current_role, $required_role)) {
-            header('Location: index.php?page=403');
-            exit;
-        }
-        return;
-    }
-    // Map canonical required role to allowed roles (admin already allowed above)
-    $role = strtolower((string)$required_role);
-    $allowed_map = [
-        'admin' => ['admin'],
-        'pimpinan' => ['pimpinan'],
-        'operator' => ['operator', 'pimpinan'],
-        'user' => ['user', 'operator', 'pimpinan'],
-        'driver' => ['driver']
-    ];
 
-    if (isset($allowed_map[$role])) {
-        if (!in_array($current_role, $allowed_map[$role], true)) {
-            header('Location: index.php?page=403');
-            exit;
-        }
+    // Admin-like roles can access everything
+    if (is_admin_like()) {
         return;
+    }
+
+    $current_level = get_current_role_level();
+
+    // Handle array of roles (allow higher/equal level if possible)
+    if (is_array($required_role)) {
+        if (in_array($current_role, $required_role, true)) {
+            return;
+        }
+        $min_required_level = null;
+        foreach ($required_role as $rr) {
+            $lvl = get_role_level_by_code($rr);
+            if ($lvl !== null) {
+                $min_required_level = ($min_required_level === null) ? $lvl : min($min_required_level, $lvl);
+            }
+        }
+        if ($min_required_level !== null && $current_level !== null && $current_level <= $min_required_level) {
+            return;
+        }
+        header('Location: index.php?page=403');
+        exit;
+    }
+
+    // Single role string: compare by level when possible
+    $required_level = get_role_level_by_code($required_role);
+    if ($required_level !== null && $current_level !== null) {
+        if ($current_level <= $required_level) {
+            return;
+        }
+        header('Location: index.php?page=403');
+        exit;
     }
 
     // Fallback: require exact role match
+    $role = strtolower((string)$required_role);
     if ($role !== $current_role) {
         header('Location: index.php?page=403');
         exit;
     }
 }
 
-// Build upcoming reminders (H-1) for a given pengguna (driver/user)
-function build_upcoming_items($pengguna_id) {
+// Build upcoming reminders for a given pengguna (driver/user) and date.
+function build_upcoming_items($pengguna_id, $targetDate = null) {
     global $mysqli;
     $items = [];
-    $tomorrow = date('Y-m-d', strtotime('+1 day'));
+    $targetDate = $targetDate ?: date('Y-m-d', strtotime('+1 day'));
 
     // jadwal_perawatan
     if (db_table_exists('jadwal_perawatan')) {
         $cols = db_table_columns('jadwal_perawatan');
         $dateCol = in_array('tanggal_perawatan', $cols, true) ? 'tanggal_perawatan' : (in_array('jadwal_tanggal', $cols, true) ? 'jadwal_tanggal' : null);
         if ($dateCol) {
+            $driverStmt = null;
+            $hasDriverCol = false;
+            if (db_table_exists('surat_tugas')) {
+                $stCols = db_table_columns('surat_tugas');
+                if (in_array('driver_id', $stCols, true)) {
+                    $hasDriverCol = true;
+                    $driverStmt = $mysqli->prepare("SELECT COUNT(*) c FROM surat_tugas WHERE kendaraan_id = ? AND driver_id = ? AND status IN ('Disetujui','Dalam Perjalanan')");
+                }
+            }
+
             $sqlp = "SELECT jp.id, jp.{$dateCol} AS tanggal, jp.jenis_perawatan, jp.deskripsi, k.no_reg, k.no_polisi, k.merk, k.tipe, jp.kendaraan_id, jp.teknisi_id
                      FROM jadwal_perawatan jp LEFT JOIN kendaraan k ON k.id = jp.kendaraan_id
                      WHERE DATE(jp.{$dateCol}) = ? AND (jp.status IS NULL OR LOWER(jp.status) NOT IN ('selesai','dibatalkan'))";
             $st = $mysqli->prepare($sqlp);
             if ($st) {
-                $st->bind_param('s', $tomorrow);
+                 $st->bind_param('s', $targetDate);
                 $st->execute();
                 $res = $st->get_result();
                 while ($r = $res->fetch_assoc()) {
@@ -921,6 +1061,13 @@ function build_upcoming_items($pengguna_id) {
                             if ($st2) { $st2->bind_param('i', $r['kendaraan_id']); $st2->execute(); $kp = $st2->get_result()->fetch_assoc(); $st2->close(); if (!empty($kp['pengguna_id']) && (int)$kp['pengguna_id'] === (int)$pengguna_id) $relevant = true; }
                         }
                     }
+                    if (!$relevant && $hasDriverCol && $driverStmt && !empty($r['kendaraan_id'])) {
+                        $kid = (int)$r['kendaraan_id'];
+                        $driverStmt->bind_param('ii', $kid, $pengguna_id);
+                        $driverStmt->execute();
+                        $dr = $driverStmt->get_result()->fetch_assoc();
+                        if ((int)($dr['c'] ?? 0) > 0) $relevant = true;
+                    }
                     if ($relevant) {
                         $label = trim((string)($r['no_reg'] ?: $r['no_polisi']));
                         if ($label === '') $label = trim((string)(($r['merk'] ?? '') . ' ' . ($r['tipe'] ?? '')));
@@ -928,6 +1075,7 @@ function build_upcoming_items($pengguna_id) {
                     }
                 }
                 $st->close();
+                if ($driverStmt) $driverStmt->close();
             }
         }
     }
@@ -943,8 +1091,8 @@ function build_upcoming_items($pengguna_id) {
         $sql .= " OR k.pengguna_id = ?)";
         $st = $mysqli->prepare($sql);
         if ($st) {
-            if ($hasDriver) { $st->bind_param('siii', $tomorrow, $pengguna_id, $pengguna_id, $pengguna_id); }
-            else { $st->bind_param('sii', $tomorrow, $pengguna_id, $pengguna_id); }
+            if ($hasDriver) { $st->bind_param('siii', $targetDate, $pengguna_id, $pengguna_id, $pengguna_id); }
+            else { $st->bind_param('sii', $targetDate, $pengguna_id, $pengguna_id); }
             $st->execute();
             $res = $st->get_result();
             while ($r = $res->fetch_assoc()) {
