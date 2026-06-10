@@ -1,6 +1,7 @@
 <?php
 require_once 'includes/auth.php';
-require_role(['admin', 'pimpinan']);
+// HANYA PIMPINAN YANG BISA APPROVE/REJECT PEMINJAMAN
+require_pimpinan();
 
 $current_user_id = get_current_user_id();
 $current_role = get_current_role();
@@ -624,6 +625,33 @@ $stmt->execute();
 $peminjaman_list = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
+// Include surat_tugas drafts and approvals waiting for pimpinan if current view is pending or all
+$surat_tugas_list = [];
+if (table_exists($mysqli, 'surat_tugas') && in_array($status_filter, ['Pending', ''], true)) {
+    $has_st_approval = false;
+    $colQ = $mysqli->query("SHOW COLUMNS FROM surat_tugas LIKE 'approval_pimpinan_status'");
+    if ($colQ && $colQ->num_rows > 0) {
+        $has_st_approval = true;
+    }
+    if ($has_st_approval) {
+        $stmt_st = $mysqli->prepare(
+            "SELECT st.id, st.nomor_surat, st.tanggal_surat, st.tujuan, st.keperluan, st.tanggal_berangkat AS tanggal_mulai, st.tanggal_kembali AS tanggal_selesai, st.status, st.approval_pimpinan_status, k.no_reg, k.no_polisi, k.merk, k.tipe, u.nama_lengkap AS pemohon_name, u.nrp_nip AS pemohon_nip, st.created_at
+             FROM surat_tugas st
+             LEFT JOIN kendaraan k ON st.kendaraan_id = k.id
+             LEFT JOIN pengguna u ON st.pengguna_id = u.id
+             WHERE st.status = 'Draft' OR st.approval_pimpinan_status = 'Pending'
+             ORDER BY st.created_at DESC
+             LIMIT ?"
+        );
+        if ($stmt_st) {
+            $stmt_st->bind_param('i', $limit);
+            $stmt_st->execute();
+            $surat_tugas_list = $stmt_st->get_result()->fetch_all(MYSQLI_ASSOC);
+            $stmt_st->close();
+        }
+    }
+}
+
 // Get total count for pagination
 $count_sql = "
     SELECT COUNT(*) as total
@@ -671,6 +699,7 @@ if (in_array($action, ['approve', 'reject', 'edit']) && $peminjaman_id) {
 function getStatusBadge($status) {
     $badges = [
         'Pending' => 'badge-warning',
+        'Draft' => 'badge-secondary',
         'Approved' => 'badge-success', 
         'Rejected' => 'badge-danger',
         'Ongoing' => 'badge-info',
@@ -680,6 +709,7 @@ function getStatusBadge($status) {
     
     $labels = [
         'Pending' => 'Menunggu',
+        'Draft' => 'Draft',
         'Approved' => 'Disetujui',
         'Rejected' => 'Ditolak', 
         'Ongoing' => 'Berlangsung',
@@ -691,6 +721,13 @@ function getStatusBadge($status) {
     $label = $labels[$status] ?? $status;
     
     return "<span class=\"badge $badge_class\">$label</span>";
+}
+
+function getDraftStatusBadge($status) {
+    if ($status === 'Draft') {
+        return '<span class="badge badge-secondary">Draft</span>';
+    }
+    return getStatusBadge($status);
 }
 ?>
 
@@ -941,6 +978,60 @@ function getStatusBadge($status) {
             </div>
         </div>
     </div>
+
+    <?php if (!empty($surat_tugas_list)): ?>
+        <div class="card mb-4">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0"><i class="fas fa-file-alt me-2"></i>Surat Tugas Menunggu Persetujuan Pimpinan</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>Tanggal Surat</th>
+                                <th>Nomor Surat</th>
+                                <th>Pemohon</th>
+                                <th>Kendaraan</th>
+                                <th>Tujuan</th>
+                                <th>Status</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($surat_tugas_list as $idx => $surat): ?>
+                                <tr>
+                                    <td><?= $idx + 1 ?></td>
+                                    <td><?= date('d/m/Y', strtotime($surat['tanggal_surat'] ?? $surat['created_at'])) ?></td>
+                                    <td><?= htmlspecialchars($surat['nomor_surat']) ?></td>
+                                    <td>
+                                        <strong><?= htmlspecialchars($surat['pemohon_name']) ?></strong><br>
+                                        <small class="text-muted"><?= htmlspecialchars($surat['pemohon_nip']) ?></small>
+                                    </td>
+                                    <td>
+                                        <strong><?= htmlspecialchars($surat['no_reg'] ?? ($surat['no_polisi'] ?? '-')) ?></strong><br>
+                                        <small class="text-muted"><?= htmlspecialchars(trim(($surat['merk'] ?? '') . ' ' . ($surat['tipe'] ?? ''))) ?></small>
+                                    </td>
+                                    <td>
+                                        <div class="text-truncate text-truncate-custom" title="<?= htmlspecialchars($surat['tujuan']) ?>">
+                                            <?= htmlspecialchars($surat['tujuan']) ?>
+                                        </div>
+                                    </td>
+                                    <td><?= getStatusBadge($surat['status']) ?></td>
+                                    <td>
+                                        <a href="index.php?page=surat_tugas&action=edit&id=<?= (int)$surat['id'] ?>" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-eye"></i> Lihat
+                                        </a>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <!-- Data Table -->
     <div class="card">

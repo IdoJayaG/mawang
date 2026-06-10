@@ -1228,4 +1228,121 @@ if (!function_exists('save_vehicle_photo')) {
         return true;
     }
 }
+
+// ========================
+// HELPER FUNCTIONS FOR RBAC (4-ROLE SYSTEM)
+// ========================
+
+if (!function_exists('is_pimpinan')) {
+    function is_pimpinan() {
+        $role = strtolower(trim((string)get_current_role()));
+        return $role === 'pimpinan';
+    }
+}
+
+if (!function_exists('is_driver')) {
+    function is_driver() {
+        $role = strtolower(trim((string)get_current_role()));
+        return in_array($role, ['driver', 'sopir'], true);
+    }
+}
+
+if (!function_exists('is_user_role')) {
+    function is_user_role() {
+        $role = strtolower(trim((string)get_current_role()));
+        return in_array($role, ['user', 'pegawai', 'pns', 'anggota'], true);
+    }
+}
+
+if (!function_exists('is_admin_role')) {
+    function is_admin_role() {
+        $role = strtolower(trim((string)get_current_role()));
+        return $role === 'admin';
+    }
+}
+
+if (!function_exists('require_role')) {
+    function require_role($allowed_roles = []) {
+        if (!is_logged_in()) {
+            header('Location: login.php');
+            exit;
+        }
+        
+        $current_role = strtolower(trim((string)get_current_role()));
+        $allowed_roles_lower = array_map('strtolower', (array)$allowed_roles);
+        
+        if (!empty($allowed_roles) && !in_array($current_role, $allowed_roles_lower, true)) {
+            header('HTTP/1.0 403 Forbidden');
+            header('Location: index.php?page=403');
+            exit;
+        }
+    }
+}
+
+if (!function_exists('require_pimpinan')) {
+    function require_pimpinan() {
+        require_exact_role('pimpinan');
+    }
+}
+
+if (!function_exists('require_admin')) {
+    function require_admin() {
+        require_role(['admin']);
+    }
+}
+
+if (!function_exists('require_exact_role')) {
+    function require_exact_role($required_role) {
+        require_login();
+        $current_role = strtolower(trim((string)get_current_role()));
+        $required_role = strtolower(trim((string)$required_role));
+        if ($current_role !== $required_role) {
+            header('HTTP/1.0 403 Forbidden');
+            header('Location: index.php?page=403');
+            exit;
+        }
+    }
+}
+
+if (!function_exists('require_driver')) {
+    function require_driver() {
+        require_exact_role('driver');
+    }
+}
+
+if (!function_exists('require_user')) {
+    function require_user() {
+        if (!is_logged_in()) {
+            header('Location: login.php');
+            exit;
+        }
+        $role = strtolower(trim((string)get_current_role()));
+        // user role: user, driver, or admin-like can access
+        if (!in_array($role, ['user', 'driver', 'sopir', 'admin', 'pimpinan'], true)) {
+            header('HTTP/1.0 403 Forbidden');
+            header('Location: index.php?page=403');
+            exit;
+        }
+    }
+}
+
+if (!function_exists('require_admin_like')) {
+    function require_admin_like() {
+        if (!is_admin_like()) {
+            header('HTTP/1.0 403 Forbidden');
+            header('Location: index.php?page=403');
+            exit;
+        }
+    }
+}
+
+if (!function_exists('log_user_activity')) {
+    function log_user_activity($message) {
+        $role = get_current_role();
+        if (function_exists('log_activity')) {
+            $label = '[' . strtoupper($role) . '] ' . $message;
+            log_activity('USER_ACTION', $label);
+        }
+    }
+}
 ?>

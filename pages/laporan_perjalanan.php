@@ -107,7 +107,9 @@ if ($action === 'export_excel') {
     $stmtE->close();
 
     $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-    // Preload today's surat_tugas for drivers for quick action checks
+    // Preload today's surat_tugas for drivers for quick action checks.
+    // Only include surat tugas that are already approved by pimpinan
+    // (status Disetujui or ongoing Dalam Perjalanan), not pending submissions.
     $surat_map = [];
     if ($current_role === 'driver' && $current_user_id && db_table_exists('surat_tugas')) {
       $today = date('Y-m-d');
@@ -932,7 +934,8 @@ if ($action === 'list') {
   }
 }
 
-// Preload today's surat_tugas for drivers so action buttons can use them
+// Preload today's surat_tugas for drivers so action buttons can use them.
+// Only approved surat tugas are shown here; pending tugas are excluded.
 $surat_map = [];
 if ($current_role === 'driver' && $current_user_id && db_table_exists('surat_tugas')) {
   $today = date('Y-m-d');
