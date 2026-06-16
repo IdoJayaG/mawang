@@ -467,3 +467,20 @@
 [04/06/26 16:19:42] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 | [PIMPINAN] Menambah surat tugas: ST/003/VI/2026
 [07/06/26 06:33:47] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Menyetujui peminjaman kendaraan ID: 77 untuk user ID: 83
 [07/06/26 06:33:47] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | [PIMPINAN] Menyetujui peminjaman ID: 38
+[10/06/26 10:28:56] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Memperbarui surat tugas ID: 44
+[10/06/26 10:28:56] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | [PIMPINAN] Memperbarui surat tugas ID: 44
+[10/06/26 10:44:17] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Menyetujui surat tugas ID: 44
+[10/06/26 10:44:17] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | [PIMPINAN] Menyetujui surat tugas ID: 44
+[10/06/26 10:44:25] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Menyetujui surat tugas ID: 43
+[10/06/26 10:44:25] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | [PIMPINAN] Menyetujui surat tugas ID: 43
+[10/06/26 10:44:29] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Menyetujui surat tugas ID: 41
+[10/06/26 10:44:29] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | [PIMPINAN] Menyetujui surat tugas ID: 41
+[10/06/26 10:45:08] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Surat tugas ID: 41 selesai; kendaraan ID 77 set to Tersedia
+[10/06/26 10:45:08] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Memperbarui surat tugas ID: 41
+[10/06/26 10:45:08] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | [PIMPINAN] Memperbarui surat tugas ID: 41
+[10/06/26 10:45:19] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Surat tugas ID: 44 selesai; kendaraan ID 77 set to Tersedia
+[10/06/26 10:45:19] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Memperbarui surat tugas ID: 44
+[10/06/26 10:45:19] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | [PIMPINAN] Memperbarui surat tugas ID: 44
+[10/06/26 10:45:28] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Surat tugas ID: 43 selesai; kendaraan ID 116 set to Tersedia
+[10/06/26 10:45:28] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | Memperbarui surat tugas ID: 43
+[10/06/26 10:45:28] ::1 | Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 | [PIMPINAN] Memperbarui surat tugas ID: 43

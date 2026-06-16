@@ -4,7 +4,6 @@
 
 chdir(__DIR__ . '/..');
 require_once 'config.php';
-require_once 'config/db.php';
 require_once 'lib/mailer.php';
 
 function table_exists_local(mysqli $db, $table)

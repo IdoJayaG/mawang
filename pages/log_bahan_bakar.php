@@ -19,6 +19,32 @@ $kendaraan_id = $_GET['kendaraan_id'] ?? null;
 $msg = '';
     
 
+// AJAX: return last km + first km for a vehicle (for client-side hint + total distance)
+if ($action === 'get_prev_km') {
+    header('Content-Type: application/json');
+    $vid = (int)($_GET['kendaraan_id'] ?? 0);
+    $ex  = (int)($_GET['exclude_id']   ?? 0);
+    if ($vid > 0) {
+        if ($ex > 0) {
+            $stmt = $mysqli->prepare("SELECT MAX(km_saat_isi) AS prev_km, MIN(km_saat_isi) AS first_km, MAX(tanggal_isi) AS last_date FROM log_bahan_bakar WHERE kendaraan_id = ? AND id != ? AND km_saat_isi IS NOT NULL");
+            $stmt->bind_param('ii', $vid, $ex);
+        } else {
+            $stmt = $mysqli->prepare("SELECT MAX(km_saat_isi) AS prev_km, MIN(km_saat_isi) AS first_km, MAX(tanggal_isi) AS last_date FROM log_bahan_bakar WHERE kendaraan_id = ? AND km_saat_isi IS NOT NULL");
+            $stmt->bind_param('i', $vid);
+        }
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        $prev  = $row['prev_km']  !== null ? (int)$row['prev_km']  : null;
+        $first = $row['first_km'] !== null ? (int)$row['first_km'] : null;
+        $total_km = ($prev !== null && $first !== null && $prev > $first) ? ($prev - $first) : null;
+        echo json_encode(['prev_km' => $prev, 'first_km' => $first, 'total_km' => $total_km, 'last_date' => $row['last_date'] ?? null]);
+    } else {
+        echo json_encode(['prev_km' => null, 'first_km' => null, 'total_km' => null, 'last_date' => null]);
+    }
+    exit;
+}
+
 $edit_data = null;
 if ($action === 'edit' && $can_crud && $log_id) {
     $stmt_edit = $mysqli->prepare("SELECT * FROM log_bahan_bakar WHERE id = ? LIMIT 1");
@@ -96,6 +122,19 @@ if ($_POST) {
                 $jenis_bbm = $_POST['jenis_bbm'];
                 $keterangan = trim($_POST['keterangan']);
                 $jarak_traccar_km = isset($_POST['jarak_traccar_km']) && $_POST['jarak_traccar_km'] !== '' ? (float)$_POST['jarak_traccar_km'] : null;
+
+                // Validate km is not smaller than previous entry for this vehicle
+                if ($km_saat_isi !== null) {
+                    $chk = $mysqli->prepare("SELECT MAX(km_saat_isi) AS max_km FROM log_bahan_bakar WHERE kendaraan_id = ? AND km_saat_isi IS NOT NULL");
+                    $chk->bind_param('i', $kendaraan_id);
+                    $chk->execute();
+                    $prev_km_val = $chk->get_result()->fetch_assoc()['max_km'];
+                    $chk->close();
+                    if ($prev_km_val !== null && $km_saat_isi < (int)$prev_km_val) {
+                        throw new Exception("KM tidak boleh lebih kecil dari KM sebelumnya (" . number_format((int)$prev_km_val) . " km).");
+                    }
+                }
+
                 // biaya/harga dihapus dari input; nilai disimpan terpisah jika perlu melalui migrasi
                 
                 // Upload photos
@@ -143,6 +182,19 @@ if ($_POST) {
                 $spbu = trim($_POST['spbu']);
                 $jenis_bbm = $_POST['jenis_bbm'];
                 $keterangan = trim($_POST['keterangan']);
+                $jarak_traccar_km = isset($_POST['jarak_traccar_km']) && $_POST['jarak_traccar_km'] !== '' ? (float)$_POST['jarak_traccar_km'] : null;
+
+                // Validate km is not smaller than any previous entry (excluding current record)
+                if ($km_saat_isi !== null) {
+                    $chk = $mysqli->prepare("SELECT MAX(km_saat_isi) AS max_km FROM log_bahan_bakar WHERE kendaraan_id = ? AND id != ? AND km_saat_isi IS NOT NULL");
+                    $chk->bind_param('ii', $kendaraan_id, $log_id);
+                    $chk->execute();
+                    $prev_km_val = $chk->get_result()->fetch_assoc()['max_km'];
+                    $chk->close();
+                    if ($prev_km_val !== null && $km_saat_isi < (int)$prev_km_val) {
+                        throw new Exception("KM tidak boleh lebih kecil dari KM sebelumnya (" . number_format((int)$prev_km_val) . " km).");
+                    }
+                }
 
                 $stmt = $mysqli->prepare("UPDATE log_bahan_bakar SET kendaraan_id=?, tanggal_isi=?, jumlah_liter=?, km_saat_isi=?, spbu=?, jenis_bahan_bakar=?, keterangan=? WHERE id=?");
                 $stmt->bind_param('isdisssi', $kendaraan_id, $tanggal_isi, $jumlah_liter, $km_saat_isi, $spbu, $jenis_bbm, $keterangan, $log_id);
@@ -273,7 +325,8 @@ if (in_array($current_role, ['user', 'driver'], true)) {
             SUM(lb.jarak_traccar_km) as total_jarak_traccar,
             MAX(lb.tanggal_isi) as pengisian_terakhir,
             " . $avg_col . "
-            MAX(lb.km_saat_isi) as km_terakhir
+            MAX(lb.km_saat_isi) as km_terakhir,
+            MIN(lb.km_saat_isi) as km_pertama
         FROM kendaraan k
         LEFT JOIN log_bahan_bakar lb ON k.id = lb.kendaraan_id
         WHERE k.id IN ($in_sql)
@@ -307,7 +360,8 @@ if (in_array($current_role, ['user', 'driver'], true)) {
             SUM(lb.jarak_traccar_km) as total_jarak_traccar,
             MAX(lb.tanggal_isi) as pengisian_terakhir,
             " . $avg_col . "
-            MAX(lb.km_saat_isi) as km_terakhir
+            MAX(lb.km_saat_isi) as km_terakhir,
+            MIN(lb.km_saat_isi) as km_pertama
         FROM kendaraan k
         LEFT JOIN log_bahan_bakar lb ON k.id = lb.kendaraan_id
         GROUP BY k.id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.foto
@@ -436,8 +490,18 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                         <label for="km_saat_isi">
                             <i class="fas fa-tachometer-alt"></i> KM Saat Isi
                         </label>
-                        <input type="number" name="km_saat_isi" id="km_saat_isi" class="form-control" 
+                        <input type="number" name="km_saat_isi" id="km_saat_isi" class="form-control"
                                min="0" placeholder="Odometer saat pengisian" value="<?= htmlspecialchars($edit_data['km_saat_isi'] ?? '') ?>">
+                        <div id="km_prev_hint" class="form-text mt-1" style="display:none">
+                            <i class="fas fa-tachometer-alt text-secondary me-1"></i>
+                            KM terakhir: <strong id="km_prev_value">—</strong>
+                            <span class="text-muted" id="km_prev_date"></span>
+                            &nbsp;|&nbsp; Jarak odometer total: <strong id="km_total_value">—</strong> km
+                        </div>
+                        <div id="km_err_hint" class="form-text text-danger mt-1" style="display:none">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            KM tidak boleh lebih kecil dari KM sebelumnya!
+                        </div>
                     </div>
                     
                     <div class="form-group">
@@ -486,8 +550,19 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                         <i class="fas fa-times"></i> Batal
                     </a>
                 </div>
-                    <input type="hidden" name="jarak_traccar_km" id="jarak_traccar_km" value="">
-                    <div class="small text-muted mb-2">Jarak Traccar: <span id="traccarDistanceDisplay">-</span> km</div>
+                    <input type="hidden" name="jarak_traccar_km" id="jarak_traccar_km" value="<?= htmlspecialchars($edit_data['jarak_traccar_km'] ?? '') ?>">
+                    <div id="traccar_since_box" class="alert alert-info py-2 px-3 small mt-2 mb-2" style="display:none">
+                        <i class="fas fa-satellite-dish me-1"></i>
+                        <strong>Jarak GPS sejak pengisian terakhir:</strong>
+                        <span id="traccarDistanceDisplay">—</span> km
+                        <span class="text-muted ms-1" id="traccar_since_date"></span>
+                        <button type="button" id="btnUseTempuh" class="btn btn-sm btn-outline-primary py-0 ms-2" style="font-size:.8rem">
+                            <i class="fas fa-check me-1"></i>Pakai Nilai
+                        </button>
+                    </div>
+                    <div id="traccar_no_data" class="small text-muted mb-2" style="display:none">
+                        <i class="fas fa-satellite-dish me-1 text-muted"></i>Data GPS tidak tersedia
+                    </div>
             </form>
         </div>
     </div>
@@ -550,7 +625,16 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
                                     <td>
                                         <strong><?= number_format($kendaraan['total_liter'] ?: 0, 2) ?> L</strong>
                                         <?php if ($kendaraan['km_terakhir']): ?>
-                                            <br><small class="text-muted">KM: <?= number_format($kendaraan['km_terakhir']) ?></small>
+                                            <br><small class="text-muted">KM terakhir: <?= number_format($kendaraan['km_terakhir']) ?></small>
+                                        <?php endif; ?>
+                                        <?php
+                                            $km_tot = null;
+                                            if ($kendaraan['km_terakhir'] && $kendaraan['km_pertama'] && (int)$kendaraan['km_terakhir'] > (int)$kendaraan['km_pertama']) {
+                                                $km_tot = (int)$kendaraan['km_terakhir'] - (int)$kendaraan['km_pertama'];
+                                            }
+                                        ?>
+                                        <?php if ($km_tot !== null): ?>
+                                            <br><small class="text-success fw-bold"><i class="fas fa-road me-1"></i>Jarak odometer: <?= number_format($km_tot) ?> km</small>
                                         <?php endif; ?>
                                     </td>
                                     <td>
@@ -658,55 +742,6 @@ $total_pages = $limit > 0 ? (int)ceil($total_records / $limit) : 1;
 <style>
 .photo-modal {
     display: none;
-// Fetch Traccar daily distance and populate hidden field
-document.addEventListener('DOMContentLoaded', function () {
-    function formatDateForTraccar(dtLocal) {
-        if (!dtLocal) return '';
-        // dtLocal like 2026-05-20T14:30 -> 2026-05-20
-        return dtLocal.split('T')[0];
-    }
-
-    function fetchTraccarDistance() {
-        var veh = document.getElementById('kendaraan_id');
-        var dateInput = document.getElementById('tanggal_isi');
-        if (!veh || !dateInput) return;
-        var vid = veh.value;
-        var date = formatDateForTraccar(dateInput.value);
-        var display = document.getElementById('traccarDistanceDisplay');
-        var hidden = document.getElementById('jarak_traccar_km');
-
-        if (!vid || !date) {
-            if (display) display.textContent = '-';
-            if (hidden) hidden.value = '';
-            return;
-        }
-
-        fetch('ajax/traccar_daily_timeline.php?kendaraan_id=' + encodeURIComponent(vid) + '&date=' + encodeURIComponent(date))
-            .then(function (res) { return res.json(); })
-            .then(function (data) {
-                var distance = 0;
-                if (Array.isArray(data) && data.length && data[0].distance_km !== undefined) {
-                    distance = parseFloat(data[0].distance_km) || 0;
-                } else if (data && data.distance_km !== undefined) {
-                    distance = parseFloat(data.distance_km) || 0;
-                }
-                if (hidden) hidden.value = distance ? distance.toFixed(2) : '';
-                if (display) display.textContent = distance ? distance.toFixed(2) : '-';
-            })
-            .catch(function () {
-                if (display) display.textContent = '-';
-                if (hidden) hidden.value = '';
-            });
-    }
-
-    var kendaraanSelect = document.getElementById('kendaraan_id');
-    var tanggalInput = document.getElementById('tanggal_isi');
-    if (kendaraanSelect) kendaraanSelect.addEventListener('change', fetchTraccarDistance);
-    if (tanggalInput) tanggalInput.addEventListener('change', fetchTraccarDistance);
-
-    // initial fetch when form loads (edit case)
-    fetchTraccarDistance();
-});
     position: fixed;
     z-index: 1000;
     left: 0;
@@ -1209,7 +1244,7 @@ window.onclick = function(event) {
 </script>
 
 <script>
-// Fetch lifetime Traccar totals for displayed vehicles and update cells
+// ── List view: Traccar lifetime totals ────────────────────────────
 document.addEventListener('DOMContentLoaded', function () {
     var els = document.querySelectorAll('.traccar-total');
     els.forEach(function (el) {
@@ -1218,13 +1253,123 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('ajax/traccar_total_distance.php?kendaraan_id=' + encodeURIComponent(vid))
             .then(function (res) { return res.json(); })
             .then(function (data) {
-                if (data && data.success && data.distance_km !== undefined) {
-                    el.textContent = parseFloat(data.distance_km).toFixed(2) + ' km';
-                } else {
-                    el.textContent = '-';
-                }
+                el.textContent = (data && data.success && data.distance_km !== undefined)
+                    ? parseFloat(data.distance_km).toFixed(2) + ' km'
+                    : '-';
             }).catch(function () { el.textContent = '-'; });
     });
+});
+</script>
+
+<script>
+// ── Add/Edit form: prev km hint + Traccar since last log ─────────
+document.addEventListener('DOMContentLoaded', function () {
+    var selVeh   = document.getElementById('kendaraan_id');
+    var inpKm    = document.getElementById('km_saat_isi');
+    var hintBox  = document.getElementById('km_prev_hint');
+    var errBox   = document.getElementById('km_err_hint');
+    var hintVal  = document.getElementById('km_prev_value');
+    var hintDate = document.getElementById('km_prev_date');
+    var hintTot  = document.getElementById('km_total_value');
+    var hidTraccar = document.getElementById('jarak_traccar_km');
+    var traccarBox  = document.getElementById('traccar_since_box');
+    var traccarNone = document.getElementById('traccar_no_data');
+    var traccarDisp = document.getElementById('traccarDistanceDisplay');
+    var traccarDate = document.getElementById('traccar_since_date');
+    var btnUse   = document.getElementById('btnUseTempuh');
+
+    if (!selVeh || !inpKm) return; // not on the form page
+
+    var prevKmMin = 0; // minimum allowed km
+
+    // ── Fetch prev km info for selected vehicle ──────────────────
+    function fetchPrevKm() {
+        var vid = selVeh.value;
+        var excludeId = <?= isset($edit_data['id']) ? (int)$edit_data['id'] : 0 ?>;
+        if (!vid) { hidePrevHint(); return; }
+        var url = 'index.php?page=log_bahan_bakar&action=get_prev_km&kendaraan_id=' + encodeURIComponent(vid)
+                + (excludeId ? '&exclude_id=' + excludeId : '');
+        fetch(url)
+            .then(function(r){ return r.json(); })
+            .then(function(data) {
+                if (data && data.prev_km !== null) {
+                    prevKmMin = data.prev_km;
+                    inpKm.min = data.prev_km;
+                    if (hintBox)  hintBox.style.display  = '';
+                    if (hintVal)  hintVal.textContent     = Number(data.prev_km).toLocaleString('id-ID') + ' km';
+                    if (hintDate) hintDate.textContent    = data.last_date ? '(' + data.last_date.substring(0,10) + ')' : '';
+                    if (hintTot)  hintTot.textContent     = data.total_km !== null ? Number(data.total_km).toLocaleString('id-ID') : '—';
+                    validateKm();
+                } else {
+                    hidePrevHint();
+                }
+                fetchTraccarSinceLog(vid);
+            })
+            .catch(function() { hidePrevHint(); });
+    }
+
+    function hidePrevHint() {
+        prevKmMin = 0;
+        inpKm.removeAttribute('min');
+        if (hintBox) hintBox.style.display = 'none';
+        if (errBox)  errBox.style.display  = 'none';
+    }
+
+    // ── Validate km input ─────────────────────────────────────────
+    function validateKm() {
+        if (!errBox || prevKmMin === 0) return;
+        var val = parseInt(inpKm.value, 10);
+        if (!isNaN(val) && val < prevKmMin) {
+            errBox.style.display = '';
+            inpKm.setCustomValidity('KM tidak boleh lebih kecil dari KM sebelumnya (' + prevKmMin.toLocaleString('id-ID') + ' km)');
+        } else {
+            errBox.style.display = 'none';
+            inpKm.setCustomValidity('');
+        }
+    }
+
+    // ── Fetch Traccar distance since last log BBM ─────────────────
+    function fetchTraccarSinceLog(vid) {
+        if (!traccarBox && !traccarNone) return;
+        fetch('ajax/traccar_total_distance.php?kendaraan_id=' + encodeURIComponent(vid) + '&since_log=1')
+            .then(function(r){ return r.json(); })
+            .then(function(data) {
+                if (data && data.success && data.distance_km > 0) {
+                    if (traccarBox)  traccarBox.style.display  = '';
+                    if (traccarNone) traccarNone.style.display = 'none';
+                    if (traccarDisp) traccarDisp.textContent   = parseFloat(data.distance_km).toFixed(2);
+                    if (traccarDate && data.since_datetime) {
+                        traccarDate.textContent = '(sejak ' + data.since_datetime.substring(0,10) + ')';
+                    }
+                    if (hidTraccar && !hidTraccar.value) {
+                        hidTraccar.value = parseFloat(data.distance_km).toFixed(2);
+                    }
+                } else {
+                    if (traccarBox)  traccarBox.style.display  = 'none';
+                    if (traccarNone) traccarNone.style.display = '';
+                }
+            })
+            .catch(function() {
+                if (traccarBox)  traccarBox.style.display  = 'none';
+                if (traccarNone) traccarNone.style.display = '';
+            });
+    }
+
+    // ── "Pakai Nilai" button — copy Traccar km to hidden field ───
+    if (btnUse) {
+        btnUse.addEventListener('click', function() {
+            if (traccarDisp && hidTraccar) {
+                hidTraccar.value = traccarDisp.textContent.trim();
+            }
+        });
+    }
+
+    // ── Event listeners ───────────────────────────────────────────
+    selVeh.addEventListener('change', fetchPrevKm);
+    inpKm.addEventListener('input', validateKm);
+
+    // Initial load (edit case has a vehicle pre-selected)
+    if (selVeh.value) fetchPrevKm();
 });
 </script>
 

@@ -358,7 +358,7 @@ $kendaraan_sql .= " ORDER BY COALESCE(no_reg, no_polisi)";
 $kendaraan_list = $mysqli->query($kendaraan_sql)->fetch_all(MYSQLI_ASSOC);
 
 // Get document types for tabs
-$jenis_dokumen = ['Bukti Nomor Kendaraan Bermotor', 'Lainnya'];
+$jenis_dokumen = ['STNK', 'KIR / Uji Berkala', 'Asuransi', 'BPKB', 'Bukti Nomor Kendaraan Bermotor', 'Surat Ijin Mengemudi', 'Lainnya'];
 
 function getStatusBadge($status) {
     $badges = [
@@ -379,296 +379,318 @@ function getValidityBadge($validity) {
 }
 ?>
 
-<div class="page-header gradient-header rounded">
-            <h1><i class="fas fa-file-alt me-2"></i>Dokumen Kendaraan</h1>
-            <p class="mb-0">Kelola dokumen dan surat-surat kendaraan</p>
-        <div class="header-actions">
-            <?php if (can_admin()): ?>
-            <button class="btn btn-light btn-lg" data-bs-toggle="modal" data-bs-target="#addModal">
-                <i class="fas fa-plus me-1"></i> Tambah Dokumen
-            </button>
-            <?php endif; ?>
+<!-- Page header -->
+<div class="p-4 mb-3 rounded text-white" style="background:linear-gradient(135deg,#12354a 0%,#1f6f8b 100%)">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h1 class="mb-1 fs-4"><i class="fas fa-file-alt me-2"></i>Dokumen Kendaraan</h1>
+            <p class="mb-0 opacity-75 small">Kelola dokumen dan surat-surat kendaraan dinas</p>
         </div>
+        <?php if (can_admin()): ?>
+        <button class="btn btn-light" data-bs-toggle="modal" data-bs-target="#addModal">
+            <i class="fas fa-plus me-1"></i>Tambah Dokumen
+        </button>
+        <?php endif; ?>
+    </div>
 </div>
 
+<?= $msg ?>
 
+<!-- Stat cards -->
+<div class="row g-3 mb-3">
+    <?php
+    $stat_cards = [
+        ['tab'=>'all',         'label'=>'Total Dokumen',  'value'=>$stats['total'],        'color'=>'6c757d', 'icon'=>'folder-open',      'text'=>'text-secondary'],
+        ['tab'=>'active',      'label'=>'Aktif & Berlaku','value'=>$stats['aktif'],        'color'=>'28a745', 'icon'=>'check-circle',      'text'=>'text-success'],
+        ['tab'=>'expire_soon', 'label'=>'Akan Habis',     'value'=>$stats['expire_soon'],  'color'=>'ffc107', 'icon'=>'exclamation-circle','text'=>'text-warning', 'sub'=>'dalam 30 hari'],
+        ['tab'=>'expired',     'label'=>'Kadaluarsa',     'value'=>$stats['expired'],      'color'=>'dc3545', 'icon'=>'times-circle',      'text'=>'text-danger'],
+    ];
+    foreach ($stat_cards as $sc): ?>
+    <div class="col-6 col-md-3">
+        <a href="?page=dokumen_kendaraan&tab=<?= $sc['tab'] ?>" class="text-decoration-none">
+            <div class="card shadow-sm border-0 h-100" style="border-left:4px solid #<?= $sc['color'] ?>!important">
+                <div class="card-body py-2 px-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="text-muted small"><?= $sc['label'] ?></div>
+                            <h3 class="mb-0 fw-bold <?= $sc['text'] ?>"><?= number_format((int)$sc['value']) ?></h3>
+                            <?php if (!empty($sc['sub'])): ?><div class="text-muted" style="font-size:.7rem"><?= $sc['sub'] ?></div><?php endif; ?>
+                        </div>
+                        <i class="fas fa-<?= $sc['icon'] ?> fa-2x <?= $sc['text'] ?> opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <?php endforeach; ?>
+</div>
 
-<div class="card-body border-bottom">
-        <form method="GET" class="row g-3">
+<!-- Filter -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-end">
             <input type="hidden" name="page" value="dokumen_kendaraan">
-            <input type="hidden" name="tab" value="<?= $active_tab ?>">
-            
-            <div class="col-md-2">
-                <label class="form-label">Jenis Dokumen</label>
-                <select name="jenis" class="form-control">
+            <input type="hidden" name="tab" value="<?= htmlspecialchars($active_tab) ?>">
+            <div class="col-sm-6 col-md-2">
+                <label class="form-label form-label-sm mb-1">Jenis</label>
+                <select name="jenis" class="form-select form-select-sm">
                     <option value="">Semua Jenis</option>
                     <?php foreach ($jenis_dokumen as $jenis): ?>
-                        <option value="<?= $jenis ?>" <?= $filter_jenis === $jenis ? 'selected' : '' ?>><?= $jenis ?></option>
+                        <option value="<?= htmlspecialchars($jenis) ?>" <?= $filter_jenis === $jenis ? 'selected' : '' ?>><?= htmlspecialchars($jenis) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            
-            <div class="col-md-3">
-                <label class="form-label">Kendaraan</label>
-                <select name="kendaraan" class="form-control">
+            <div class="col-sm-6 col-md-3">
+                <label class="form-label form-label-sm mb-1">Kendaraan</label>
+                <select name="kendaraan" class="form-select form-select-sm">
                     <option value="">Semua Kendaraan</option>
-                        <?php foreach ($kendaraan_list as $kendaraan): ?>
+                    <?php foreach ($kendaraan_list as $kendaraan): ?>
                         <option value="<?= $kendaraan['id'] ?>" <?= $filter_kendaraan == $kendaraan['id'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars((($kendaraan['no_reg'] ?? '') !== '' ? $kendaraan['no_reg'] : ($kendaraan['no_polisi'] ?? '-')) . ' - ' . $kendaraan['merk'] . ' ' . $kendaraan['tipe']) ?>
+                            <?= htmlspecialchars((($kendaraan['no_reg'] ?? '') !== '' ? $kendaraan['no_reg'] : ($kendaraan['no_polisi'] ?? '-')) . ' — ' . $kendaraan['merk'] . ' ' . $kendaraan['tipe']) ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            
-            <div class="col-md-2">
-                <label class="form-label">Status</label>
-                <select name="status" class="form-control">
+            <div class="col-sm-6 col-md-2">
+                <label class="form-label form-label-sm mb-1">Status</label>
+                <select name="status" class="form-select form-select-sm">
                     <option value="">Semua Status</option>
                     <option value="Aktif" <?= $filter_status === 'Aktif' ? 'selected' : '' ?>>Aktif</option>
                     <option value="Kadaluarsa" <?= $filter_status === 'Kadaluarsa' ? 'selected' : '' ?>>Kadaluarsa</option>
                     <option value="Dalam Proses" <?= $filter_status === 'Dalam Proses' ? 'selected' : '' ?>>Dalam Proses</option>
                 </select>
             </div>
-            
-            <div class="col-md-4">
-                <label class="form-label">Pencarian</label>
-                <div class="input-group">
-                    <input type="text" name="search" class="form-control" placeholder="Cari nomor dokumen, instansi..." value="<?= htmlspecialchars($search) ?>">
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-search"></i>
-                    </button>
+            <div class="col-sm-6 col-md-4">
+                <label class="form-label form-label-sm mb-1">Cari</label>
+                <div class="input-group input-group-sm">
+                    <input type="text" name="search" class="form-control" placeholder="Nomor, instansi, no.reg..." value="<?= htmlspecialchars($search) ?>">
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i></button>
+                    <?php if ($filter_jenis || $filter_kendaraan || $filter_status || $search): ?>
+                        <a href="?page=dokumen_kendaraan&tab=<?= htmlspecialchars($active_tab) ?>" class="btn btn-outline-secondary" title="Reset"><i class="fas fa-times"></i></a>
+                    <?php endif; ?>
                 </div>
-            </div>
-            
-            <div class="col-md-1">
-                <label class="form-label">&nbsp;</label>
-                <a href="?page=dokumen_kendaraan&tab=<?= $active_tab ?>" class="btn btn-secondary w-100">
-                    <i class="fas fa-undo"></i>
-                </a>
             </div>
         </form>
     </div>
-
-<!-- Tabs -->
-<div class="card mb-4">
-    <div class="card-header">
-        <ul class="nav nav-tabs card-header-tabs" role="tablist">
-            <li class="nav-item">
-                <a class="nav-link <?= $active_tab === 'all' ? 'active' : '' ?>" href="?page=dokumen_kendaraan&tab=all">
-                    <i class="fas fa-list me-1"></i> Semua (<?= $stats['total'] ?>)
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link <?= $active_tab === 'active' ? 'active' : '' ?>" href="?page=dokumen_kendaraan&tab=active">
-                    <i class="fas fa-check me-1"></i> Aktif (<?= $stats['aktif'] ?>)
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link <?= $active_tab === 'expire_soon' ? 'active' : '' ?>" href="?page=dokumen_kendaraan&tab=expire_soon">
-                    <i class="fas fa-exclamation-triangle me-1"></i> Akan Habis (<?= $stats['expire_soon'] ?>)
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link <?= $active_tab === 'expired' ? 'active' : '' ?>" href="?page=dokumen_kendaraan&tab=expired">
-                    <i class="fas fa-times me-1"></i> Kadaluarsa (<?= $stats['expired'] ?>)
-                </a>
-            </li>
-        </ul>
-    </div>
-    
-    <!-- Filters -->
-    
 </div>
 
-<!-- Documents List -->
-<div class="card">
+<!-- Tabs + table -->
+<div class="card shadow-sm">
+    <div class="card-header p-0 bg-white border-bottom">
+        <ul class="nav nav-tabs border-0 px-2 pt-1" role="tablist">
+            <?php
+            $tabs = [
+                ['key'=>'all',         'label'=>'Semua',       'count'=>$stats['total'],       'icon'=>'list',                 'badge'=>'secondary'],
+                ['key'=>'active',      'label'=>'Aktif',        'count'=>$stats['aktif'],       'icon'=>'check-circle',         'badge'=>'success'],
+                ['key'=>'expire_soon', 'label'=>'Akan Habis',   'count'=>$stats['expire_soon'], 'icon'=>'exclamation-triangle', 'badge'=>'warning text-dark'],
+                ['key'=>'expired',     'label'=>'Kadaluarsa',   'count'=>$stats['expired'],     'icon'=>'times-circle',         'badge'=>'danger'],
+            ];
+            $tab_base = '?page=dokumen_kendaraan' . ($filter_kendaraan ? '&kendaraan='.urlencode($filter_kendaraan) : '');
+            foreach ($tabs as $t):
+            ?>
+            <li class="nav-item">
+                <a class="nav-link <?= $active_tab === $t['key'] ? 'active fw-semibold' : '' ?>"
+                   href="<?= $tab_base ?>&tab=<?= $t['key'] ?>">
+                    <i class="fas fa-<?= $t['icon'] ?> me-1 small"></i><?= $t['label'] ?>
+                    <?php if ((int)$t['count'] > 0): ?>
+                        <span class="badge bg-<?= $t['badge'] ?> ms-1" style="font-size:.7rem"><?= $t['count'] ?></span>
+                    <?php endif; ?>
+                </a>
+            </li>
+            <?php endforeach; ?>
+        </ul>
+    </div>
+
     <div class="card-body p-0">
         <?php if ($documents_result->num_rows > 0): ?>
-            <div class="table-responsive">
-                <table class="table table-hover mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Kendaraan</th>
-                            <th>Jenis Dokumen</th>
-                            <th>Nomor Dokumen</th>
-                            <th>Tanggal Terbit</th>
-                            <th>Tanggal Berlaku</th>
-                            <th>Status</th>
-                            <th>File</th>
-                            <th>Aksi</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                                <?php while ($row = $documents_result->fetch_assoc()): ?>
-                            <tr>
-                                <td>
-                                    <strong><?= htmlspecialchars(($row['no_reg'] ?? '') !== '' ? $row['no_reg'] : ($row['no_polisi'] ?? '-')) ?></strong>
-                                    <br><small class="text-muted"><?= htmlspecialchars($row['merk'] . ' ' . $row['tipe']) ?></small>
-                                </td>
-                                <td>
-                                    <span class="badge bg-info"><?= htmlspecialchars($row['jenis_dokumen']) ?></span>
-                                </td>
-                                <td>
-                                    <strong><?= htmlspecialchars($row['nomor_dokumen']) ?></strong>
-                                    <?php if ($row['instansi_penerbit']): ?>
-                                        <br><small class="text-muted"><?= htmlspecialchars($row['instansi_penerbit']) ?></small>
-                                    <?php endif; ?>
-                                </td>
-                                <td><?= date('d/m/Y', strtotime($row['tanggal_terbit'])) ?></td>
-                                <td>
-                                    <?= date('d/m/Y', strtotime($row['tanggal_berlaku'])) ?>
-                                    <br>
-                                    <span class="badge bg-<?= getValidityBadge($row['validity_status']) ?> small">
-                                        <?php if ($row['validity_status'] === 'Expired'): ?>
-                                            Kadaluarsa
-                                        <?php elseif ($row['validity_status'] === 'Expire Soon'): ?>
-                                            <?= $row['days_left'] ?> hari lagi
-                                        <?php else: ?>
-                                            Berlaku
-                                        <?php endif; ?>
-                                    </span>
-                                </td>
-                                <td>
-                                    <span class="badge bg-<?= getStatusBadge($row['status']) ?>">
-                                        <?= $row['status'] ?>
-                                    </span>
-                                </td>
-                                <td>
-                                    <?php if ($row['file_dokumen']): ?>
-                                        <a href="uploads/dokumen/<?= htmlspecialchars($row['file_dokumen']) ?>" target="_blank" class="btn btn-sm btn-outline-primary">
-                                            <i class="fas fa-file-download"></i> Lihat
-                                        </a>
-                                    <?php else: ?>
-                                        <small class="text-muted">Tidak ada file</small>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                        <div class="btn-group btn-group-sm">
-                                            <a href="?page=dokumen_kendaraan_edit&id=<?= $row['id'] ?>" class="btn btn-outline-primary">
-                                                <i class="fas fa-edit"></i>
-                                            </a>
-                                            <button class="btn btn-outline-danger" onclick="deleteDocument(<?= $row['id'] ?>)">
-                                                <i class="fas fa-trash"></i>
-                                            </button>
-                                        </div>
-                                </td>
-                            </tr>
-                        <?php endwhile; ?>
-                    </tbody>
-                </table>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" style="font-size:.875rem">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Kendaraan</th>
+                        <th>Jenis &amp; Nomor</th>
+                        <th>Instansi</th>
+                        <th>Terbit</th>
+                        <th class="text-center">Berlaku S/D</th>
+                        <th class="text-center">Status</th>
+                        <th class="text-center">File</th>
+                        <?php if (can_admin()): ?><th class="text-center" width="80">Aksi</th><?php endif; ?>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php while ($row = $documents_result->fetch_assoc()):
+                        $row_bg = match($row['validity_status']) {
+                            'Expired'     => 'table-danger',
+                            'Expire Soon' => 'table-warning',
+                            default       => '',
+                        };
+                        $jenis_badge_color = 'info';
+                        foreach (['STNK'=>'primary','KIR'=>'info','Asuransi'=>'success','BPKB'=>'secondary','SIM'=>'dark'] as $kw => $clr) {
+                            if (stripos($row['jenis_dokumen'], $kw) !== false) { $jenis_badge_color = $clr; break; }
+                        }
+                    ?>
+                    <tr class="<?= $row_bg ?>">
+                        <td>
+                            <div class="fw-semibold"><?= htmlspecialchars(($row['no_reg'] ?? '') !== '' ? $row['no_reg'] : ($row['no_polisi'] ?? '-')) ?></div>
+                            <div class="text-muted small"><?= htmlspecialchars($row['merk'] . ' ' . $row['tipe']) ?></div>
+                        </td>
+                        <td>
+                            <span class="badge bg-<?= $jenis_badge_color ?> mb-1"><?= htmlspecialchars($row['jenis_dokumen']) ?></span>
+                            <div class="fw-semibold"><?= htmlspecialchars($row['nomor_dokumen']) ?></div>
+                        </td>
+                        <td class="text-muted small"><?= htmlspecialchars($row['instansi_penerbit'] ?: '—') ?></td>
+                        <td class="small"><?= $row['tanggal_terbit'] ? date('d/m/Y', strtotime($row['tanggal_terbit'])) : '—' ?></td>
+                        <td class="text-center">
+                            <div class="fw-semibold small"><?= $row['tanggal_berlaku'] ? date('d/m/Y', strtotime($row['tanggal_berlaku'])) : '—' ?></div>
+                            <?php if ($row['validity_status'] === 'Expired'): ?>
+                                <span class="badge bg-danger mt-1"><i class="fas fa-times me-1"></i>Kadaluarsa</span>
+                            <?php elseif ($row['validity_status'] === 'Expire Soon'): ?>
+                                <span class="badge bg-warning text-dark mt-1"><i class="fas fa-clock me-1"></i><?= $row['days_left'] ?> hari lagi</span>
+                            <?php else: ?>
+                                <span class="badge bg-success mt-1"><i class="fas fa-check me-1"></i>Berlaku</span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-<?= getStatusBadge($row['status']) ?>"><?= htmlspecialchars($row['status']) ?></span>
+                        </td>
+                        <td class="text-center">
+                            <?php if ($row['file_dokumen']): ?>
+                                <?php $ext = strtolower(pathinfo($row['file_dokumen'], PATHINFO_EXTENSION)); ?>
+                                <a href="uploads/dokumen/<?= htmlspecialchars($row['file_dokumen']) ?>" target="_blank"
+                                   class="btn btn-sm btn-outline-<?= $ext === 'pdf' ? 'danger' : 'primary' ?>" title="Lihat / Unduh">
+                                    <i class="fas fa-<?= $ext === 'pdf' ? 'file-pdf' : 'image' ?>"></i>
+                                </a>
+                            <?php else: ?>
+                                <span class="text-muted">—</span>
+                            <?php endif; ?>
+                        </td>
+                        <?php if (can_admin()): ?>
+                        <td class="text-center">
+                            <div class="btn-group btn-group-sm">
+                                <a href="?page=dokumen_kendaraan_edit&id=<?= $row['id'] ?>" class="btn btn-outline-primary" title="Edit"><i class="fas fa-edit"></i></a>
+                                <button class="btn btn-outline-danger" onclick="deleteDocument(<?= $row['id'] ?>)" title="Hapus"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </td>
+                        <?php endif; ?>
+                    </tr>
+                    <?php endwhile; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <?php if ($total_pages > 1): ?>
+        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top flex-wrap gap-2">
+            <div class="text-muted small">
+                <?= min($total_records, $offset+1) ?>–<?= min($total_records, $offset+$limit) ?> dari <?= number_format($total_records) ?> dokumen
             </div>
-    <?php else: ?>
-            <div class="text-center p-5">
-                <i class="fas fa-file-alt fa-3x text-muted mb-3"></i>
-                <h5>Tidak ada dokumen</h5>
-                <p class="text-muted">Belum ada dokumen yang terdaftar</p>
-            </div>
+            <nav>
+                <ul class="pagination pagination-sm mb-0">
+                    <?php if ($page > 1): ?>
+                        <li class="page-item"><a class="page-link" href="?page=dokumen_kendaraan&tab=<?= urlencode($active_tab) ?>&page_num=<?= $page-1 ?>&jenis=<?= urlencode($filter_jenis) ?>&kendaraan=<?= urlencode($filter_kendaraan) ?>&status=<?= urlencode($filter_status) ?>&search=<?= urlencode($search) ?>"><i class="fas fa-angle-left"></i></a></li>
+                    <?php endif; ?>
+                    <?php for ($i = max(1,$page-2); $i <= min($total_pages,$page+2); $i++): ?>
+                        <li class="page-item <?= $i===$page?'active':'' ?>"><a class="page-link" href="?page=dokumen_kendaraan&tab=<?= urlencode($active_tab) ?>&page_num=<?= $i ?>&jenis=<?= urlencode($filter_jenis) ?>&kendaraan=<?= urlencode($filter_kendaraan) ?>&status=<?= urlencode($filter_status) ?>&search=<?= urlencode($search) ?>"><?= $i ?></a></li>
+                    <?php endfor; ?>
+                    <?php if ($page < $total_pages): ?>
+                        <li class="page-item"><a class="page-link" href="?page=dokumen_kendaraan&tab=<?= urlencode($active_tab) ?>&page_num=<?= $page+1 ?>&jenis=<?= urlencode($filter_jenis) ?>&kendaraan=<?= urlencode($filter_kendaraan) ?>&status=<?= urlencode($filter_status) ?>&search=<?= urlencode($search) ?>"><i class="fas fa-angle-right"></i></a></li>
+                    <?php endif; ?>
+                </ul>
+            </nav>
+        </div>
+        <?php endif; ?>
+
+        <?php else: ?>
+        <div class="text-center py-5">
+            <i class="fas fa-file-alt fa-3x text-muted mb-3 d-block"></i>
+            <h5 class="text-muted">Tidak ada dokumen ditemukan</h5>
+            <p class="text-muted small">
+                <?php if ($filter_jenis || $filter_kendaraan || $filter_status || $search || $active_tab !== 'all'): ?>
+                    Tidak ada dokumen yang cocok dengan filter yang dipilih. <a href="?page=dokumen_kendaraan">Reset</a>
+                <?php else: ?>
+                    Belum ada dokumen kendaraan yang terdaftar.
+                <?php endif; ?>
+            </p>
+            <?php if (can_admin()): ?>
+            <button class="btn btn-primary btn-sm mt-1" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="fas fa-plus me-1"></i>Tambah Dokumen Pertama
+            </button>
+            <?php endif; ?>
+        </div>
         <?php endif; ?>
     </div>
 </div>
 
-<!-- Pagination -->
-<?php if ($total_pages > 1): ?>
-    <div class="mt-4">
-        <nav aria-label="Page navigation">
-            <ul class="pagination justify-content-center">
-                <?php for ($i = 1; $i <= $total_pages; $i++): ?>
-                    <li class="page-item <?= $i === $page ? 'active' : '' ?>">
-                        <a class="page-link" href="?page=dokumen_kendaraan&tab=<?= $active_tab ?>&page_num=<?= $i ?>&jenis=<?= urlencode($filter_jenis) ?>&kendaraan=<?= urlencode($filter_kendaraan) ?>&status=<?= urlencode($filter_status) ?>&search=<?= urlencode($search) ?>">
-                            <?= $i ?>
-                        </a>
-                    </li>
-                <?php endfor; ?>
-            </ul>
-        </nav>
-    </div>
-<?php endif; ?>
-
-
-
 <?php if (can_admin()): ?>
 <!-- Add Modal -->
-<div class="modal fade" id="addModal" tabindex="-1" data-bs-backdrop="false">
-    <div class="modal-dialog modal-lg">
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <form method="POST" action="?page=dokumen_kendaraan&action=add" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
-                
-                <div class="modal-header">
-                    <h5 class="modal-title">Tambah Dokumen Kendaraan</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title"><i class="fas fa-plus-circle me-2"></i>Tambah Dokumen Kendaraan</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
-                
                 <div class="modal-body">
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Kendaraan <span class="text-danger">*</span></label>
-                            <select name="kendaraan_id" class="form-control" required>
-                                <option value="">Pilih Kendaraan</option>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label form-label-sm">Kendaraan <span class="text-danger">*</span></label>
+                            <select name="kendaraan_id" class="form-select form-select-sm" required>
+                                <option value="">— Pilih Kendaraan —</option>
                                 <?php foreach ($kendaraan_list as $kendaraan): ?>
                                     <option value="<?= $kendaraan['id'] ?>">
-                                        <?= htmlspecialchars((($kendaraan['no_reg'] ?? '') !== '' ? $kendaraan['no_reg'] : ($kendaraan['no_polisi'] ?? '-')) . ' - ' . $kendaraan['merk'] . ' ' . $kendaraan['tipe']) ?>
+                                        <?= htmlspecialchars((($kendaraan['no_reg'] ?? '') !== '' ? $kendaraan['no_reg'] : ($kendaraan['no_polisi'] ?? '-')) . ' — ' . $kendaraan['merk'] . ' ' . $kendaraan['tipe']) ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Jenis Dokumen <span class="text-danger">*</span></label>
-                            <select name="jenis_dokumen" class="form-control" required>
-                                <option value="">Pilih Jenis</option>
+                        <div class="col-md-6">
+                            <label class="form-label form-label-sm">Jenis Dokumen <span class="text-danger">*</span></label>
+                            <select name="jenis_dokumen" class="form-select form-select-sm" required>
+                                <option value="">— Pilih Jenis —</option>
                                 <?php foreach ($jenis_dokumen as $jenis): ?>
-                                    <option value="<?= $jenis ?>"><?= $jenis ?></option>
+                                    <option value="<?= htmlspecialchars($jenis) ?>"><?= htmlspecialchars($jenis) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Nomor Dokumen <span class="text-danger">*</span></label>
-                            <input type="text" name="nomor_dokumen" class="form-control" required>
+                        <div class="col-md-6">
+                            <label class="form-label form-label-sm">Nomor Dokumen <span class="text-danger">*</span></label>
+                            <input type="text" name="nomor_dokumen" class="form-control form-control-sm" required placeholder="Nomor seri / referensi dokumen">
                         </div>
-                        
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Instansi Penerbit</label>
-                            <input type="text" name="instansi_penerbit" class="form-control">
+                        <div class="col-md-6">
+                            <label class="form-label form-label-sm">Instansi Penerbit</label>
+                            <input type="text" name="instansi_penerbit" class="form-control form-control-sm" placeholder="Contoh: Samsat, Dishub...">
                         </div>
-                        
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Tanggal Terbit <span class="text-danger">*</span></label>
-                            <input type="date" name="tanggal_terbit" class="form-control" required>
+                        <div class="col-md-4">
+                            <label class="form-label form-label-sm">Tanggal Terbit <span class="text-danger">*</span></label>
+                            <input type="date" name="tanggal_terbit" class="form-control form-control-sm" required>
                         </div>
-                        
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Tanggal Berlaku <span class="text-danger">*</span></label>
-                            <input type="date" name="tanggal_berlaku" class="form-control" required>
+                        <div class="col-md-4">
+                            <label class="form-label form-label-sm">Tanggal Berlaku <span class="text-danger">*</span></label>
+                            <input type="date" name="tanggal_berlaku" class="form-control form-control-sm" required>
                         </div>
-                        
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Status <span class="text-danger">*</span></label>
-                            <select name="status" class="form-control" required>
-                                <option value="">Pilih Status</option>
+                        <div class="col-md-4">
+                            <label class="form-label form-label-sm">Status <span class="text-danger">*</span></label>
+                            <select name="status" class="form-select form-select-sm" required>
+                                <option value="">— Pilih —</option>
                                 <option value="Aktif">Aktif</option>
                                 <option value="Kadaluarsa">Kadaluarsa</option>
                                 <option value="Dalam Proses">Dalam Proses</option>
                             </select>
                         </div>
-                        
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Upload File</label>
-                            <input type="file" name="file_dokumen" class="form-control" accept=".jpg,.jpeg,.png,.pdf">
-                            <small class="text-muted">Format: JPG, PNG, PDF. Maksimal 10MB</small>
+                        <div class="col-12">
+                            <label class="form-label form-label-sm">Upload File <small class="text-muted">(JPG, PNG, PDF — maks 10 MB)</small></label>
+                            <input type="file" name="file_dokumen" class="form-control form-control-sm" accept=".jpg,.jpeg,.png,.pdf">
                         </div>
-                        
-                        <div class="col-12 mb-3">
-                            <label class="form-label">Keterangan</label>
-                            <textarea name="keterangan" class="form-control" rows="3"></textarea>
+                        <div class="col-12">
+                            <label class="form-label form-label-sm">Keterangan</label>
+                            <textarea name="keterangan" class="form-control form-control-sm" rows="2" placeholder="Catatan tambahan (opsional)"></textarea>
                         </div>
                     </div>
                 </div>
-                
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
-                    <button type="submit" class="btn btn-primary">Simpan</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Simpan</button>
                 </div>
             </form>
         </div>
@@ -676,52 +698,23 @@ function getValidityBadge($validity) {
 </div>
 <?php endif; ?>
 
-<!-- Edit Modal -->
-<div class="modal fade" id="editModal" tabindex="-1" data-bs-backdrop="false">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <form method="POST" action="?page=dokumen_kendaraan&action=edit" enctype="multipart/form-data">
-                <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
-                <input type="hidden" name="id" id="edit_id">
-                
-                <div class="modal-header">
-                    <h5 class="modal-title">Edit Dokumen Kendaraan</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                
-                <div class="modal-body" id="edit_form">
-                    <!-- Content will be loaded via AJAX -->
-                </div>
-                
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
-                    <button type="submit" class="btn btn-primary">Update</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Delete Modal -->
-<div class="modal fade" id="deleteModal" tabindex="-1" data-bs-backdrop="false">
-    <div class="modal-dialog">
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <form method="POST" action="?page=dokumen_kendaraan&action=delete">
                 <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
                 <input type="hidden" name="id" id="delete_id">
-                
-                <div class="modal-header">
-                    <h5 class="modal-title">Hapus Dokumen</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <div class="modal-header bg-danger text-white">
+                    <h6 class="modal-title"><i class="fas fa-trash me-2"></i>Hapus Dokumen</h6>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
-                
                 <div class="modal-body">
-                    <p>Apakah Anda yakin ingin menghapus dokumen ini? Tindakan ini tidak dapat dibatalkan.</p>
+                    <p class="mb-0">Yakin ingin menghapus dokumen ini? Tindakan ini tidak dapat dibatalkan.</p>
                 </div>
-                
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
-                    <button type="submit" class="btn btn-danger">Hapus</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-trash me-1"></i>Hapus</button>
                 </div>
             </form>
         </div>
@@ -729,111 +722,24 @@ function getValidityBadge($validity) {
 </div>
 
 <style>
-.gradient-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.nav-tabs .nav-link {
-    color: #495057;
-    border: none;
-    border-bottom: 3px solid transparent;
-}
-
-.nav-tabs .nav-link:hover {
-    border-color: transparent;
-    border-bottom-color: #dee2e6;
-}
-
-.nav-tabs .nav-link.active {
-    color: #495057;
-    background-color: transparent;
-    border-color: transparent;
-    border-bottom-color: #007bff;
-    font-weight: 600;
-}
-
-.card {
-    border: none;
-    box-shadow: 0 0 20px rgba(0,0,0,0.1);
-}
-
-.table th {
-    border-top: none;
-    font-weight: 600;
-    color: #495057;
-}
-
-.btn-group-sm .btn {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.875rem;
-}
-
-.badge {
-    font-size: 0.75rem;
-    padding: 0.35em 0.65em;
-}
-
-@media (max-width: 768px) {
-    .col-md-1, .col-md-2, .col-md-3, .col-md-4, .col-md-6 {
-        margin-bottom: 1rem;
-    }
-}
+.nav-tabs .nav-link { color: #495057; border: none; border-bottom: 3px solid transparent; padding: .5rem .75rem; }
+.nav-tabs .nav-link:hover { border-bottom-color: #dee2e6; background: #f8f9fa; }
+.nav-tabs .nav-link.active { color: #1f6f8b; background: transparent; border-bottom-color: #1f6f8b; }
+.table-danger td, .table-warning td { opacity: .92; }
 </style>
 
 <script>
-// Ensure Add modal is above everything and not trapped in a stacking context
 document.addEventListener('DOMContentLoaded', function() {
     var addModal = document.getElementById('addModal');
-    if (addModal && addModal.parentElement !== document.body) {
-        document.body.appendChild(addModal);
-    }
+    if (addModal && addModal.parentElement !== document.body) document.body.appendChild(addModal);
+    var delModal = document.getElementById('deleteModal');
+    if (delModal && delModal.parentElement !== document.body) document.body.appendChild(delModal);
 });
-
-function editDocument(id) {
-    // Load document data via AJAX
-    fetch(`ajax/get_dokumen_detail.php?id=${id}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('edit_id').value = id;
-                document.getElementById('edit_form').innerHTML = data.html;
-                
-                var modalEl = document.getElementById('editModal');
-                var modal = new bootstrap.Modal(modalEl, {backdrop: false});
-                modal.show();
-            } else {
-                alert('Error loading document data');
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('Error loading document data');
-        });
-}
 
 function deleteDocument(id) {
     document.getElementById('delete_id').value = id;
-    var modalEl = document.getElementById('deleteModal');
-    var modal = new bootstrap.Modal(modalEl, {backdrop: false});
-    modal.show();
+    new bootstrap.Modal(document.getElementById('deleteModal')).show();
 }
 </script>
-
-<style>
-/* Make Add Document modal the top-most layer */
-.modal-backdrop,
-.modal-backdrop.show {
-    z-index: 2990 !important;
-}
-
-#addModal.modal {
-    z-index: 3000 !important;
-}
-
-@media (max-width: 576px) {
-    /* slight offset on small screens if header overlaps */
-    #addModal .modal-dialog { margin-top: 40px !important; }
-}
-</style>
 
 

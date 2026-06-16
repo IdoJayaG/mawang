@@ -89,7 +89,7 @@ if (!$has_surat_tugas_id) {
 }
 
 // Handle approval/rejection/edit
-if ($_POST && in_array($action, ['approve', 'reject', 'edit'])) {
+if ($_POST && in_array($action, ['approve', 'reject', 'edit', 'approve_surat', 'reject_surat'])) {
     if (!validate_csrf_token($_POST['csrf_token'] ?? '')) {
         $msg = '<div class="alert alert-danger">Token keamanan tidak valid!</div>';
     } else {
@@ -532,8 +532,147 @@ if ($_POST && in_array($action, ['approve', 'reject', 'edit'])) {
                     $stmt->close();
                 }
             }
+        } elseif ($action === 'approve_surat') {
+            $surat_id_post = (int)($_POST['surat_id'] ?? 0);
+            if (!$surat_id_post) {
+                $msg = '<div class="alert alert-danger">ID surat tugas tidak valid!</div>';
+            } else {
+                $st_stmt = $mysqli->prepare("SELECT st.*, k.no_reg, k.no_polisi FROM surat_tugas st LEFT JOIN kendaraan k ON st.kendaraan_id = k.id WHERE st.id = ? AND st.approval_pimpinan_status = 'Pending'");
+                $st_stmt->bind_param('i', $surat_id_post);
+                $st_stmt->execute();
+                $surat_info = $st_stmt->get_result()->fetch_assoc();
+                $st_stmt->close();
+
+                if (!$surat_info) {
+                    $msg = '<div class="alert alert-danger">Surat tugas tidak ditemukan atau sudah diproses!</div>';
+                } else {
+                    $st_cols = get_table_columns($mysqli, 'surat_tugas');
+                    $set_parts = ["approval_pimpinan_status = 'Approved'", "status = 'Disetujui'", "updated_at = NOW()"];
+                    $types_st = '';
+                    $vals_st = [];
+                    if (in_array('approval_pimpinan_by', $st_cols, true)) {
+                        $set_parts[] = "approval_pimpinan_by = ?"; $types_st .= 'i'; $vals_st[] = $current_user_id;
+                    }
+                    if (in_array('approval_pimpinan_at', $st_cols, true)) {
+                        $set_parts[] = "approval_pimpinan_at = NOW()";
+                    }
+                    if (in_array('updated_by', $st_cols, true)) {
+                        $set_parts[] = "updated_by = ?"; $types_st .= 'i'; $vals_st[] = $current_user_id;
+                    }
+                    $types_st .= 'i'; $vals_st[] = $surat_id_post;
+
+                    $st_upd = $mysqli->prepare("UPDATE surat_tugas SET " . implode(', ', $set_parts) . " WHERE id = ? AND approval_pimpinan_status = 'Pending'");
+                    if ($st_upd) {
+                        $st_upd->bind_param($types_st, ...$vals_st);
+                        if ($st_upd->execute() && $st_upd->affected_rows > 0) {
+                            // Approve linked peminjaman_kendaraan if pending
+                            $pk_q = $mysqli->prepare("SELECT id, peminjam_id FROM peminjaman_kendaraan WHERE surat_tugas_id = ? AND status = 'Pending' LIMIT 1");
+                            if ($pk_q) {
+                                $pk_q->bind_param('i', $surat_id_post);
+                                $pk_q->execute();
+                                $pk_row = $pk_q->get_result()->fetch_assoc();
+                                $pk_q->close();
+                                if ($pk_row) {
+                                    $pk_id = (int)$pk_row['id'];
+                                    $pk_cols = get_table_columns($mysqli, 'peminjaman_kendaraan');
+                                    $pk_parts = ["status = 'Approved'", "updated_at = NOW()"];
+                                    $pk_types = ''; $pk_vals = [];
+                                    if (in_array('approval_pimpinan_status', $pk_cols, true)) $pk_parts[] = "approval_pimpinan_status = 'Approved'";
+                                    if (in_array('approval_pimpinan_by', $pk_cols, true)) { $pk_parts[] = "approval_pimpinan_by = ?"; $pk_types .= 'i'; $pk_vals[] = $current_user_id; }
+                                    if (in_array('approval_pimpinan_at', $pk_cols, true)) $pk_parts[] = "approval_pimpinan_at = NOW()";
+                                    if (in_array('approval_admin_status', $pk_cols, true)) $pk_parts[] = "approval_admin_status = 'Approved'";
+                                    if (in_array('approval_admin_at', $pk_cols, true)) $pk_parts[] = "approval_admin_at = NOW()";
+                                    $approver_col_pk = null;
+                                    foreach (['approved_by','approval_by','approver_id','approved_by_id','approver'] as $c) {
+                                        if (in_array($c, $pk_cols, true)) { $approver_col_pk = $c; break; }
+                                    }
+                                    if ($approver_col_pk) { $pk_parts[] = "{$approver_col_pk} = ?"; $pk_types .= 'i'; $pk_vals[] = $current_user_id; }
+                                    if (in_array('approved_at', $pk_cols, true)) $pk_parts[] = "approved_at = NOW()";
+                                    $pk_types .= 'i'; $pk_vals[] = $pk_id;
+                                    $pk_upd = $mysqli->prepare("UPDATE peminjaman_kendaraan SET " . implode(', ', $pk_parts) . " WHERE id = ?");
+                                    if ($pk_upd) { $pk_upd->bind_param($pk_types, ...$pk_vals); $pk_upd->execute(); $pk_upd->close(); }
+                                }
+                            }
+                            // Mark kendaraan as Dipinjam
+                            $kend_id = (int)($surat_info['kendaraan_id'] ?? 0);
+                            $vcol = vehicle_status_column($mysqli);
+                            if ($vcol && $kend_id > 0) {
+                                $mysqli->query("UPDATE kendaraan SET `{$vcol}` = 'Dipinjam' WHERE id = {$kend_id}");
+                            }
+                            // Notify submitter
+                            $notify_uid = (int)($surat_info['pengguna_id'] ?? 0);
+                            if ($notify_uid) {
+                                insert_notification($mysqli, $notify_uid, "Surat tugas {$surat_info['nomor_surat']} telah disetujui pimpinan.", 'Surat Tugas Disetujui');
+                            }
+                            $msg = '<div class="alert alert-success">Surat tugas berhasil disetujui pimpinan!</div>';
+                            log_user_activity("Menyetujui surat tugas ID: {$surat_id_post}");
+                            log_peminjaman_role_activity($current_role, "Menyetujui surat tugas ID: {$surat_id_post}");
+                        } else {
+                            $msg = '<div class="alert alert-danger">Gagal menyetujui surat tugas. Mungkin status sudah berubah.</div>';
+                        }
+                        $st_upd->close();
+                    }
+                }
+            }
+
+        } elseif ($action === 'reject_surat') {
+            $surat_id_post = (int)($_POST['surat_id'] ?? 0);
+            $rejected_reason = trim((string)($_POST['rejected_reason'] ?? ''));
+            if (!$surat_id_post) {
+                $msg = '<div class="alert alert-danger">ID surat tugas tidak valid!</div>';
+            } elseif (empty($rejected_reason)) {
+                $msg = '<div class="alert alert-danger">Alasan penolakan harus diisi!</div>';
+            } else {
+                $st_cols = get_table_columns($mysqli, 'surat_tugas');
+                $set_parts = ["approval_pimpinan_status = 'Rejected'", "updated_at = NOW()"];
+                $types_st = ''; $vals_st = [];
+                if (in_array('approval_pimpinan_by', $st_cols, true)) { $set_parts[] = "approval_pimpinan_by = ?"; $types_st .= 'i'; $vals_st[] = $current_user_id; }
+                if (in_array('approval_pimpinan_at', $st_cols, true)) $set_parts[] = "approval_pimpinan_at = NOW()";
+                if (in_array('updated_by', $st_cols, true)) { $set_parts[] = "updated_by = ?"; $types_st .= 'i'; $vals_st[] = $current_user_id; }
+                if (in_array('rejected_reason', $st_cols, true)) { $set_parts[] = "rejected_reason = ?"; $types_st .= 's'; $vals_st[] = $rejected_reason; }
+                $types_st .= 'i'; $vals_st[] = $surat_id_post;
+
+                $st_upd = $mysqli->prepare("UPDATE surat_tugas SET " . implode(', ', $set_parts) . " WHERE id = ? AND approval_pimpinan_status = 'Pending'");
+                if ($st_upd) {
+                    $st_upd->bind_param($types_st, ...$vals_st);
+                    if ($st_upd->execute() && $st_upd->affected_rows > 0) {
+                        // Reject linked peminjaman_kendaraan if pending
+                        $pk_q2 = $mysqli->prepare("SELECT id FROM peminjaman_kendaraan WHERE surat_tugas_id = ? AND status = 'Pending' LIMIT 1");
+                        if ($pk_q2) {
+                            $pk_q2->bind_param('i', $surat_id_post);
+                            $pk_q2->execute();
+                            $pk_row2 = $pk_q2->get_result()->fetch_assoc();
+                            $pk_q2->close();
+                            if ($pk_row2) {
+                                $pk_id2 = (int)$pk_row2['id'];
+                                $pk_cols2 = get_table_columns($mysqli, 'peminjaman_kendaraan');
+                                $rej_parts = ["status = 'Rejected'", "updated_at = NOW()"];
+                                $rej_types = ''; $rej_vals = [];
+                                if (in_array('approval_pimpinan_status', $pk_cols2, true)) $rej_parts[] = "approval_pimpinan_status = 'Rejected'";
+                                if (in_array('approval_pimpinan_by', $pk_cols2, true)) { $rej_parts[] = "approval_pimpinan_by = ?"; $rej_types .= 'i'; $rej_vals[] = $current_user_id; }
+                                if (in_array('approval_pimpinan_at', $pk_cols2, true)) $rej_parts[] = "approval_pimpinan_at = NOW()";
+                                if (in_array('rejected_reason', $pk_cols2, true)) { $rej_parts[] = "rejected_reason = ?"; $rej_types .= 's'; $rej_vals[] = $rejected_reason; }
+                                $rej_types .= 'i'; $rej_vals[] = $pk_id2;
+                                $pk_upd2 = $mysqli->prepare("UPDATE peminjaman_kendaraan SET " . implode(', ', $rej_parts) . " WHERE id = ?");
+                                if ($pk_upd2) { $pk_upd2->bind_param($rej_types, ...$rej_vals); $pk_upd2->execute(); $pk_upd2->close(); }
+                            }
+                        }
+                        // Notify submitter
+                        $surat_rej = $mysqli->query("SELECT nomor_surat, pengguna_id FROM surat_tugas WHERE id = {$surat_id_post} LIMIT 1")?->fetch_assoc();
+                        if (!empty($surat_rej['pengguna_id'])) {
+                            insert_notification($mysqli, (int)$surat_rej['pengguna_id'], "Surat tugas {$surat_rej['nomor_surat']} ditolak pimpinan: {$rejected_reason}", 'Surat Tugas Ditolak');
+                        }
+                        $msg = '<div class="alert alert-success">Surat tugas berhasil ditolak!</div>';
+                        log_user_activity("Menolak surat tugas ID: {$surat_id_post} alasan: {$rejected_reason}");
+                        log_peminjaman_role_activity($current_role, "Menolak surat tugas ID: {$surat_id_post}");
+                    } else {
+                        $msg = '<div class="alert alert-danger">Gagal menolak surat tugas. Mungkin status sudah berubah.</div>';
+                    }
+                    $st_upd->close();
+                }
+            }
         }
-        
+
     // notification: this was previously duplicated and could reference undefined vars; keep none here
         $action = 'list';
     }
@@ -692,6 +831,25 @@ if (in_array($action, ['approve', 'reject', 'edit']) && $peminjaman_id) {
     $stmt->bind_param('i', $peminjaman_id);
     $stmt->execute();
     $detail_data = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+}
+
+// Get surat_tugas detail for surat approval/rejection actions
+$surat_detail_data = null;
+if (in_array($action, ['approve_surat', 'reject_surat']) && $peminjaman_id) {
+    $stmt = $mysqli->prepare("
+        SELECT st.*, k.no_reg, k.no_polisi, k.merk, k.tipe, k.jenis, k.warna,
+               u.nama_lengkap AS pemohon_name, u.nrp_nip AS pemohon_nip,
+               ua.username AS pemohon_username
+        FROM surat_tugas st
+        LEFT JOIN kendaraan k ON st.kendaraan_id = k.id
+        LEFT JOIN pengguna u ON st.pengguna_id = u.id
+        LEFT JOIN user_account ua ON u.id = ua.pengguna_id
+        WHERE st.id = ? AND st.approval_pimpinan_status = 'Pending'
+    ");
+    $stmt->bind_param('i', $peminjaman_id);
+    $stmt->execute();
+    $surat_detail_data = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 }
 
@@ -904,6 +1062,96 @@ function getDraftStatusBadge($status) {
         </div>
     </div>
 
+<?php elseif (in_array($action, ['approve_surat', 'reject_surat']) && $surat_detail_data): ?>
+    <div class="card">
+        <div class="card-header">
+            <h3>
+                <i class="fas fa-<?= $action === 'approve_surat' ? 'check' : 'times' ?>"></i>
+                <?= $action === 'approve_surat' ? 'Setujui' : 'Tolak' ?> Surat Tugas
+            </h3>
+        </div>
+        <div class="card-body">
+            <div class="detail-section">
+                <h4>Detail Surat Tugas</h4>
+                <div class="detail-grid">
+                    <div class="detail-group">
+                        <label>Nomor Surat</label>
+                        <div class="detail-value">
+                            <strong><?= htmlspecialchars($surat_detail_data['nomor_surat'] ?? '-') ?></strong><br>
+                            <small class="text-muted">Tanggal: <?= !empty($surat_detail_data['tanggal_surat']) ? date('d/m/Y', strtotime($surat_detail_data['tanggal_surat'])) : '-' ?></small>
+                        </div>
+                    </div>
+                    <div class="detail-group">
+                        <label>Pemohon / Driver</label>
+                        <div class="detail-value">
+                            <strong><?= htmlspecialchars($surat_detail_data['pemohon_name'] ?? '-') ?></strong><br>
+                            <small class="text-muted">
+                                NIP: <?= htmlspecialchars($surat_detail_data['pemohon_nip'] ?? '-') ?><br>
+                                Username: <?= htmlspecialchars($surat_detail_data['pemohon_username'] ?? '-') ?>
+                            </small>
+                        </div>
+                    </div>
+                    <div class="detail-group">
+                        <label>Kendaraan</label>
+                        <div class="detail-value">
+                            <strong><?= htmlspecialchars($surat_detail_data['no_reg'] ?: ($surat_detail_data['no_polisi'] ?? '-')) ?></strong><br>
+                            <small class="text-muted"><?= htmlspecialchars(trim(($surat_detail_data['merk'] ?? '') . ' ' . ($surat_detail_data['tipe'] ?? ''))) ?></small><br>
+                            <small class="text-muted"><?= htmlspecialchars($surat_detail_data['jenis'] ?? '') ?><?= !empty($surat_detail_data['warna']) ? ' — ' . htmlspecialchars($surat_detail_data['warna']) : '' ?></small>
+                        </div>
+                    </div>
+                    <div class="detail-group">
+                        <label>Tujuan & Keperluan</label>
+                        <div class="detail-value">
+                            <strong><?= htmlspecialchars($surat_detail_data['tujuan'] ?? '-') ?></strong><br>
+                            <small class="text-muted"><?= htmlspecialchars($surat_detail_data['keperluan'] ?? '-') ?></small>
+                        </div>
+                    </div>
+                    <div class="detail-group">
+                        <label>Periode Perjalanan</label>
+                        <div class="detail-value">
+                            <strong>Berangkat:</strong> <?= !empty($surat_detail_data['tanggal_berangkat']) ? date('d/m/Y', strtotime($surat_detail_data['tanggal_berangkat'])) : '-' ?><br>
+                            <strong>Kembali:</strong> <?= !empty($surat_detail_data['tanggal_kembali']) ? date('d/m/Y', strtotime($surat_detail_data['tanggal_kembali'])) : '-' ?>
+                        </div>
+                    </div>
+                    <div class="detail-group">
+                        <label>Estimasi</label>
+                        <div class="detail-value">
+                            <strong>KM:</strong> <?= is_numeric($surat_detail_data['estimasi_km'] ?? null) ? number_format($surat_detail_data['estimasi_km']) . ' km' : '-' ?><br>
+                            <strong>BBM:</strong> <?= is_numeric($surat_detail_data['estimasi_bbm'] ?? null) ? 'Rp ' . number_format($surat_detail_data['estimasi_bbm']) : '-' ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="approval-section">
+                <h4><?= $action === 'approve_surat' ? 'Konfirmasi Persetujuan' : 'Konfirmasi Penolakan' ?></h4>
+                <form method="post">
+                    <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
+                    <input type="hidden" name="surat_id" value="<?= (int)$surat_detail_data['id'] ?>">
+                    <div class="form-group">
+                        <label for="notes_surat">Catatan (Opsional)</label>
+                        <textarea id="notes_surat" name="notes" class="form-control" rows="2" placeholder="Catatan tambahan..."></textarea>
+                    </div>
+                    <?php if ($action === 'reject_surat'): ?>
+                    <div class="form-group">
+                        <label for="rejected_reason_surat">Alasan Penolakan <span class="text-danger">*</span></label>
+                        <textarea id="rejected_reason_surat" name="rejected_reason" class="form-control" rows="2" required placeholder="Berikan alasan penolakan"></textarea>
+                    </div>
+                    <?php endif; ?>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-<?= $action === 'approve_surat' ? 'success' : 'danger' ?>">
+                            <i class="fas fa-<?= $action === 'approve_surat' ? 'check' : 'times' ?>"></i>
+                            <?= $action === 'approve_surat' ? 'Setujui' : 'Tolak' ?> Surat Tugas
+                        </button>
+                        <a href="index.php?page=persetujuan_peminjaman" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Kembali
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
 <?php else: ?>
     <!-- Search and Filter -->
     <div class="actions-bar">
@@ -1020,8 +1268,11 @@ function getDraftStatusBadge($status) {
                                     </td>
                                     <td><?= getStatusBadge($surat['status']) ?></td>
                                     <td>
-                                        <a href="index.php?page=surat_tugas&action=edit&id=<?= (int)$surat['id'] ?>" class="btn btn-sm btn-outline-primary">
-                                            <i class="fas fa-eye"></i> Lihat
+                                        <a href="index.php?page=persetujuan_peminjaman&action=approve_surat&id=<?= (int)$surat['id'] ?>" class="btn btn-sm btn-success">
+                                            <i class="fas fa-check"></i> Setujui
+                                        </a>
+                                        <a href="index.php?page=persetujuan_peminjaman&action=reject_surat&id=<?= (int)$surat['id'] ?>" class="btn btn-sm btn-danger ms-1">
+                                            <i class="fas fa-times"></i> Tolak
                                         </a>
                                     </td>
                                 </tr>
@@ -1035,6 +1286,9 @@ function getDraftStatusBadge($status) {
 
     <!-- Data Table -->
     <div class="card">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0"><i class="fas fa-clipboard-list me-2"></i>Permohonan Peminjaman Kendaraan</h5>
+        </div>
         <div class="card-body">
             <div class="table-responsive">
                 <table class="table">

@@ -566,7 +566,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     if ($role_input !== '') {
                                         $role_key = $role_input;
                                         if ($role_key === 'admin') { $role_key = 'administrator'; }
-                                        if ($role_key === 'operator') { $role_key = 'admin'; }
                                         if ($role_key === 'sopir') { $role_key = 'driver'; }
                                         if ($role_key === 'leader') { $role_key = 'pimpinan'; }
                                         if (isset($rolesMap[$role_key])) { $role_id = $rolesMap[$role_key]; }

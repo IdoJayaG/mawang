@@ -124,8 +124,24 @@ try {
         exit;
     }
 
-    // Use very wide range from 2000-01-01 to now
+    // If since_log=1, use the created_at of the last log_bahan_bakar for this vehicle as the start time
+    $since_dt_label = null;
     $fromIso = (new DateTime('2000-01-01 00:00:00'))->format(DateTime::ATOM);
+    if (!empty($_GET['since_log'])) {
+        $stmt_last = $mysqli->prepare("SELECT MAX(created_at) AS last_at FROM log_bahan_bakar WHERE kendaraan_id = ?");
+        if ($stmt_last) {
+            $stmt_last->bind_param('i', $vehicleId);
+            $stmt_last->execute();
+            $row_last = $stmt_last->get_result()->fetch_assoc();
+            $stmt_last->close();
+            if (!empty($row_last['last_at'])) {
+                $dt_from = new DateTime($row_last['last_at'], new DateTimeZone('Asia/Jakarta'));
+                $dt_from->setTimezone(new DateTimeZone('UTC'));
+                $fromIso = $dt_from->format(DateTime::ATOM);
+                $since_dt_label = $row_last['last_at'];
+            }
+        }
+    }
     $toIso = (new DateTime('now'))->format(DateTime::ATOM);
 
     $route = null;
@@ -156,7 +172,7 @@ try {
         $lastLat = $lat; $lastLon = $lon;
     }
 
-    echo json_encode(['success' => true, 'kendaraan_id' => $vehicleId, 'distance_km' => round($distance, 2)]);
+    echo json_encode(['success' => true, 'kendaraan_id' => $vehicleId, 'distance_km' => round($distance, 2), 'since_datetime' => $since_dt_label]);
 
 } catch (Throwable $e) {
     http_response_code(500);

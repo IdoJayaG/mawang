@@ -960,11 +960,6 @@ function require_admin() {
     }
 }
 
-function require_operator() {
-    // Legacy alias for admin-like access
-    require_admin();
-}
-
 function require_user() {
     require_login();
     $role = get_current_role();

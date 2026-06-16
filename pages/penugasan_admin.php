@@ -40,21 +40,9 @@ if (!function_exists('insert_notification')) {
             }
 
             if (in_array('message', $cols) && in_array('title', $cols)) {
-                $rid = $ref_id ?? 0;
-                $rtype = $ref_type ?? '';
-                $stmt = $mysqli->prepare("INSERT INTO notifikasi (user_id, title, message, ref_id, ref_type, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+                $stmt = $mysqli->prepare("INSERT INTO notifikasi (user_id, title, message, created_at) VALUES (?, ?, ?, NOW())");
                 if ($stmt) {
-                    $stmt->bind_param('issis', $user_id, $title, $message, $rid, $rtype);
-                    $stmt->execute();
-                    $stmt->close();
-                }
-                return;
-            }
-
-            if (in_array('pesan', $cols)) {
-                $stmt = $mysqli->prepare("INSERT INTO notifikasi (user_id, pesan, created_at) VALUES (?, ?, NOW())");
-                if ($stmt) {
-                    $stmt->bind_param('is', $user_id, $message);
+                    $stmt->bind_param('iss', $user_id, $title, $message);
                     $stmt->execute();
                     $stmt->close();
                 }

@@ -763,91 +763,214 @@ if ($action === 'assigned') {
   exit;
 }
 
-// Detail view for a surat (show map with tracking since LP creation)
+// Detail view for a surat (route map + trip stats)
 if ($action === 'detail_surat') {
   $surat_id = (int)($_GET['surat_id'] ?? 0);
   if ($surat_id <= 0) { echo '<div class="alert alert-danger">Surat tidak ditemukan</div>'; exit; }
-  $stmt = $mysqli->prepare("SELECT st.*, k.no_reg, k.no_polisi, k.merk, k.tipe, k.locator FROM surat_tugas st JOIN kendaraan k ON st.kendaraan_id = k.id WHERE st.id = ? LIMIT 1");
+
+  $stmt = $mysqli->prepare("SELECT st.*, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, k.locator FROM surat_tugas st JOIN kendaraan k ON st.kendaraan_id = k.id WHERE st.id = ? LIMIT 1");
   $stmt->bind_param('i', $surat_id);
   $stmt->execute();
   $s = $stmt->get_result()->fetch_assoc();
   $stmt->close();
   if (!$s) { echo '<div class="alert alert-danger">Surat tidak ditemukan</div>'; exit; }
 
-  // find related laporan_perjalanan (use created_at as start time)
-  $lp_start = null; $lp_id = null;
-  $st2 = $mysqli->prepare("SELECT id, created_at FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? ORDER BY created_at ASC LIMIT 1");
+  // Laporan perjalanan for this trip (jarak_km, route, created_at for tracking start)
+  $lp_start = null; $lp_id = null; $lp_jarak = null; $lp_route = null;
+  $st2 = $mysqli->prepare("SELECT id, created_at, jarak_km, route FROM laporan_perjalanan WHERE kendaraan_id = ? AND tanggal = ? ORDER BY created_at ASC LIMIT 1");
   $st2->bind_param('is', $s['kendaraan_id'], $s['tanggal_berangkat']);
   $st2->execute();
   $r2 = $st2->get_result()->fetch_assoc();
   $st2->close();
-  if ($r2) { $lp_id = (int)$r2['id']; $lp_start = $r2['created_at']; }
+  if ($r2) { $lp_id = (int)$r2['id']; $lp_start = $r2['created_at']; $lp_jarak = $r2['jarak_km']; $lp_route = $r2['route']; }
 
+  // Status badge
+  $st_badge = match(strtolower(trim($s['status'] ?? ''))) {
+    'disetujui'        => ['success','Disetujui'],
+    'dalam perjalanan' => ['warning','Dalam Perjalanan'],
+    'selesai'          => ['primary','Selesai'],
+    'dibatalkan'       => ['danger','Dibatalkan'],
+    default            => ['secondary', $s['status']],
+  };
   ?>
   <div class="page-header">
-    <h1><i class="fas fa-map-marked-alt"></i> Detail Surat - <?= htmlspecialchars($s['nomor_surat']) ?></h1>
+    <h1><i class="fas fa-map-marked-alt me-2"></i>Detail Perjalanan — <?= htmlspecialchars($s['nomor_surat']) ?></h1>
     <div class="header-actions">
-      <a class="btn btn-secondary" href="?page=laporan_perjalanan"><i class="fas fa-arrow-left me-1"></i> Kembali</a>
+      <a class="btn btn-secondary btn-sm" href="?page=laporan_perjalanan&action=assigned"><i class="fas fa-arrow-left me-1"></i>Kembali</a>
     </div>
   </div>
 
-  <div class="card">
+  <!-- Trip info panel -->
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+      <strong><i class="fas fa-file-signature me-2"></i><?= htmlspecialchars($s['nomor_surat']) ?></strong>
+      <span class="badge bg-<?= $st_badge[0] ?>"><?= htmlspecialchars($st_badge[1]) ?></span>
+    </div>
     <div class="card-body">
-      <div class="row mb-3">
-        <div class="col-md-4"><strong>Tanggal Berangkat:</strong> <?= htmlspecialchars($s['tanggal_berangkat']) ?></div>
-        <div class="col-md-4"><strong>Kendaraan:</strong> <?= htmlspecialchars(($s['no_reg'] ?: $s['no_polisi']) . ' - ' . $s['merk']) ?></div>
-        <div class="col-md-4"><strong>Status:</strong> <?= htmlspecialchars($s['status']) ?></div>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <div class="small text-muted fw-bold">Kendaraan</div>
+          <div><?= htmlspecialchars(($s['no_reg'] ?: $s['no_polisi']) . ' — ' . $s['merk'] . ' ' . $s['tipe']) ?></div>
+        </div>
+        <div class="col-md-4">
+          <div class="small text-muted fw-bold">Tanggal</div>
+          <div><?= htmlspecialchars($s['tanggal_berangkat']) ?>
+            <?php if ($s['tanggal_kembali']): ?>→ <?= htmlspecialchars($s['tanggal_kembali']) ?><?php endif; ?>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="small text-muted fw-bold">Tujuan</div>
+          <div><?= htmlspecialchars($s['tujuan'] ?? '-') ?></div>
+        </div>
+        <div class="col-md-6">
+          <div class="small text-muted fw-bold">Keperluan</div>
+          <div><?= htmlspecialchars($s['keperluan'] ?? '-') ?></div>
+        </div>
+        <div class="col-md-3">
+          <div class="small text-muted fw-bold">Estimasi KM</div>
+          <div><?= is_numeric($s['estimasi_km'] ?? null) ? number_format($s['estimasi_km']) . ' km' : '-' ?></div>
+        </div>
+        <div class="col-md-3">
+          <div class="small text-muted fw-bold">KM Berangkat / Kembali</div>
+          <div><?= is_numeric($s['km_berangkat'] ?? null) ? number_format($s['km_berangkat']) : '?' ?>
+               / <?= is_numeric($s['km_kembali'] ?? null) ? number_format($s['km_kembali']) : '?' ?></div>
+        </div>
+        <?php if ($lp_jarak || $lp_route): ?>
+        <div class="col-md-4">
+          <div class="small text-muted fw-bold">Laporan Jarak</div>
+          <div class="fw-semibold text-success"><?= is_numeric($lp_jarak) ? number_format($lp_jarak) . ' km' : '-' ?></div>
+        </div>
+        <div class="col-md-8">
+          <div class="small text-muted fw-bold">Route (Laporan)</div>
+          <div><?= htmlspecialchars($lp_route ?? '-') ?></div>
+        </div>
+        <?php endif; ?>
       </div>
-      <div class="row mb-3">
-        <div class="col-md-6"><strong>Rute/Tujuan:</strong> <?= htmlspecialchars($s['tujuan'] ?? '-') ?></div>
-        <div class="col-md-6"><strong>Keperluan:</strong> <?= htmlspecialchars($s['keperluan'] ?? '-') ?></div>
+    </div>
+  </div>
+
+  <!-- Map + GPS stats -->
+  <div class="card shadow-sm">
+    <div class="card-header bg-dark text-white">
+      <strong><i class="fas fa-route me-2"></i>Rute GPS (Traccar)</strong>
+      <span class="small text-muted ms-2"><?= $lp_start ? 'sejak ' . date('d/m/Y H:i', strtotime($lp_start)) : 'seluruh hari' ?></span>
+    </div>
+    <div class="card-body p-0">
+      <div id="suratTrackMap" style="height:450px; width:100%;"></div>
+    </div>
+    <div class="card-footer p-2">
+      <div id="trackSummary" class="row g-2 text-center small">
+        <div class="col text-muted">Memuat data GPS...</div>
       </div>
-      <div id="suratTrackMap" style="height:420px; width:100%;"></div>
-      <div class="mt-2" id="trackSummary"></div>
     </div>
   </div>
 
   <script>
   document.addEventListener('DOMContentLoaded', function(){
     const mapEl = document.getElementById('suratTrackMap');
-    if (!mapEl) return;
+    if (!mapEl || typeof L === 'undefined') return;
+
     const map = L.map('suratTrackMap').setView([-6.200, 106.816], 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
 
     const vehicleId = <?= (int)$s['kendaraan_id'] ?>;
-    const dateStr = '<?= htmlspecialchars($s['tanggal_berangkat']) ?>';
-    const lpStart = <?= $lp_start ? json_encode($lp_start) : 'null' ?>;
+    const dateStr   = <?= json_encode($s['tanggal_berangkat']) ?>;
+    const lpStart   = <?= $lp_start ? json_encode($lp_start) : 'null' ?>;
+    const summaryEl = document.getElementById('trackSummary');
 
-    fetch(`ajax/traccar_daily_timeline.php?vehicle_id=${vehicleId}&date=${encodeURIComponent(dateStr)}`, { credentials: 'same-origin' })
-      .then(r=>r.json())
+    // Haversine in km
+    function haversine(lat1, lon1, lat2, lon2) {
+      const R = 6371, toR = Math.PI / 180;
+      const dLat = (lat2 - lat1) * toR, dLon = (lon2 - lon1) * toR;
+      const a = Math.sin(dLat/2)**2 + Math.cos(lat1*toR)*Math.cos(lat2*toR)*Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function fmtTime(raw) {
+      if (!raw) return '—';
+      return new Date(raw.replace(' ','T')).toLocaleTimeString('id-ID', {hour:'2-digit',minute:'2-digit'});
+    }
+
+    function statBox(icon, label, value) {
+      return `<div class="col-6 col-md-3"><div class="p-2 bg-light rounded"><i class="fas fa-${icon} text-primary me-1"></i><small class="text-muted">${label}</small><div class="fw-bold">${value}</div></div></div>`;
+    }
+
+    fetch(`ajax/traccar_daily_timeline.php?vehicle_id=${vehicleId}&date=${encodeURIComponent(dateStr)}`,
+          { credentials: 'same-origin' })
+      .then(r => r.json())
       .then(data => {
         if (!data.success) {
-          document.getElementById('trackSummary').innerText = data.message || 'Gagal mengambil tracking data dari Traccar.';
+          summaryEl.innerHTML = `<div class="col text-muted">${data.message || 'Tidak ada data GPS.'}</div>`;
           return;
         }
+
         let points = data.points || [];
+
+        // Filter from LP creation time if available
         if (lpStart) {
           const startTs = Date.parse(lpStart.replace(' ', 'T'));
           points = points.filter(p => {
-            const t = Date.parse((p.server_time||p.device_time||'').replace(' ', 'T'));
+            const t = Date.parse((p.server_time || p.device_time || '').replace(' ', 'T'));
             return !isNaN(t) && t >= startTs;
           });
         }
+
         if (!points.length) {
-          document.getElementById('trackSummary').innerText = 'Belum ada data pelacakan untuk periode ini.';
+          summaryEl.innerHTML = '<div class="col text-muted">Belum ada titik GPS untuk periode ini.</div>';
           return;
         }
+
+        // Build color-gradient polyline (green→yellow→red by relative position)
         const latlngs = points.map(p => [p.lat, p.lon]);
-        const poly = L.polyline(latlngs, { color: 'blue', weight: 4 }).addTo(map);
-        map.fitBounds(poly.getBounds(), { padding: [20,20] });
-        const first = points[0]; const last = points[points.length-1];
-        L.marker([first.lat, first.lon], { icon: L.divIcon({ className: 'start-marker', html: '<i class="fas fa-flag-checkered"></i>' }) }).addTo(map).bindPopup('Start');
-        L.marker([last.lat, last.lon], { icon: L.divIcon({ className: 'current-marker', html: '<i class="fas fa-car"></i>' }) }).addTo(map).bindPopup('Terakhir: ' + (last.server_time || last.device_time || ''));
-        document.getElementById('trackSummary').innerHTML = `<div class="small text-muted">Menampilkan ${points.length} titik dari ${lpStart ? 'mulai '+lpStart : 'awal hari'}</div>`;
-      }).catch(err=>{ document.getElementById('trackSummary').innerText = 'Terjadi kesalahan saat memuat data pelacakan.'; });
+        for (let i = 1; i < latlngs.length; i++) {
+          const ratio = i / latlngs.length;
+          const r = Math.round(ratio * 220), g = Math.round((1 - ratio) * 180);
+          const color = `rgb(${r},${g},30)`;
+          L.polyline([latlngs[i-1], latlngs[i]], { color, weight: 4, opacity: 0.85 }).addTo(map);
+        }
+        const bounds = L.latLngBounds(latlngs);
+        map.fitBounds(bounds, { padding: [24, 24] });
+
+        // Start / end markers
+        const first = points[0], last = points[points.length - 1];
+        L.marker([first.lat, first.lon], {
+          icon: L.divIcon({ className:'', html:'<div style="background:#28a745;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"><i class="fas fa-play"></i></div>', iconSize:[28,28], iconAnchor:[14,14] })
+        }).addTo(map).bindPopup(`<strong>Mulai</strong><br>${fmtTime(first.server_time || first.device_time)}`);
+
+        L.marker([last.lat, last.lon], {
+          icon: L.divIcon({ className:'', html:'<div style="background:#dc3545;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"><i class="fas fa-car"></i></div>', iconSize:[28,28], iconAnchor:[14,14] })
+        }).addTo(map).bindPopup(`<strong>Terakhir</strong><br>${fmtTime(last.server_time || last.device_time)}`);
+
+        // Compute stats
+        let totalDist = 0;
+        for (let i = 1; i < points.length; i++) {
+          totalDist += haversine(points[i-1].lat, points[i-1].lon, points[i].lat, points[i].lon);
+        }
+
+        const speeds = points.map(p => parseFloat(p.speed || 0)).filter(v => v >= 0);
+        const avgSpeed = speeds.length ? speeds.reduce((a,b) => a+b,0) / speeds.length : 0;
+        const maxSpeed = speeds.length ? Math.max(...speeds) : 0;
+
+        const tFirst = new Date((first.server_time || first.device_time || '').replace(' ','T'));
+        const tLast  = new Date((last.server_time  || last.device_time  || '').replace(' ','T'));
+        const durMin = (!isNaN(tFirst) && !isNaN(tLast)) ? Math.round((tLast - tFirst) / 60000) : null;
+        const durStr = durMin !== null ? `${Math.floor(durMin/60)}j ${durMin%60}m` : '—';
+
+        summaryEl.innerHTML = `<div class="row g-2 text-center small w-100 mx-0">`
+          + statBox('road',           'Jarak GPS',       totalDist.toFixed(2) + ' km')
+          + statBox('clock',          'Durasi',          durStr)
+          + statBox('tachometer-alt', 'Kec. Rata-rata',  avgSpeed.toFixed(1) + ' km/h')
+          + statBox('bolt',           'Kec. Maks',       maxSpeed.toFixed(1) + ' km/h')
+          + statBox('map-pin',        'Titik GPS',       points.length.toLocaleString('id-ID'))
+          + statBox('calendar-alt',   'Mulai',           fmtTime(first.server_time || first.device_time))
+          + `</div>`;
+      })
+      .catch(() => {
+        summaryEl.innerHTML = '<div class="col text-danger">Gagal memuat data GPS Traccar.</div>';
+      });
   });
   </script>
-
   <?php
   exit;
 }

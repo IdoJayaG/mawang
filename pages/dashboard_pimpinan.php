@@ -183,7 +183,7 @@ $current_page = 'dashboard_pimpinan';
                                             <td><?= htmlspecialchars($row['nomor_surat']) ?></td>
                                             <td><?= htmlspecialchars($row['pemohon_nama'] ?? '-') ?></td>
                                             <td><?= htmlspecialchars(($row['no_reg'] ?: ($row['no_polisi'] ?? '-'))) ?></td>
-                                            <td><a class="btn btn-sm btn-outline-primary" href="index.php?page=surat_tugas&action=view&id=<?= (int)$row['id'] ?>">Lihat</a></td>
+                                            <td><a class="btn btn-sm btn-warning" href="index.php?page=persetujuan_peminjaman&action=approve_surat&id=<?= (int)$row['id'] ?>">Proses</a></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>

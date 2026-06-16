@@ -45,15 +45,19 @@ define('DB_NAME', 'randis');
 // Base URL (ubah sesuai kebutuhan)
 define('BASE_URL', 'http://localhost/randis/');
 
-// Mail configuration (used by scheduled email reminders)
-define('MAIL_TRANSPORT', getenv('MAIL_TRANSPORT') ?: 'mail'); // smtp|mail
-define('MAIL_FROM_ADDRESS', getenv('MAIL_FROM_ADDRESS') ?: 'no-reply@localhost');
-define('MAIL_FROM_NAME', getenv('MAIL_FROM_NAME') ?: 'Sistem Randis');
-define('MAIL_HOST', getenv('MAIL_HOST') ?: 'localhost');
-define('MAIL_PORT', (int)(getenv('MAIL_PORT') ?: 587));
-define('MAIL_USERNAME', getenv('MAIL_USERNAME') ?: '');
-define('MAIL_PASSWORD', getenv('MAIL_PASSWORD') ?: '');
-define('MAIL_ENCRYPTION', getenv('MAIL_ENCRYPTION') ?: 'tls'); // tls|ssl|none
+// Mail configuration — edit config/mail.php to set SMTP credentials.
+// Environment variables override config/mail.php values if set.
+$_mail_cfg = file_exists(__DIR__ . '/config/mail.php') ? (include __DIR__ . '/config/mail.php') : [];
+if (!is_array($_mail_cfg)) { $_mail_cfg = []; }
+define('MAIL_TRANSPORT',    getenv('MAIL_TRANSPORT')    ?: ($_mail_cfg['transport']    ?? 'smtp'));
+define('MAIL_FROM_ADDRESS', getenv('MAIL_FROM_ADDRESS') ?: ($_mail_cfg['from_address'] ?? ''));
+define('MAIL_FROM_NAME',    getenv('MAIL_FROM_NAME')    ?: ($_mail_cfg['from_name']    ?? 'Sistem Randis'));
+define('MAIL_HOST',         getenv('MAIL_HOST')         ?: ($_mail_cfg['host']         ?? 'smtp.gmail.com'));
+define('MAIL_PORT',         (int)(getenv('MAIL_PORT')   ?: ($_mail_cfg['port']         ?? 587)));
+define('MAIL_USERNAME',     getenv('MAIL_USERNAME')     ?: ($_mail_cfg['username']     ?? ''));
+define('MAIL_PASSWORD',     getenv('MAIL_PASSWORD')     ?: ($_mail_cfg['password']     ?? ''));
+define('MAIL_ENCRYPTION',   getenv('MAIL_ENCRYPTION')   ?: ($_mail_cfg['encryption']   ?? 'tls'));
+unset($_mail_cfg);
 
 // ====================
 // DB CONNECTION (MySQLi Persistent)

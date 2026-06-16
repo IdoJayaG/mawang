@@ -184,7 +184,7 @@
                 </ul>
             </li>
 
-            <li class="has-submenu <?= in_array($current_page, ['manajemen_user', 'manajemen_pengguna', 'log_aktivitas']) ? 'active' : '' ?>">
+            <li class="has-submenu <?= in_array($current_page, ['manajemen_user', 'manajemen_pengguna', 'log_aktivitas', 'email_queue']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-users-cog"></i><span>User</span>
                     <i class="fas fa-chevron-down submenu-arrow"></i>
@@ -192,6 +192,7 @@
                 <ul class="submenu">
                     <li><a href="index.php?page=manajemen_user" class="<?= ($current_page == 'manajemen_user') ? 'active' : '' ?>">Kelola User</a></li>
                     <li><a href="index.php?page=log_aktivitas" class="<?= ($current_page == 'log_aktivitas') ? 'active' : '' ?>">Log Aktivitas</a></li>
+                    <li><a href="index.php?page=email_queue" class="<?= ($current_page == 'email_queue') ? 'active' : '' ?>">Email Queue</a></li>
                 </ul>
             </li>
             
