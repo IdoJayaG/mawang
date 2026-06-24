@@ -1212,8 +1212,8 @@ if ($HAS_PENGGUNA_ID) {
                         <input type="file" id="foto" name="foto" class="form-control" accept="image/*">
                         <small class="form-text text-muted">Unggah foto (opsional). Maks 4MB (JPG, PNG, WEBP).</small>
                     </div>
-                    <div class="form-group" style="display:flex; align-items:flex-end; gap:12px;">
-                        <img id="foto-preview" src="" alt="Preview Foto" style="display:none; width:96px; height:96px; object-fit:cover; border-radius:8px; border:1px solid #ddd;" class="img-thumbnail" />
+                    <div class="form-group form-group-row">
+                        <img id="foto-preview" src="" alt="Preview Foto" class="img-thumbnail thumb-96" style="display:none;" />
                     </div>
                 </div>
                 <div class="form-actions">
@@ -1332,12 +1332,12 @@ if ($HAS_PENGGUNA_ID) {
                         <input type="file" id="foto" name="foto" class="form-control" accept="image/*">
                         <small class="form-text text-muted">Unggah untuk mengganti foto. Maks 4MB (JPG, PNG, WEBP).</small>
                     </div>
-                    <div class="form-group" style="display:flex; align-items:flex-end; gap:12px;">
+                    <div class="form-group form-group-row">
                         <?php $currPhoto = get_vehicle_photo_web_path((int)$edit_data['id']); ?>
                         <?php if ($currPhoto): ?>
-                            <img id="foto-preview" src="<?= htmlspecialchars($currPhoto) ?>?v=<?= urlencode($edit_data['updated_at'] ?? $edit_data['created_at'] ?? time()) ?>" alt="Foto Kendaraan" style="width:96px; height:96px; object-fit:cover; border-radius:8px; border:1px solid #ddd;" class="img-thumbnail" />
+                            <img id="foto-preview" src="<?= htmlspecialchars($currPhoto) ?>?v=<?= urlencode($edit_data['updated_at'] ?? $edit_data['created_at'] ?? time()) ?>" alt="Foto Kendaraan" class="img-thumbnail thumb-96" />
                         <?php else: ?>
-                            <img id="foto-preview" src="" alt="Preview Foto" style="display:none; width:96px; height:96px; object-fit:cover; border-radius:8px; border:1px solid #ddd;" class="img-thumbnail" />
+                            <img id="foto-preview" src="" alt="Preview Foto" class="img-thumbnail thumb-96" style="display:none;" />
                         <?php endif; ?>
                     </div>
                 </div>
@@ -1350,17 +1350,20 @@ if ($HAS_PENGGUNA_ID) {
     </div>
     
 <?php else: ?>
-    <div class="page-header">
-                <h1><i class="fas fa-car me-2"></i>Daftar Kendaraan</h1>
-                <div class="header-actions">
-                    <?php if ($can_crud): ?>
-                    <div class="btn-group" role="group">
-                        <a href="index.php?page=kendaraan&action=add" class="btn btn-secondary"><i class="fas fa-plus"></i> Tambah</a>
-                        <a class="btn btn-success" data-bs-toggle="modal" data-bs-target="#importModal"><i class="fas fa-file-excel"></i> Import Data</a>
-                        <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#exportKendaraanModal"><i class="fas fa-file-excel"></i> Export Rekapitulasi</button>
-                    </div>
-                    <?php endif; ?>
-                </div>
+    <div class="gradient-header">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h1 class="mb-1"><i class="fas fa-car me-2"></i>Daftar Kendaraan</h1>
+                <p class="mb-0 opacity-75">Data kendaraan dinas Pusinfolahta TNI</p>
+            </div>
+            <?php if ($can_crud): ?>
+            <div class="btn-group" role="group">
+                <a href="index.php?page=kendaraan&action=add" class="btn btn-secondary"><i class="fas fa-plus"></i> Tambah</a>
+                <a class="btn btn-success" data-bs-toggle="modal" data-bs-target="#importModal"><i class="fas fa-file-excel"></i> Import Data</a>
+                <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#exportKendaraanModal"><i class="fas fa-file-excel"></i> Export Rekapitulasi</button>
+            </div>
+            <?php endif; ?>
+        </div>
     </div>
     <div class="actions-bar" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px;">
         <div class="search-box">
@@ -1419,9 +1422,9 @@ if ($HAS_PENGGUNA_ID) {
                                 <td>
                                     <?php $thumb = get_vehicle_photo_web_path((int)$vehicle['id']); ?>
                                     <?php if ($thumb): ?>
-                                        <img src="<?= htmlspecialchars($thumb) ?>" alt="Foto" style="width:42px; height:42px; object-fit:cover; border-radius:6px; border:1px solid #e0e0e0;" />
+                                        <img src="<?= htmlspecialchars($thumb) ?>" alt="Foto" class="thumb-42" />
                                     <?php else: ?>
-                                        <div style="width:42px; height:42px; display:flex; align-items:center; justify-content:center; background:#f3f4f6; color:#6b7280; border-radius:6px; border:1px solid #e0e0e0;">
+                                        <div class="thumb-placeholder-42">
                                             <i class="fas fa-car"></i>
                                         </div>
                                     <?php endif; ?>
@@ -1639,11 +1642,3 @@ if ($HAS_PENGGUNA_ID) {
         </div>
     </div>
 </div>
-<style>
-    /* Ensure modals appear above sidebar/other elements */
-    #importModal { z-index: 2100; }
-    #importModal .modal-dialog { z-index: 2110; }
-    #exportKendaraanModal { z-index: 2100; }
-    #exportKendaraanModal .modal-dialog { z-index: 2110; }
-    .modal-backdrop.show { z-index: 2050; }
-</style>

@@ -160,7 +160,7 @@ try {
 ?>
 
 <div class="container-fluid">
-    <div class="gradient-header text-white p-4 mb-4 rounded">
+    <div class="gradient-header">
         <div class="d-flex justify-content-between align-items-center">
             <div>
                 <h1 class="mb-1"><i class="fas fa-users me-2"></i>Pengguna Kendaraan</h1>

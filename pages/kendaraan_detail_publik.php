@@ -100,7 +100,7 @@ try {
 }
 ?>
 
-<div class="gradient-header text-white p-4 rounded-3 mb-4">
+<div class="gradient-header">
     <div>
         <nav class="mb-3 opacity-75">
             <a href="index.php" class="text-white text-decoration-none">Beranda</a>

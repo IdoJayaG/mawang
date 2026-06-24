@@ -282,7 +282,7 @@ if ($current_role === 'user') {
 ?>
 
 <div class="profile-page">
-    <div class="page-header gradient-header text-white p-4 mb-4 rounded">
+    <div class="page-header">
         <div class="row align-items-center">
             <div class="col-md-8">
                 <h1><i class="fas fa-user me-2"></i>Profil Saya</h1>
@@ -512,120 +512,5 @@ if ($current_role === 'user') {
         </div>
     </div>
 </div>
-
-<style>
-.gradient-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.profile-page .card {
-    border: none;
-    box-shadow: 0 0 20px rgba(0,0,0,0.1);
-    border-radius: 10px;
-}
-
-.profile-page .card-header {
-    background: linear-gradient(135deg, #53adf6ff 0%, #5f5ff9ff 100%);
-    color: white;
-    border-radius: 10px 10px 0 0 !important;
-}
-
-.stat-item {
-    padding: 0.5rem 0;
-    border-bottom: 1px solid #eee;
-}
-
-.stat-item:last-child {
-    border-bottom: none;
-}
-
-.activity-item:last-child {
-    border-bottom: none !important;
-    margin-bottom: 0 !important;
-    padding-bottom: 0 !important;
-}
-
-.activity-icon {
-    margin-top: 0.25rem;
-}
-
-.info-item {
-    padding: 0.5rem 0;
-}
-
-.form-control:read-only {
-    background-color: #f8f9fa;
-}
-
-@media (max-width: 768px) {
-    .profile-page .row .col-lg-8,
-    .profile-page .row .col-lg-4 {
-        margin-bottom: 1rem;
-    }
-}
-</style>
-
-
-<style>
-.profile-avatar {
-    position: relative;
-}
-
-.stat-item {
-    padding: 0.5rem;
-}
-
-.stat-value {
-    font-size: 1.5rem;
-    font-weight: bold;
-    margin-bottom: 0.25rem;
-}
-
-.stat-label {
-    font-size: 0.75rem;
-    color: #6c757d;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.info-value {
-    background: #f8f9fa;
-    border: 1px solid #e9ecef;
-    border-radius: 0.375rem;
-    padding: 0.75rem;
-    min-height: 2.5rem;
-    display: flex;
-    align-items: center;
-    color: #495057;
-    font-weight: 500;
-}
-
-.info-value:empty::before {
-    content: 'Belum diisi';
-    color: #6c757d;
-    font-style: italic;
-}
-
-.rounded-top-0 {
-    border-top-left-radius: 0 !important;
-    border-top-right-radius: 0 !important;
-}
-
-.nav-tabs .nav-link {
-    border-bottom: 2px solid transparent;
-    color: #6c757d;
-}
-
-.nav-tabs .nav-link.active {
-    border-bottom-color: #0d6efd;
-    color: #0d6efd;
-    font-weight: 600;
-}
-
-.nav-tabs .nav-link:hover {
-    border-bottom-color: #0d6efd;
-    color: #0d6efd;
-}
-</style>
 
 

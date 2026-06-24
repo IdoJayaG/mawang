@@ -973,11 +973,11 @@ if ($action === 'edit' && $user_id) {
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label>Korps *</label>
-                                <input type="text" name="korps" id="korps_input" class="form-control" style="text-transform: uppercase;" placeholder="Contoh: Infanteri, Kavaleri, Artileri">
+                                <input type="text" name="korps" id="korps_input" class="form-control text-uppercase" placeholder="Contoh: Infanteri, Kavaleri, Artileri">
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label>Kesatuan *</label>
-                                <input type="text" name="kesatuan" id="kesatuan_input" class="form-control" style="text-transform: uppercase;" placeholder="Contoh: Kodam, Korem, Kodim">
+                                <input type="text" name="kesatuan" id="kesatuan_input" class="form-control text-uppercase" placeholder="Contoh: Kodam, Korem, Kodim">
                             </div>
                         </div>
                     </div>
@@ -1551,12 +1551,6 @@ document.addEventListener('click', function(e){
                         </div>
                     </div>
                 </div>
-
-                <style>
-                .gradient-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-                .page-header h1 { font-size: 1.75rem; font-weight:600; }
-                .text-white-50 { color: rgba(255,255,255,0.85); }
-                </style>
 
                 <!-- Modals for Adding New Entries -->
                 <!-- Modals removed - using simple dropdowns instead -->

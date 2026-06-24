@@ -1670,11 +1670,4 @@ document.addEventListener('DOMContentLoaded', function(){
      });
   })();
 </script>
-<style>
-  /* Z-index elevated to ensure modal & backdrop appear above custom sidebar/header */
-  #exportLaporanModal { z-index: 2100; }
-  #exportLaporanModal .modal-dialog { z-index: 2110; }
-  .modal-backdrop.show { z-index: 2050; }
-  #exportLaporanModal .modal-header { position: relative; z-index: 1; }
-</style>
 <?php endif; ?>

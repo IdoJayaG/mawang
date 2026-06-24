@@ -93,7 +93,7 @@ function getStatusBadge($status) {
     return $badges[$status] ?? 'secondary';
 }
 ?>
-<div class="gradient-header text-white p-4 mb-4 rounded">
+<div class="gradient-header">
     <div class="container-fluid">
         <div class="row align-items-center">
             <div class="col-md-8">

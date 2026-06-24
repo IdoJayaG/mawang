@@ -141,17 +141,23 @@
             
 
             <!-- peminjaman -->
-             
-            <li class="has-submenu <?= in_array($current_page, ['persetujuan_peminjaman', 'monitoring_peminjaman']) ? 'active' : '' ?>">
+            <?php
+            $peminjaman_pages = $current_role === 'pimpinan'
+                ? ['persetujuan_peminjaman', 'monitoring_peminjaman']
+                : ['monitoring_peminjaman'];
+            ?>
+            <li class="has-submenu <?= in_array($current_page, $peminjaman_pages) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-clipboard-check"></i><span>Peminjaman</span>
                     <i class="fas fa-chevron-down submenu-arrow"></i>
                 </a>
                 <ul class="submenu">
+                    <?php if ($current_role === 'pimpinan'): ?>
                     <li><a href="index.php?page=persetujuan_peminjaman" class="<?= ($current_page == 'persetujuan_peminjaman') ? 'active' : '' ?>">Persetujuan Peminjaman</a></li>
+                    <?php endif; ?>
                     <li><a href="index.php?page=monitoring_peminjaman" class="<?= ($current_page == 'monitoring_peminjaman') ? 'active' : '' ?>">Monitoring Peminjaman</a></li>
                 </ul>
-            </li> 
+            </li>
             
             <li class="has-submenu <?= in_array($current_page, ['riwayat_pemakaian', 'riwayat_perawatan', 'riwayat_perbaikan']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
@@ -184,7 +190,10 @@
                 </ul>
             </li>
 
-            <li class="has-submenu <?= in_array($current_page, ['manajemen_user', 'manajemen_pengguna', 'log_aktivitas', 'email_queue']) ? 'active' : '' ?>">
+            <?php $user_pages = $current_role === 'admin'
+                ? ['manajemen_user', 'manajemen_pengguna', 'log_aktivitas', 'email_queue']
+                : ['manajemen_user', 'manajemen_pengguna', 'log_aktivitas']; ?>
+            <li class="has-submenu <?= in_array($current_page, $user_pages) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-users-cog"></i><span>User</span>
                     <i class="fas fa-chevron-down submenu-arrow"></i>
@@ -192,7 +201,9 @@
                 <ul class="submenu">
                     <li><a href="index.php?page=manajemen_user" class="<?= ($current_page == 'manajemen_user') ? 'active' : '' ?>">Kelola User</a></li>
                     <li><a href="index.php?page=log_aktivitas" class="<?= ($current_page == 'log_aktivitas') ? 'active' : '' ?>">Log Aktivitas</a></li>
+                    <?php if ($current_role === 'admin'): ?>
                     <li><a href="index.php?page=email_queue" class="<?= ($current_page == 'email_queue') ? 'active' : '' ?>">Email Queue</a></li>
+                    <?php endif; ?>
                 </ul>
             </li>
             

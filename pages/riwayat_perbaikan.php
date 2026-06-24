@@ -1286,7 +1286,7 @@ if (!function_exists('sort_link')) {
                                 <td>
                                     <div class="input-group">
                                         <input type="number" name="item_qty[]" class="form-control qty" min="0" placeholder="0">
-                                        <input type="text" name="item_satuan[]" class="form-control" style="max-width:80px" placeholder="Unit">
+                                        <input type="text" name="item_satuan[]" class="form-control input-narrow" placeholder="Unit">
                                     </div>
                                 </td>
                                 <td><button type="button" class="btn btn-danger btn-sm remove-row">Hapus</button></td>
@@ -1474,7 +1474,7 @@ if (!function_exists('sort_link')) {
                                         <input type="number" name="item_qty[]" class="form-control qty" min="0" value="<?= (float)$it['qty'] ?>">
                                     </div>
                                 </td>
-                                <td><input type="text" name="item_satuan[]" class="form-control" style="max-width:100px" value="<?= htmlspecialchars((string)($it['satuan'] ?? '')) ?>"></td>
+                                <td><input type="text" name="item_satuan[]" class="form-control input-medium" value="<?= htmlspecialchars((string)($it['satuan'] ?? '')) ?>"></td>
                                 <td><button type="button" class="btn btn-danger btn-sm remove-row">Hapus</button></td>
                             </tr>
                             <?php endforeach; else: ?>
@@ -2013,11 +2013,6 @@ if (!function_exists('sort_link')) {
             sync();
         })();
     </script>
-    <style>
-        #exportPerbaikanModal { z-index: 2100; }
-        #exportPerbaikanModal .modal-dialog { z-index: 2110; }
-        .modal-backdrop.show { z-index: 2050; }
-    </style>
 <?php endif; ?>
 
 <?php if ($action === 'add' || ($action === 'edit' && $can_crud)): ?>

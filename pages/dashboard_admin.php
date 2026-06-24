@@ -201,7 +201,7 @@ render_page_head($page_title, $additional_css, $additional_js);
 render_sidebar($current_page, 'admin');
 ?>
 
-<div class="gradient-header text-white p-4 mb-4 rounded">
+<div class="gradient-header">
     <div class="container-fluid">
         <div class="row align-items-center">
             <div class="col-md-8">
@@ -224,7 +224,7 @@ render_sidebar($current_page, 'admin');
             <div class="card bg-primary text-white shadow-sm card-hover h-100">
                 <div class="card-body d-flex align-items-center">
                     <div class="me-3">
-                        <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+                        <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center stat-icon-circle">
                             <i class="fas fa-users fa-2x text-white"></i>
                         </div>
                     </div>
@@ -239,7 +239,7 @@ render_sidebar($current_page, 'admin');
             <div class="card bg-success text-white shadow-sm card-hover h-100">
                 <div class="card-body d-flex align-items-center">
                     <div class="me-3">
-                        <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+                        <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center stat-icon-circle">
                             <i class="fas fa-car fa-2x text-white"></i>
                         </div>
                     </div>
@@ -255,7 +255,7 @@ render_sidebar($current_page, 'admin');
             <div class="card bg-info text-white shadow-sm card-hover h-100">
                 <div class="card-body d-flex align-items-center">
                     <div class="me-3">
-                        <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+                        <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center stat-icon-circle">
                             <i class="fas fa-clipboard-list fa-2x text-white"></i>
                         </div>
                     </div>
@@ -271,7 +271,7 @@ render_sidebar($current_page, 'admin');
             <div class="card bg-warning text-white shadow-sm card-hover h-100">
                 <div class="card-body d-flex align-items-center">
                     <div class="me-3">
-                        <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+                        <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center stat-icon-circle">
                             <i class="fas fa-wrench fa-2x text-white"></i>
                         </div>
                     </div>
@@ -305,7 +305,7 @@ render_sidebar($current_page, 'admin');
                                     </div>
                                     <span class="badge bg-primary fs-6"><?= $count ?></span>
                                 </div>
-                                <div class="progress mb-2" style="height: 8px;">
+                                <div class="progress progress-sm mb-2">
                                     <div class="progress-bar bg-primary" style="width: <?= (array_sum($stats['users']) > 0) ? ($count / array_sum($stats['users']) * 100) : 0 ?>%"></div>
                                 </div>
                             <?php endforeach; ?>
@@ -340,7 +340,7 @@ render_sidebar($current_page, 'admin');
                                     </div>
                                     <span class="badge bg-<?= getStatusBadgeColor($status) ?> fs-6"><?= $count ?></span>
                                 </div>
-                                <div class="progress mb-2" style="height: 8px;">
+                                <div class="progress progress-sm mb-2">
                                     <div class="progress-bar bg-<?= getStatusBadgeColor($status) ?>" style="width: <?= ($total_kendaraan > 0) ? ($count / $total_kendaraan * 100) : 0 ?>%"></div>
                                 </div>
                             <?php endforeach; ?>
@@ -369,7 +369,7 @@ render_sidebar($current_page, 'admin');
                 </div>
                 <div class="card-body p-0">
                     <?php if (!empty($log_aktivitas ?? [])): ?>
-                        <div class="table-responsive" style="max-height: 400px;">
+                        <div class="table-responsive table-scroll-400">
                             <table class="table table-sm mb-0">
                                 <thead class="bg-light sticky-top">
                                     <tr>
@@ -431,7 +431,7 @@ render_sidebar($current_page, 'admin');
                 </div>
                 <div class="card-body p-0">
                     <?php if (!empty($current_loans_asc)): ?>
-                        <div class="table-responsive" style="max-height: 400px;">
+                        <div class="table-responsive table-scroll-400">
                             <table class="table table-sm mb-0">
                                 <thead class="bg-light sticky-top">
                                     <tr>
@@ -611,7 +611,7 @@ render_sidebar($current_page, 'admin');
                 </div>
                 <div class="card-body p-0">
                     <?php if (!empty($active_loans)): ?>
-                        <div class="table-responsive" style="max-height: 300px;">
+                        <div class="table-responsive table-scroll-300">
                             <table class="table table-sm mb-0">
                                 <thead class="bg-light sticky-top">
                                     <tr>

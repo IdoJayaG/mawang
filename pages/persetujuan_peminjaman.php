@@ -1196,40 +1196,44 @@ function getDraftStatusBadge($status) {
     ")->fetch_assoc();
     ?>
     
-    <div class="stats-cards">
-        <div class="stat-card pending">
-            <div class="stat-icon"><i class="fas fa-clock"></i></div>
-            <div class="stat-info">
-                <h3><?= $stats['pending'] ?></h3>
-                <p>Menunggu Persetujuan</p>
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm h-100" style="border-left:4px solid #ffc107!important">
+                <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+                    <i class="fas fa-clock fa-2x text-warning opacity-75"></i>
+                    <div><div class="text-muted small">Menunggu</div><div class="fw-bold fs-5"><?= (int)$stats['pending'] ?></div></div>
+                </div>
             </div>
         </div>
-        <div class="stat-card approved">
-            <div class="stat-icon"><i class="fas fa-check"></i></div>
-            <div class="stat-info">
-                <h3><?= $stats['approved'] ?></h3>
-                <p>Disetujui</p>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm h-100" style="border-left:4px solid #28a745!important">
+                <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+                    <i class="fas fa-check fa-2x text-success opacity-75"></i>
+                    <div><div class="text-muted small">Disetujui</div><div class="fw-bold fs-5"><?= (int)$stats['approved'] ?></div></div>
+                </div>
             </div>
         </div>
-        <div class="stat-card ongoing">
-            <div class="stat-icon"><i class="fas fa-car"></i></div>
-            <div class="stat-info">
-                <h3><?= $stats['ongoing'] ?></h3>
-                <p>Berlangsung</p>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm h-100" style="border-left:4px solid #17a2b8!important">
+                <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+                    <i class="fas fa-car fa-2x text-info opacity-75"></i>
+                    <div><div class="text-muted small">Berlangsung</div><div class="fw-bold fs-5"><?= (int)$stats['ongoing'] ?></div></div>
+                </div>
             </div>
         </div>
-        <div class="stat-card total">
-            <div class="stat-icon"><i class="fas fa-list"></i></div>
-            <div class="stat-info">
-                <h3><?= $stats['total'] ?></h3>
-                <p>Total Pengajuan</p>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm h-100" style="border-left:4px solid #6c757d!important">
+                <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+                    <i class="fas fa-list fa-2x text-secondary opacity-75"></i>
+                    <div><div class="text-muted small">Total</div><div class="fw-bold fs-5"><?= (int)$stats['total'] ?></div></div>
+                </div>
             </div>
         </div>
     </div>
 
     <?php if (!empty($surat_tugas_list)): ?>
         <div class="card mb-4">
-            <div class="card-header bg-secondary text-white">
+            <div class="card-header bg-dark text-white">
                 <h5 class="mb-0"><i class="fas fa-file-alt me-2"></i>Surat Tugas Menunggu Persetujuan Pimpinan</h5>
             </div>
             <div class="card-body p-0">
@@ -1268,11 +1272,11 @@ function getDraftStatusBadge($status) {
                                     </td>
                                     <td><?= getStatusBadge($surat['status']) ?></td>
                                     <td>
-                                        <a href="index.php?page=persetujuan_peminjaman&action=approve_surat&id=<?= (int)$surat['id'] ?>" class="btn btn-sm btn-success">
-                                            <i class="fas fa-check"></i> Setujui
+                                        <a href="index.php?page=persetujuan_peminjaman&action=approve_surat&id=<?= (int)$surat['id'] ?>" class="btn btn-sm btn-outline-success" title="Setujui">
+                                            <i class="fas fa-check"></i>
                                         </a>
-                                        <a href="index.php?page=persetujuan_peminjaman&action=reject_surat&id=<?= (int)$surat['id'] ?>" class="btn btn-sm btn-danger ms-1">
-                                            <i class="fas fa-times"></i> Tolak
+                                        <a href="index.php?page=persetujuan_peminjaman&action=reject_surat&id=<?= (int)$surat['id'] ?>" class="btn btn-sm btn-outline-danger ms-1" title="Tolak">
+                                            <i class="fas fa-times"></i>
                                         </a>
                                     </td>
                                 </tr>
@@ -1338,22 +1342,22 @@ function getDraftStatusBadge($status) {
                                     </td>
                                     <td><?= getStatusBadge($peminjaman['status']) ?></td>
                                     <td>
-                                        <div class="action-buttons">
+                                        <div class="btn-group btn-group-sm">
                                             <?php if ($peminjaman['status'] === 'Pending'): ?>
-                                                <a href="index.php?page=persetujuan_peminjaman&action=edit&id=<?= $peminjaman['id'] ?>" 
-                                                   class="btn btn-primary btn-sm" title="Edit Pengajuan">
+                                                <a href="index.php?page=persetujuan_peminjaman&action=edit&id=<?= $peminjaman['id'] ?>"
+                                                   class="btn btn-outline-primary" title="Edit Pengajuan">
                                                     <i class="fas fa-edit"></i>
                                                 </a>
-                                                <a href="index.php?page=persetujuan_peminjaman&action=approve&id=<?= $peminjaman['id'] ?>" 
-                                                   class="btn btn-success btn-sm" title="Setujui">
+                                                <a href="index.php?page=persetujuan_peminjaman&action=approve&id=<?= $peminjaman['id'] ?>"
+                                                   class="btn btn-outline-success" title="Setujui">
                                                     <i class="fas fa-check"></i>
                                                 </a>
-                                                <a href="index.php?page=persetujuan_peminjaman&action=reject&id=<?= $peminjaman['id'] ?>" 
-                                                   class="btn btn-danger btn-sm" title="Tolak">
+                                                <a href="index.php?page=persetujuan_peminjaman&action=reject&id=<?= $peminjaman['id'] ?>"
+                                                   class="btn btn-outline-danger" title="Tolak">
                                                     <i class="fas fa-times"></i>
                                                 </a>
                                             <?php else: ?>
-                                                <span class="text-muted">-</span>
+                                                <span class="text-muted">—</span>
                                             <?php endif; ?>
                                         </div>
                                     </td>
@@ -1420,140 +1424,3 @@ function getDraftStatusBadge($status) {
     </div>
 <?php endif; ?>
 
-<style>
-.stats-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-    margin-bottom: 2rem;
-}
-
-.stat-card {
-    background: white;
-    border-radius: 8px;
-    padding: 1.5rem;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-}
-
-.stat-card.pending { border-left: 4px solid #ffc107; }
-.stat-card.approved { border-left: 4px solid #28a745; }
-.stat-card.ongoing { border-left: 4px solid #17a2b8; }
-.stat-card.total { border-left: 4px solid #007bff; }
-
-.stat-icon {
-    font-size: 2rem;
-    opacity: 0.7;
-}
-
-.stat-card.pending .stat-icon { color: #ffc107; }
-.stat-card.approved .stat-icon { color: #28a745; }
-.stat-card.ongoing .stat-icon { color: #17a2b8; }
-.stat-card.total .stat-icon { color: #007bff; }
-
-.stat-info h3 {
-    margin: 0;
-    font-size: 2rem;
-    font-weight: bold;
-}
-
-.stat-info p {
-    margin: 0;
-    color: #666;
-    font-size: 0.9rem;
-}
-
-.detail-section, .approval-section {
-    margin-bottom: 2rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid #e9ecef;
-}
-
-.detail-section:last-child, .approval-section:last-child {
-    border-bottom: none;
-    margin-bottom: 0;
-    padding-bottom: 0;
-}
-
-.detail-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 1.5rem;
-    margin-top: 1rem;
-}
-
-.detail-group label {
-    font-weight: 600;
-    color: #333;
-    margin-bottom: 0.5rem;
-    display: block;
-}
-
-.detail-value {
-    background: #f8f9fa;
-    padding: 0.75rem;
-    border-radius: 4px;
-    border: 1px solid #e9ecef;
-}
-
-.text-truncate-custom {
-    max-width: 150px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.vehicle-info strong {
-    color: #007bff;
-}
-
-.badge {
-    padding: 0.5rem 0.75rem;
-    border-radius: 12px;
-    font-size: 0.85rem;
-}
-
-.badge-warning { background-color: #ffc107; color: #212529; }
-.badge-success { background-color: #28a745; color: white; }
-.badge-danger { background-color: #dc3545; color: white; }
-.badge-info { background-color: #17a2b8; color: white; }
-.badge-primary { background-color: #007bff; color: white; }
-.badge-secondary { background-color: #6c757d; color: white; }
-
-.table-warning {
-    background-color: rgba(255, 193, 7, 0.1);
-}
-
-.search-form .input-group {
-    display: flex;
-    gap: 0.5rem;
-}
-
-.search-form .input-group .form-control {
-    flex: 1;
-}
-
-.search-form .input-group select.form-control {
-    flex: 0 0 200px;
-}
-
-@media (max-width: 768px) {
-    .detail-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .search-form .input-group {
-        flex-direction: column;
-    }
-    
-    .text-truncate-custom {
-        max-width: 120px;
-    }
-    
-    .stats-cards {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-</style>

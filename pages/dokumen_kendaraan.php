@@ -380,7 +380,7 @@ function getValidityBadge($validity) {
 ?>
 
 <!-- Page header -->
-<div class="p-4 mb-3 rounded text-white" style="background:linear-gradient(135deg,#12354a 0%,#1f6f8b 100%)">
+<div class="page-header">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
             <h1 class="mb-1 fs-4"><i class="fas fa-file-alt me-2"></i>Dokumen Kendaraan</h1>
@@ -414,7 +414,7 @@ function getValidityBadge($validity) {
                         <div>
                             <div class="text-muted small"><?= $sc['label'] ?></div>
                             <h3 class="mb-0 fw-bold <?= $sc['text'] ?>"><?= number_format((int)$sc['value']) ?></h3>
-                            <?php if (!empty($sc['sub'])): ?><div class="text-muted" style="font-size:.7rem"><?= $sc['sub'] ?></div><?php endif; ?>
+                            <?php if (!empty($sc['sub'])): ?><div class="text-muted fs-2xs"><?= $sc['sub'] ?></div><?php endif; ?>
                         </div>
                         <i class="fas fa-<?= $sc['icon'] ?> fa-2x <?= $sc['text'] ?> opacity-50"></i>
                     </div>
@@ -493,7 +493,7 @@ function getValidityBadge($validity) {
                    href="<?= $tab_base ?>&tab=<?= $t['key'] ?>">
                     <i class="fas fa-<?= $t['icon'] ?> me-1 small"></i><?= $t['label'] ?>
                     <?php if ((int)$t['count'] > 0): ?>
-                        <span class="badge bg-<?= $t['badge'] ?> ms-1" style="font-size:.7rem"><?= $t['count'] ?></span>
+                        <span class="badge bg-<?= $t['badge'] ?> ms-1 fs-2xs"><?= $t['count'] ?></span>
                     <?php endif; ?>
                 </a>
             </li>
@@ -504,7 +504,7 @@ function getValidityBadge($validity) {
     <div class="card-body p-0">
         <?php if ($documents_result->num_rows > 0): ?>
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0" style="font-size:.875rem">
+            <table class="table table-hover align-middle mb-0 fs-sm">
                 <thead class="table-dark">
                     <tr>
                         <th>Kendaraan</th>
@@ -720,13 +720,6 @@ function getValidityBadge($validity) {
         </div>
     </div>
 </div>
-
-<style>
-.nav-tabs .nav-link { color: #495057; border: none; border-bottom: 3px solid transparent; padding: .5rem .75rem; }
-.nav-tabs .nav-link:hover { border-bottom-color: #dee2e6; background: #f8f9fa; }
-.nav-tabs .nav-link.active { color: #1f6f8b; background: transparent; border-bottom-color: #1f6f8b; }
-.table-danger td, .table-warning td { opacity: .92; }
-</style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {

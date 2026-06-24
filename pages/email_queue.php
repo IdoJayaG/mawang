@@ -16,33 +16,6 @@ if ($_POST) {
     }
 }
 
-// ── Test SMTP ──────────────────────────────────────────────────
-if ($action === 'test_smtp') {
-    $test_to = trim($_POST['test_email'] ?? '');
-    if (!filter_var($test_to, FILTER_VALIDATE_EMAIL)) {
-        $msg = '<div class="alert alert-warning">Masukkan alamat email tujuan yang valid untuk test.</div>';
-    } else {
-        $err = null;
-        $ok = app_send_email(
-            $test_to,
-            $test_to,
-            'Test SMTP — Sistem Randis ' . date('d/m/Y H:i'),
-            '<div style="font-family:sans-serif;max-width:500px;margin:auto;padding:24px;border:1px solid #ddd;border-radius:8px">'
-            . '<h2 style="color:#1f6f8b">Test Email — SI-KENDI RANDIS</h2>'
-            . '<p>Email uji coba berhasil dikirim dari Sistem Randis.</p>'
-            . '<p>Jika Anda menerima email ini, konfigurasi SMTP sudah benar.</p>'
-            . '<hr><small>Dikirim: ' . date('d/m/Y H:i:s') . '</small></div>',
-            'Test email dari Sistem Randis. Konfigurasi SMTP berhasil.',
-            $err
-        );
-        if ($ok) {
-            $msg = '<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Test email berhasil dikirim ke <strong>' . htmlspecialchars($test_to) . '</strong>.</div>';
-        } else {
-            $msg = '<div class="alert alert-danger"><i class="fas fa-times-circle me-2"></i>Gagal: ' . htmlspecialchars($err ?? 'Unknown error') . '</div>';
-        }
-    }
-}
-
 // ── Send pending emails now ────────────────────────────────────
 if ($action === 'send_pending') {
     $tbl_check = $mysqli->query("SHOW TABLES LIKE 'email_reminder_jobs'");
@@ -118,116 +91,63 @@ if ($has_table) {
     if ($res_r) $recent_jobs = $res_r->fetch_all(MYSQLI_ASSOC);
 }
 
-$smtp_masked = MAIL_USERNAME !== '' ? (substr(MAIL_USERNAME, 0, 3) . '***@' . (explode('@', MAIL_USERNAME)[1] ?? '?')) : '(kosong)';
-$is_smtp_ready = (MAIL_TRANSPORT === 'smtp' && MAIL_HOST !== '' && MAIL_USERNAME !== '' && MAIL_PASSWORD !== '');
 ?>
 
-<div class="p-4 mb-4 rounded" style="background: linear-gradient(135deg, #12354a 0%, #1f6f8b 100%); color:#fff;">
-    <h1 class="mb-1"><i class="fas fa-envelope-open-text me-2"></i>Email Queue & SMTP</h1>
-    <p class="mb-0 opacity-75">Konfigurasi SMTP dan antrean reminder otomatis</p>
+<div class="page-header">
+    <h1 class="mb-1"><i class="fas fa-envelope-open-text me-2"></i>Email Queue</h1>
+    <p class="mb-0 opacity-75">Kelola antrean pengiriman reminder otomatis</p>
 </div>
 
 <?= $msg ?>
 
-<div class="row mb-4">
-    <!-- SMTP Config Card -->
-    <div class="col-lg-5 mb-4">
-        <div class="card shadow-sm h-100">
-            <div class="card-header bg-dark text-white">
-                <strong><i class="fas fa-cog me-2"></i>Konfigurasi SMTP</strong>
-            </div>
-            <div class="card-body">
-                <table class="table table-sm table-borderless mb-3">
-                    <tr><td class="text-muted" width="130">Transport</td><td><code><?= htmlspecialchars(MAIL_TRANSPORT) ?></code></td></tr>
-                    <tr><td class="text-muted">Host</td><td><code><?= htmlspecialchars(MAIL_HOST) ?></code></td></tr>
-                    <tr><td class="text-muted">Port</td><td><code><?= MAIL_PORT ?></code></td></tr>
-                    <tr><td class="text-muted">Encryption</td><td><code><?= htmlspecialchars(MAIL_ENCRYPTION) ?></code></td></tr>
-                    <tr><td class="text-muted">Username</td><td><code><?= htmlspecialchars($smtp_masked) ?></code></td></tr>
-                    <tr><td class="text-muted">From</td><td><code><?= htmlspecialchars(MAIL_FROM_ADDRESS) ?></code></td></tr>
-                    <tr><td class="text-muted">Status</td>
-                        <td>
-                            <?php if ($is_smtp_ready): ?>
-                                <span class="badge bg-success"><i class="fas fa-check me-1"></i>Terkonfigurasi</span>
-                            <?php else: ?>
-                                <span class="badge bg-danger"><i class="fas fa-times me-1"></i>Belum dikonfigurasi</span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                </table>
-                <p class="text-muted small mb-3">Edit <code>config/mail.php</code> untuk mengubah kredensial SMTP.</p>
-
-                <form method="post" class="border-top pt-3">
-                    <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
-                    <input type="hidden" name="action" value="test_smtp">
-                    <label class="form-label small fw-bold">Test Kirim Email</label>
-                    <div class="input-group input-group-sm">
-                        <input type="email" name="test_email" class="form-control" placeholder="email@tujuan.com" required>
-                        <button type="submit" class="btn btn-outline-primary">
-                            <i class="fas fa-paper-plane me-1"></i>Kirim Test
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+<!-- Queue Stats -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-dark text-white">
+        <strong><i class="fas fa-list me-2"></i>Status Antrean Email</strong>
     </div>
-
-    <!-- Queue Stats + Actions -->
-    <div class="col-lg-7 mb-4">
-        <div class="card shadow-sm h-100">
-            <div class="card-header bg-dark text-white">
-                <strong><i class="fas fa-list me-2"></i>Status Antrean Email</strong>
+    <div class="card-body">
+        <?php if (!$has_table): ?>
+            <div class="alert alert-warning mb-3">
+                Tabel <code>email_reminder_jobs</code> belum ada. Jalankan migration <code>migrations/2026-04-23_create_email_reminder_jobs.sql</code> terlebih dahulu.
             </div>
-            <div class="card-body">
-                <?php if (!$has_table): ?>
-                    <div class="alert alert-warning mb-3">
-                        Tabel <code>email_reminder_jobs</code> belum ada. Jalankan migration <code>migrations/2026-04-23_create_email_reminder_jobs.sql</code> terlebih dahulu.
+        <?php else: ?>
+            <div class="row g-3 mb-4">
+                <div class="col-4">
+                    <div class="p-3 rounded text-center bg-warning bg-opacity-25">
+                        <div class="fs-3 fw-bold text-warning"><?= number_format($stats['pending']) ?></div>
+                        <div class="small text-muted">Pending</div>
                     </div>
-                <?php else: ?>
-                    <div class="row text-center mb-4">
-                        <div class="col-4">
-                            <div class="p-3 rounded" style="background:#fff3cd;">
-                                <div class="fs-3 fw-bold text-warning"><?= number_format($stats['pending']) ?></div>
-                                <div class="small text-muted">Pending</div>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="p-3 rounded" style="background:#d1e7dd;">
-                                <div class="fs-3 fw-bold text-success"><?= number_format($stats['sent']) ?></div>
-                                <div class="small text-muted">Terkirim</div>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="p-3 rounded" style="background:#f8d7da;">
-                                <div class="fs-3 fw-bold text-danger"><?= number_format($stats['failed']) ?></div>
-                                <div class="small text-muted">Gagal</div>
-                            </div>
-                        </div>
+                </div>
+                <div class="col-4">
+                    <div class="p-3 rounded text-center bg-success bg-opacity-25">
+                        <div class="fs-3 fw-bold text-success"><?= number_format($stats['sent']) ?></div>
+                        <div class="small text-muted">Terkirim</div>
                     </div>
-                <?php endif; ?>
-
-                <form method="post" class="d-flex flex-wrap gap-2">
-                    <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
-                    <button type="submit" name="action" value="queue_reminders" class="btn btn-outline-secondary btn-sm">
-                        <i class="fas fa-calendar-plus me-1"></i>Queue Reminder Sekarang
-                    </button>
-                    <?php if ($has_table && $stats['pending'] > 0): ?>
-                        <button type="submit" name="action" value="send_pending" class="btn btn-primary btn-sm">
-                            <i class="fas fa-paper-plane me-1"></i>Kirim <?= $stats['pending'] ?> Email Pending
-                        </button>
-                    <?php else: ?>
-                        <button type="submit" name="action" value="send_pending" class="btn btn-outline-primary btn-sm" <?= !$has_table ? 'disabled' : '' ?>>
-                            <i class="fas fa-paper-plane me-1"></i>Kirim Email Pending
-                        </button>
-                    <?php endif; ?>
-                </form>
-
-                <hr>
-                <p class="small text-muted mb-1"><strong>Jadwal otomatis (Windows Task Scheduler):</strong></p>
-                <p class="small text-muted mb-0">Setiap 1 jam: <code>php scripts/queue_surat_tugas_email_reminders.php</code></p>
-                <p class="small text-muted mb-0">Setiap 1 jam: <code>php scripts/queue_maintenance_email_reminders.php</code></p>
-                <p class="small text-muted mb-0">Setiap 5 menit: <code>php scripts/send_scheduled_emails.php</code></p>
+                </div>
+                <div class="col-4">
+                    <div class="p-3 rounded text-center bg-danger bg-opacity-25">
+                        <div class="fs-3 fw-bold text-danger"><?= number_format($stats['failed']) ?></div>
+                        <div class="small text-muted">Gagal</div>
+                    </div>
+                </div>
             </div>
-        </div>
+        <?php endif; ?>
+
+        <form method="post" class="d-flex flex-wrap gap-2">
+            <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
+            <button type="submit" name="action" value="queue_reminders" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-calendar-plus me-1"></i>Queue Reminder Sekarang
+            </button>
+            <?php if ($has_table && $stats['pending'] > 0): ?>
+                <button type="submit" name="action" value="send_pending" class="btn btn-primary btn-sm">
+                    <i class="fas fa-paper-plane me-1"></i>Kirim <?= $stats['pending'] ?> Email Pending
+                </button>
+            <?php else: ?>
+                <button type="submit" name="action" value="send_pending" class="btn btn-outline-primary btn-sm" <?= !$has_table ? 'disabled' : '' ?>>
+                    <i class="fas fa-paper-plane me-1"></i>Kirim Email Pending
+                </button>
+            <?php endif; ?>
+        </form>
     </div>
 </div>
 
@@ -264,7 +184,7 @@ $is_smtp_ready = (MAIL_TRANSPORT === 'smtp' && MAIL_HOST !== '' && MAIL_USERNAME
                             <div><?= htmlspecialchars($j['recipient_name'] ?? '-') ?></div>
                             <small class="text-muted"><?= htmlspecialchars($j['recipient_email']) ?></small>
                         </td>
-                        <td class="text-truncate" style="max-width:200px;" title="<?= htmlspecialchars($j['subject']) ?>">
+                        <td class="text-truncate text-truncate-200" title="<?= htmlspecialchars($j['subject']) ?>">
                             <?= htmlspecialchars($j['subject']) ?>
                         </td>
                         <td><small><?= htmlspecialchars(str_replace('_', ' ', $j['source_type'] ?? '-')) ?></small></td>

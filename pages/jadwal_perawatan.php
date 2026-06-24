@@ -711,31 +711,6 @@ if (!empty($_SESSION['swal'])): ?>
     </div>
 </div>
 
-<style>
-.badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.375rem 0.75rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    border-radius: 0.375rem;
-}
-
-.badge i {
-    font-size: 0.8em;
-}
-
-.table-danger {
-    background-color: #f8d7da !important;
-}
-
-.status-dropdown {
-    width: auto;
-    min-width: 120px;
-}
-</style>
-
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <!-- Select2 for searchable selects -->

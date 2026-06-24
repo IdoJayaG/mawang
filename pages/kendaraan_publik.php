@@ -1,7 +1,7 @@
 <?php
 // Halaman kendaraan publik untuk guest - hanya menampilkan kendaraan yang boleh dilihat publik
 ?>
-<div class="gradient-header text-white p-4 rounded-3 mb-4">
+<div class="gradient-header">
     <h1 class="mb-2 h2"><i class="fas fa-car me-2"></i> Daftar Kendaraan Dinas</h1>
     <p class="mb-0 opacity-75">Informasi kendaraan dinas yang tersedia untuk umum</p>
 </div>

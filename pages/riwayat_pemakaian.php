@@ -172,7 +172,7 @@ if ($action === 'view' && $rec_id > 0) {
                         <label class="small text-muted fw-bold">Jarak Tempuh</label>
                         <?php if ($jarak_lp !== null): ?>
                             <div class="fw-semibold text-success"><?= number_format($jarak_lp) ?> km</div>
-                            <div class="text-muted" style="font-size:.75rem">dari laporan perjalanan</div>
+                            <div class="text-muted fs-xs">dari laporan perjalanan</div>
                         <?php else: ?>
                             <div class="text-muted">—</div>
                         <?php endif; ?>
@@ -452,17 +452,17 @@ $url_extra = array_filter([
                     <td class="small"><?= $r['tanggal'] ? date('d/m/Y', strtotime($r['tanggal'])) : '-' ?></td>
                     <td>
                         <div class="fw-semibold small"><?= htmlspecialchars($r['no_reg'] ?: $r['no_polisi']) ?></div>
-                        <div class="text-muted" style="font-size:.75rem"><?= htmlspecialchars(trim($r['merk'] . ' ' . $r['tipe'])) ?></div>
+                        <div class="text-muted fs-xs"><?= htmlspecialchars(trim($r['merk'] . ' ' . $r['tipe'])) ?></div>
                     </td>
                     <td>
                         <div class="small"><?= htmlspecialchars($r['pemakai']) ?></div>
                         <?php if ($r['driver_name'] !== ''): ?>
-                            <div class="text-muted" style="font-size:.75rem"><i class="fas fa-id-badge me-1"></i><?= htmlspecialchars($r['driver_name']) ?></div>
+                            <div class="text-muted fs-xs"><i class="fas fa-id-badge me-1"></i><?= htmlspecialchars($r['driver_name']) ?></div>
                         <?php endif; ?>
                     </td>
                     <td>
-                        <div class="small text-truncate" style="max-width:180px" title="<?= htmlspecialchars($r['tujuan']) ?>"><?= htmlspecialchars($r['tujuan'] ?: '-') ?></div>
-                        <div class="text-muted" style="font-size:.75rem;max-width:180px" class="text-truncate"><?= htmlspecialchars(mb_strimwidth($r['keperluan'], 0, 50, '…')) ?></div>
+                        <div class="small text-truncate text-truncate-180" title="<?= htmlspecialchars($r['tujuan']) ?>"><?= htmlspecialchars($r['tujuan'] ?: '-') ?></div>
+                        <div class="text-muted fs-xs text-truncate text-truncate-180"><?= htmlspecialchars(mb_strimwidth($r['keperluan'], 0, 50, '…')) ?></div>
                     </td>
                     <td class="small">
                         <?= $r['tanggal_mulai'] ? date('d/m/y', strtotime($r['tanggal_mulai'])) : '-' ?>

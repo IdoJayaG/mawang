@@ -1154,7 +1154,7 @@ if ($users_result) {
 }
 ?>
 
-<div class="page-header gradient-header rounded">
+<div class="page-header">
             <h1><i class="fas fa-file-signature me-2"></i>Surat Tugas</h1>
             <div class="col">
             <p class="mb-0">Kelola surat tugas kendaraan dinas</p>
@@ -1434,7 +1434,7 @@ if ($users_result) {
                                     }
                                     ?>
                                     <label for="per_page" class="visually-hidden">Jumlah per halaman</label>
-                                    <select name="per_page" id="per_page" class="form-select form-select-sm d-inline-block" style="width:auto; display:inline-block;" onchange="this.form.submit()">
+                                    <select name="per_page" id="per_page" class="form-select form-select-sm select-auto" onchange="this.form.submit()">
                                         <?php foreach ([10,20,30] as $pp): ?>
                                             <option value="<?= $pp ?>" <?= $per_page == $pp ? 'selected' : '' ?>><?= $pp ?></option>
                                         <?php endforeach; ?>
@@ -1590,7 +1590,7 @@ if ($users_result) {
                                 </ol>
 
                                 <p><strong>2.</strong> Sehubungan dasar di atas, dengan hormat diajukan permohonan dukungan sebagai berikut:</p>
-                                <div style="padding-left:20px;"><?= nl2br(htmlspecialchars($surat['keperluan'])) ?></div>
+                                <div class="ps-3"><?= nl2br(htmlspecialchars($surat['keperluan'])) ?></div>
 
                                 <div class="mt-3">
                                     <table style="width:100%;">
@@ -1682,7 +1682,7 @@ if ($users_result) {
                                     <p class="mb-1">Jakarta, <?= date('d F Y', strtotime($surat['tanggal_surat'])) ?></p>
                                     <p class="mb-1"><?= htmlspecialchars($surat['pejabat_ttd_jabatan'] ?? ('Plh. Kepala ' . ($surat['nama_bagian'] ?? 'Bagian Pengamanan'))) ?></p>
                                     <p class="mb-1"><?= htmlspecialchars($surat['pejabat_ttd_sebagai'] ?? '') ?></p>
-                                    <div style="height: 80px;"></div>
+                                    <div class="spacer-xl"></div>
                                     <p class="mb-0"><strong><?= htmlspecialchars($surat['pejabat_ttd'] ?: 'LAKSDA TNI ARIANTYO CONDROWIBOWO') ?></strong></p>
                                 </div>
                             </div>
@@ -1878,7 +1878,7 @@ if ($users_result) {
                                             <label for="kepada_jabatan">Kepada (Jabatan) *</label>
                                             <input type="text" name="kepada_jabatan" id="kepada_jabatan" 
                                                    class="form-control" required
-                                                   value="<?= htmlspecialchars($surat_data['kepada_jabatan'] ?? 'Dandenma Mabes TNI') ?>"
+                                                   value="<?= htmlspecialchars($surat_data['kepada_jabatan'] ?? 'Karoum Kemhan RI') ?>"
                                                    placeholder="Contoh: Dandenma Mabes TNI">
                                         </div>
                                     </div>
@@ -2050,11 +2050,11 @@ if ($users_result) {
                                             <label>Berangkat Dari</label>
                                             <div class="form-control-plaintext">SPBT Kemhan Cawang</div>
                                             <input type="hidden" name="berangkat_dari" id="berangkat_dari" value="<?= htmlspecialchars($surat_data['berangkat_dari'] ?? 'SPBT Kemhan Cawang') ?>">
-                                            <small class="form-text text-muted">Asal rute dipaksa ke SPBT Kemhan Cawang; pilih tujuan pada peta atau gunakan saran lokasi.</small>
+                                            <small class="form-text text-muted">Asal rute SPBT Kemhan Cawang; pilih tujuan pada peta atau gunakan saran lokasi.</small>
                                         </div>
                                     </div>
                                     <div class="col-12">
-                                        <div id="routeMap" style="height:360px; border:1px solid #ddd; border-radius:6px;"></div>
+                                        <div id="routeMap" class="route-map"></div>
                                         <div id="routeSummary" class="mt-2 small text-muted">Jarak: <span id="routeDistance">-</span> km — Estimasi BBM: <span id="routeFuel">-</span> L</div>
                                     </div>
                                 </div>
@@ -2137,7 +2137,7 @@ if ($users_result) {
                                             <label for="pejabat_ttd_sebagai">Sebagai *</label>
                                             <input type="text" name="pejabat_ttd_sebagai" id="pejabat_ttd_sebagai" 
                                                    class="form-control" required
-                                                   value="<?= htmlspecialchars($surat_data['pejabat_ttd_sebagai'] ?? 'Waka,') ?>"
+                                                   value="<?= htmlspecialchars($surat_data['pejabat_ttd_sebagai'] ?? 'Kabag') ?>"
                                                    placeholder="Contoh: Waka, atau Kabag,">
                                         </div>
                                     </div>
@@ -2146,7 +2146,7 @@ if ($users_result) {
                                             <label for="pejabat_ttd">Nama & Pangkat Penandatangan *</label>
                                             <input type="text" name="pejabat_ttd" id="pejabat_ttd" 
                                                    class="form-control" required
-                                                   value="<?= htmlspecialchars($surat_data['pejabat_ttd'] ?? 'S. Ginting, S.Kom., MMSI., M.Tr.Hankam') ?>"
+                                                   value="<?= htmlspecialchars($surat_data['pejabat_ttd'] ?? 'Kapten I Wayang') ?>"
                                                    placeholder="Contoh: KOLONEL TNI BAMBANG SUSILO">
                                         </div>
                                     </div>
@@ -2169,7 +2169,7 @@ if ($users_result) {
                                     }
                                 }
                                 if (empty($tembusan_items)) {
-                                    $tembusan_items = ['Kepala SPBT Kemhan Cawang', 'Asops Denma Mabes TNI', 'Dansetang Denma Mabes TNI', 'Dansakdok Denma Mabes TNI'];
+                                    $tembusan_items = ['Kepala SPBT Kemhan Cawang', 'Asops Kemhan RI'];
                                 }
                                 ?>
 

@@ -36,7 +36,7 @@ if ($current_role === 'driver' && !can_access_vehicle((int)$doc['kendaraan_id'])
 $kendaraan = $mysqli->query("SELECT id, no_polisi, no_reg, merk, tipe FROM kendaraan WHERE id = " . (int)$doc['kendaraan_id'])->fetch_assoc();
 
 ?>
-<div class="page-header gradient-header text-white p-4 mb-4 rounded">
+<div class="page-header">
     <div class="d-flex justify-content-between align-items-center">
         <div>
             <h1 class="mb-2"><i class="fas fa-edit me-2"></i>Edit Dokumen Kendaraan</h1>

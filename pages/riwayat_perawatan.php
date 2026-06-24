@@ -965,11 +965,6 @@ function sort_link($label, $key, $currentSort, $currentDir) {
     sync();
 })();
 </script>
-<style>
-#exportPerawatanModal { z-index: 2100; }
-#exportPerawatanModal .modal-dialog { z-index: 2110; }
-.modal-backdrop.show { z-index: 2050; }
-</style>
 <?php endif; ?>
 
 <!-- Add Modal -->
@@ -1094,48 +1089,6 @@ function sort_link($label, $key, $currentSort, $currentDir) {
     </div>
 </div>
 
-<style>
-.gradient-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.page-header h1 {
-    font-size: 2rem;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-}
-
-.card {
-    border: none;
-    box-shadow: 0 0 20px rgba(0,0,0,0.1);
-}
-
-.table th {
-    border-top: none;
-    font-weight: 600;
-    color: #495057;
-}
-
-.btn-group-sm .btn {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.875rem;
-}
-
-.badge {
-    font-size: 0.75rem;
-    padding: 0.35em 0.65em;
-}
-
-@media (max-width: 768px) {
-    .page-header h1 {
-        font-size: 1.5rem;
-    }
-    
-    .col-md-1, .col-md-2, .col-md-3, .col-md-4 {
-        margin-bottom: 1rem;
-    }
-}
-</style>
 
 <script>
 function updateStatus(id, currentStatus) {
