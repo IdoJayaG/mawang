@@ -195,8 +195,22 @@ if ($action === 'view' && $id > 0) {
     </div>
 
     <div class="content-container">
-        <div class="mb-3">
+        <div class="mb-3 d-flex align-items-center gap-2">
             <a href="index.php?page=log_aktivitas" class="btn btn-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i> Kembali ke daftar</a>
+            <?php
+            $exp_params = http_build_query(array_filter([
+                'user_id'    => $id,
+                'start_date' => $tanggal !== '' ? $tanggal : null,
+                'end_date'   => $tanggal !== '' ? $tanggal : null,
+                'aksi'       => $aksi !== '' ? $aksi : null,
+            ]));
+            ?>
+            <a href="ajax/export_log.php?format=csv&<?= $exp_params ?>" class="btn btn-primary btn-sm">
+                <i class="fas fa-file-csv me-1"></i>Export CSV
+            </a>
+            <a href="ajax/export_log.php?format=xlsx&<?= $exp_params ?>" class="btn btn-success btn-sm">
+                <i class="fas fa-file-excel me-1"></i>Export Excel
+            </a>
         </div>
 
         <div class="card shadow-sm">
@@ -410,10 +424,10 @@ if ($action === 'view' && $id > 0) {
             </div>
             <div class="header-actions">
                 <div class="btn-group">
-                    <button class="btn btn-outline-primary btn-export-log" title="Export CSV">
+                    <button class="btn btn-primary btn-export-log" title="Export CSV">
                         <i class="fas fa-file-csv"></i> CSV
                     </button>
-                    <button class="btn btn-outline-success btn-export-log-xlsx" title="Export Excel (.xlsx)">
+                    <button class="btn btn-success btn-export-log-xlsx" title="Export Excel (.xlsx)">
                         <i class="fas fa-file-excel"></i> Excel
                     </button>
                 </div>

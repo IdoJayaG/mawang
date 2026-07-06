@@ -1082,6 +1082,53 @@ if ($_POST) {
                         }
                     }
 
+                    // ── Anomali BBM: hitung deviasi estimasi vs terpakai ─────────
+                    if ($bbm_terpakai !== null && $bbm_terpakai > 0 && $estimasi_bbm !== null && $estimasi_bbm > 0) {
+                        $dev_est = abs($bbm_terpakai - $estimasi_bbm) / $estimasi_bbm;
+                        $bbm_anomali_flag = ($dev_est > 0.30) ? 1 : 0;
+                        $bbm_anomali_pct  = round($dev_est * 100, 2);
+
+                        // Cross-check vs log_bahan_bakar fills selama periode trip
+                        $tgl_ber_a = $tanggal_berangkat ?: null;
+                        $tgl_kem_a = $tanggal_kembali   ?: $tanggal_berangkat;
+                        if ($tgl_ber_a && $kendaraan_id) {
+                            $stmt_fill = $conn->prepare(
+                                "SELECT COALESCE(SUM(jumlah_liter),0) AS fill_sum
+                                 FROM log_bahan_bakar
+                                 WHERE kendaraan_id = ?
+                                   AND DATE(tanggal_isi) BETWEEN ? AND ?"
+                            );
+                            if ($stmt_fill) {
+                                $stmt_fill->bind_param('iss', $kendaraan_id, $tgl_ber_a, $tgl_kem_a);
+                                $stmt_fill->execute();
+                                $fill_row = $stmt_fill->get_result()->fetch_assoc();
+                                $stmt_fill->close();
+                                $fill_sum = (float)($fill_row['fill_sum'] ?? 0);
+                                if ($fill_sum > 0) {
+                                    $dev_fill = abs($bbm_terpakai - $fill_sum) / $fill_sum;
+                                    if ($dev_fill > 0.30) {
+                                        $bbm_anomali_flag = 1;
+                                        $bbm_anomali_pct  = round(max($dev_est, $dev_fill) * 100, 2);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Simpan ke kolom anomali jika sudah ada (migration sudah dijalankan)
+                        $has_anomali_col = function_exists('db_table_columns')
+                            && in_array('bbm_anomali', (array)db_table_columns('surat_tugas'), true);
+                        if ($has_anomali_col) {
+                            $stmt_a = $conn->prepare(
+                                "UPDATE surat_tugas SET bbm_anomali = ?, bbm_anomali_pct = ? WHERE id = ?"
+                            );
+                            if ($stmt_a) {
+                                $stmt_a->bind_param('idi', $bbm_anomali_flag, $bbm_anomali_pct, $surat_id);
+                                $stmt_a->execute();
+                                $stmt_a->close();
+                            }
+                        }
+                    }
+
                     $msg = '<div class="alert alert-success">Surat tugas berhasil diperbarui!</div>';
                     log_user_activity("Memperbarui surat tugas ID: $surat_id");
                     log_surat_tugas_role_activity($current_role, "Memperbarui surat tugas ID: $surat_id");
@@ -2106,10 +2153,14 @@ if ($users_result) {
                                     <div class="col-md-6">
                                         <div class="form-group">
                                             <label for="estimasi_bbm">Estimasi BBM (Liter)</label>
-                                            <input type="number" name="estimasi_bbm" id="estimasi_bbm" 
+                                            <input type="number" name="estimasi_bbm" id="estimasi_bbm"
                                                    class="form-control" step="0.01"
                                                    value="<?= isset($surat_data) ? $surat_data['estimasi_bbm'] : '' ?>"
                                                    placeholder="Contoh: 30.5">
+                                            <div id="bbm_rate_badge" class="form-text mt-1" style="display:none">
+                                                <i class="fas fa-chart-line me-1"></i>
+                                                <span id="bbm_rate_text"></span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -2279,7 +2330,14 @@ $(document).ready(function() {
     if (kendaraanSelect) {
         kendaraanSelect.addEventListener('change', function() {
             const kendaraanId = parseInt(this.value);
-            
+            const opt  = this.selectedOptions && this.selectedOptions[0];
+            const merk = opt ? (opt.dataset.merk || '') : '';
+
+            // Prefetch historis rate segera saat kendaraan dipilih
+            if (typeof prefetchVehicleRate === 'function') {
+                prefetchVehicleRate(kendaraanId > 0 ? kendaraanId : null, merk);
+            }
+
             if (kendaraanId <= 0) {
                 // Clear when no vehicle selected
                 if (penggunaSelect) penggunaSelect.value = '';
@@ -2594,14 +2652,55 @@ document.addEventListener('DOMContentLoaded', function(){
         originMarker = L.marker(latlng, {icon: L.icon({iconUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-icon.png'})}).addTo(map).bindPopup(display || 'Asal');
     }
 
-    function getConsumptionRateForSelectedVehicle(){
-        if (!kendaraanSelect) return 4;
-        const opt = kendaraanSelect.selectedOptions && kendaraanSelect.selectedOptions[0];
-        const merk = (opt && (opt.dataset && opt.dataset.merk)) ? opt.dataset.merk.toLowerCase() : '';
-        if (merk.includes('mercedes')) return 3;
+    // ── BBM Rate: async fetch historis + fallback merek ─────────────
+    var _rateInfo = { rate: 4, source: 'fallback', kendaraan_id: null };
+
+    function getFallbackRate(merk) {
+        merk = (merk || '').toLowerCase();
+        if (merk.includes('mercedes'))  return 3;
         if (merk.includes('mitsubishi')) return 4;
-        if (merk.includes('hino')) return 5;
-        return 4; // default
+        if (merk.includes('hino'))      return 5;
+        return 4;
+    }
+
+    function updateRateBadge() {
+        var badge = document.getElementById('bbm_rate_badge');
+        var text  = document.getElementById('bbm_rate_text');
+        if (!badge || !text) return;
+        if (_rateInfo.source === 'historis') {
+            badge.style.display = '';
+            badge.className = 'form-text mt-1 text-success';
+            text.textContent = 'Rate historis: ' + _rateInfo.rate.toFixed(2) + ' km/L ✓';
+        } else if (_rateInfo.source === 'fallback') {
+            badge.style.display = '';
+            badge.className = 'form-text mt-1 text-warning';
+            text.textContent = 'Rate default merek (' + _rateInfo.rate + ' km/L) — belum ada data historis';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+
+    function prefetchVehicleRate(kendaraanId, merk) {
+        // Reset ke fallback dulu agar route calc tidak pakai data kendaraan lama
+        _rateInfo = { rate: getFallbackRate(merk), source: 'fallback', kendaraan_id: kendaraanId };
+        updateRateBadge();
+        if (!kendaraanId || kendaraanId <= 0) return;
+
+        fetch('ajax/vehicle_efficiency.php?kendaraan_id=' + kendaraanId)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data && data.success && data.avg_kml && data.avg_kml > 0) {
+                    _rateInfo = { rate: data.avg_kml, source: 'historis', kendaraan_id: kendaraanId };
+                }
+                updateRateBadge();
+                // Jika route sudah terhitung, hitung ulang estimasi BBM dengan rate baru
+                try { if (typeof recalcRouteAndEstimates === 'function') recalcRouteAndEstimates(); } catch(e) {}
+            })
+            .catch(function() { updateRateBadge(); });
+    }
+
+    function getConsumptionRateForSelectedVehicle() {
+        return _rateInfo.rate;
     }
 
     function recalcRouteAndEstimates(){

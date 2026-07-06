@@ -20,10 +20,6 @@ if (!can_operate() && !can_access_vehicle($vehicleId)) {
     exit;
 }
 
-require_once __DIR__ . '/../ajax/traccar_daily_timeline.php';
-// Note: reuse functions from traccar_daily_timeline.php by including it
-// but avoid executing its main block — we'll copy necessary helpers here instead.
-
 function traccar_fetch_json_simple($url, $user, $pass) {
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -76,7 +72,7 @@ try {
         exit;
     }
 
-    // find device from traccar_positions_last
+    // Find device_id from traccar_positions_last
     $deviceId = null;
     $stmt = $mysqli->prepare("SELECT p.device_id, p.device_uid, p.device_name
         FROM traccar_positions_last p
@@ -124,10 +120,11 @@ try {
         exit;
     }
 
-    // If since_log=1, use the created_at of the last log_bahan_bakar for this vehicle as the start time
-    $since_dt_label = null;
-    $fromIso = (new DateTime('2000-01-01 00:00:00'))->format(DateTime::ATOM);
+    // ── Path 1 (since_log mode): Traccar distance since last BBM log ──────────
     if (!empty($_GET['since_log'])) {
+        $since_dt_label = null;
+        $fromIso = (new DateTime('2000-01-01 00:00:00'))->format(DateTime::ATOM);
+
         $stmt_last = $mysqli->prepare("SELECT MAX(created_at) AS last_at FROM log_bahan_bakar WHERE kendaraan_id = ?");
         if ($stmt_last) {
             $stmt_last->bind_param('i', $vehicleId);
@@ -141,11 +138,87 @@ try {
                 $since_dt_label = $row_last['last_at'];
             }
         }
-    }
-    $toIso = (new DateTime('now'))->format(DateTime::ATOM);
+        $toIso = (new DateTime('now'))->format(DateTime::ATOM);
 
-    $route = null;
-    $lastError = null;
+        // Try /reports/summary first (fast aggregate)
+        foreach ($bases as $base) {
+            $url = $base . '/reports/summary?deviceId=' . rawurlencode((string)$deviceId)
+                . '&from=' . rawurlencode($fromIso)
+                . '&to=' . rawurlencode($toIso);
+            $res = traccar_fetch_json_simple($url, $traccarUser, $traccarPass);
+            if ($res['ok'] && !empty($res['data']) && isset($res['data'][0]['distance'])) {
+                $dist_km = round((float)$res['data'][0]['distance'] / 1000, 2);
+                echo json_encode(['success' => true, 'kendaraan_id' => $vehicleId, 'distance_km' => $dist_km, 'since_datetime' => $since_dt_label, 'source' => 'summary']);
+                exit;
+            }
+        }
+
+        // Fallback: compute from /reports/route points
+        $route = null; $lastError = null;
+        foreach ($bases as $base) {
+            $url = $base . '/reports/route?deviceId=' . rawurlencode((string)$deviceId)
+                . '&from=' . rawurlencode($fromIso)
+                . '&to=' . rawurlencode($toIso);
+            $res = traccar_fetch_json_simple($url, $traccarUser, $traccarPass);
+            if ($res['ok']) { $route = $res['data']; break; }
+            $lastError = $res['error'] ?? 'request_failed';
+        }
+        if (!is_array($route)) {
+            echo json_encode(['success' => false, 'message' => 'Gagal mengambil route dari Traccar', 'error' => $lastError]);
+            exit;
+        }
+        $distance = 0.0; $lastLat = null; $lastLon = null;
+        foreach ($route as $item) {
+            $lat = isset($item['latitude']) ? (float)$item['latitude'] : null;
+            $lon = isset($item['longitude']) ? (float)$item['longitude'] : null;
+            if (!is_numeric($lat) || !is_numeric($lon)) continue;
+            if ($lastLat !== null) $distance += haversine_km_local($lastLat, $lastLon, $lat, $lon);
+            $lastLat = $lat; $lastLon = $lon;
+        }
+        echo json_encode(['success' => true, 'kendaraan_id' => $vehicleId, 'distance_km' => round($distance, 2), 'since_datetime' => $since_dt_label, 'source' => 'route']);
+        exit;
+    }
+
+    // ── Path 2 (list view): Total lifetime distance ────────────────────────────
+    // Step 1: read totalDistance from local traccar_positions_last.extra JSON (instant)
+    $stmt_td = $mysqli->prepare(
+        "SELECT CAST(JSON_UNQUOTE(JSON_EXTRACT(extra, '$.attributes.totalDistance')) AS DECIMAL(20,2)) AS total_m
+         FROM traccar_positions_last WHERE device_id = ? LIMIT 1"
+    );
+    if ($stmt_td) {
+        $stmt_td->bind_param('i', $deviceId);
+        $stmt_td->execute();
+        $td = $stmt_td->get_result()->fetch_assoc();
+        $stmt_td->close();
+        $total_m = isset($td['total_m']) ? (float)$td['total_m'] : 0;
+        if ($total_m > 0) {
+            echo json_encode([
+                'success'      => true,
+                'kendaraan_id' => $vehicleId,
+                'distance_km'  => round($total_m / 1000, 2),
+                'source'       => 'odometer',
+            ]);
+            exit;
+        }
+    }
+
+    // Step 2: try Traccar /reports/summary (fast server-side aggregate)
+    $fromIso = (new DateTime('2000-01-01 00:00:00'))->format(DateTime::ATOM);
+    $toIso   = (new DateTime('now'))->format(DateTime::ATOM);
+    foreach ($bases as $base) {
+        $url = $base . '/reports/summary?deviceId=' . rawurlencode((string)$deviceId)
+            . '&from=' . rawurlencode($fromIso)
+            . '&to=' . rawurlencode($toIso);
+        $res = traccar_fetch_json_simple($url, $traccarUser, $traccarPass);
+        if ($res['ok'] && !empty($res['data']) && isset($res['data'][0]['distance'])) {
+            $dist_km = round((float)$res['data'][0]['distance'] / 1000, 2);
+            echo json_encode(['success' => true, 'kendaraan_id' => $vehicleId, 'distance_km' => $dist_km, 'source' => 'summary']);
+            exit;
+        }
+    }
+
+    // Step 3: last resort — compute from /reports/route (slow, may time out for large ranges)
+    $route = null; $lastError = null;
     foreach ($bases as $base) {
         $url = $base . '/reports/route?deviceId=' . rawurlencode((string)$deviceId)
             . '&from=' . rawurlencode($fromIso)
@@ -154,29 +227,21 @@ try {
         if ($res['ok']) { $route = $res['data']; break; }
         $lastError = $res['error'] ?? 'request_failed';
     }
-
     if (!is_array($route)) {
-        echo json_encode(['success' => false, 'message' => 'Gagal mengambil route total dari Traccar', 'error' => $lastError]);
+        echo json_encode(['success' => false, 'message' => 'Gagal mengambil data jarak dari Traccar', 'error' => $lastError]);
         exit;
     }
-
-    $distance = 0.0;
-    $lastLat = null; $lastLon = null;
+    $distance = 0.0; $lastLat = null; $lastLon = null;
     foreach ($route as $item) {
         $lat = isset($item['latitude']) ? (float)$item['latitude'] : null;
         $lon = isset($item['longitude']) ? (float)$item['longitude'] : null;
         if (!is_numeric($lat) || !is_numeric($lon)) continue;
-        if ($lastLat !== null && $lastLon !== null) {
-            $distance += haversine_km_local($lastLat, $lastLon, $lat, $lon);
-        }
+        if ($lastLat !== null) $distance += haversine_km_local($lastLat, $lastLon, $lat, $lon);
         $lastLat = $lat; $lastLon = $lon;
     }
-
-    echo json_encode(['success' => true, 'kendaraan_id' => $vehicleId, 'distance_km' => round($distance, 2), 'since_datetime' => $since_dt_label]);
+    echo json_encode(['success' => true, 'kendaraan_id' => $vehicleId, 'distance_km' => round($distance, 2), 'source' => 'route']);
 
 } catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'Terjadi kesalahan server', 'error' => $e->getMessage()]);
 }
-
-?>

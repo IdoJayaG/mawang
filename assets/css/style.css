@@ -3649,7 +3649,29 @@ table:not(.table) td {
 
 .schedule-card { background: white; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
 
-.modern-landing { margin: -2rem; margin-left: 0; padding: 0; min-height: 100vh; color: white; position: relative; }
+.modern-landing {
+    margin: -2rem;
+    margin-left: 0;
+    padding: 0;
+    min-height: 100vh;
+    color: white;
+    position: relative;
+    background-image: url('../images/bg.png'), linear-gradient(135deg, #154a6b 0%, #5b8aa8 100%);
+    background-size: cover, auto;
+    background-position: center center, center;
+    background-repeat: no-repeat, no-repeat;
+}
+.modern-landing::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+        radial-gradient(circle at 20% 80%, rgba(255, 215, 0, 0.10) 0%, transparent 50%),
+        radial-gradient(circle at 80% 20%, rgba(255, 215, 0, 0.10) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+}
+.modern-landing > * { position: relative; z-index: 1; }
 .hero-section { padding: 4rem 2rem; text-align: center; min-height: 70vh; display: flex; align-items: center; justify-content: center; }
 .hero-content { max-width: 800px; margin: 0 auto; }
 .hero-title { font-size: 4rem; font-weight: 800; margin-bottom: 1rem; letter-spacing: -2px; }
@@ -3689,7 +3711,7 @@ table:not(.table) td {
 
 .monitoring-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
 
-.thead-navy th, thead.thead-navy { background: linear-gradient(135deg, #133b57 0%, #1d577b 70%, #2b6d8e 100%); color: #fff; border-bottom: 2px solid rgba(255,255,255,0.12) !important; font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+.thead-navy th, thead.thead-navy { background: linear-gradient(135deg, #133b57 0%, #1d577b 70%, #2b6d8e 100%); color: #fff !important; border-bottom: 2px solid rgba(255,255,255,0.12) !important; font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
 thead.thead-navy th { background: transparent; border: none; }
 
 .text-truncate-custom { max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

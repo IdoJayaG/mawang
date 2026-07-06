@@ -229,8 +229,8 @@ render_sidebar($current_page, 'admin');
                         </div>
                     </div>
                     <div>
-                        <h3 class="mb-0 fw-bold"><?= number_format(array_sum($stats['users'] ?? [])) ?></h3>
-                        <p class="mb-0 opacity-75">Total Users</p>
+                        <h3 class="mb-0 fw-bold text-white"><?= number_format(array_sum($stats['users'] ?? [])) ?></h3>
+                        <p class="mb-0 fw-bold text-white">Total Users</p>
                     </div>
                 </div>
             </div>
@@ -244,8 +244,8 @@ render_sidebar($current_page, 'admin');
                         </div>
                     </div>
                     <div>
-                        <h3 class="mb-0 fw-bold"><?= number_format($master_counts['kendaraan'] ?? 0) ?></h3>
-                        <p class="mb-0 opacity-75">Total Kendaraan</p>
+                        <h3 class="mb-0 fw-bold text-white"><?= number_format($master_counts['kendaraan'] ?? 0) ?></h3>
+                        <p class="mb-0 fw-bold text-white">Total Kendaraan</p>
                     </div>
                 </div>
             </div>
@@ -268,16 +268,16 @@ render_sidebar($current_page, 'admin');
         </div> -->
         
         <div class="col-lg-4 col-md-6 mb-3">
-            <div class="card bg-warning text-white shadow-sm card-hover h-100">
+            <div class="card bg-warning text-dark shadow-sm card-hover h-100">
                 <div class="card-body d-flex align-items-center">
                     <div class="me-3">
                         <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center stat-icon-circle">
-                            <i class="fas fa-wrench fa-2x text-white"></i>
+                            <i class="fas fa-wrench fa-2x text-dark"></i>
                         </div>
                     </div>
                     <div>
-                        <h3 class="mb-0 fw-bold"><?= number_format($master_counts['jadwal_perawatan'] ?? 0) ?></h3>
-                        <p class="mb-0 opacity-75">Total Perawatan</p>
+                        <h3 class="mb-0 fw-bold text-white"><?= number_format($master_counts['jadwal_perawatan'] ?? 0) ?></h3>
+                        <p class="mb-0 fw-bold text-white">Total Perawatan</p>
                     </div>
                 </div>
             </div>
@@ -754,11 +754,6 @@ render_sidebar($current_page, 'admin');
                                             ?>">
                                                 <?= htmlspecialchars($maintenance['prioritas'] ?? 'Normal') ?>
                                             </span>
-                                        </td>
-                                        <!-- Estimasi Biaya removed from admin scheduled maintenance -->
-                                        <?php if (!empty($maintenance['km_saat_perawatan'])): ?>
-                                                <br><small class="text-muted"><?= number_format($maintenance['km_saat_perawatan']) ?> km</small>
-                                            <?php endif; ?>
                                         </td>
                                         <td>
                                             <span class="badge bg-warning text-dark">

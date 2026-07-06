@@ -7,17 +7,19 @@ if (!can_operate()) {
     exit;
 }
 
-$user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
+$user_id   = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
 $start_date = $_GET['start_date'] ?? null;
-$end_date = $_GET['end_date'] ?? null;
-$format = strtolower($_GET['format'] ?? 'csv'); // csv | xlsx
+$end_date   = $_GET['end_date'] ?? null;
+$aksi       = trim($_GET['aksi'] ?? '');
+$format     = strtolower($_GET['format'] ?? 'csv'); // csv | xlsx
 
 try {
     // Build filter
     $where = [];$params=[];$types='';
-    if ($user_id){$where[]='la.user_id = ?';$params[]=$user_id;$types.='i';}
-    if ($start_date){$where[]='DATE(la.created_at) >= ?';$params[]=$start_date;$types.='s';}
-    if ($end_date){$where[]='DATE(la.created_at) <= ?';$params[]=$end_date;$types.='s';}
+    if ($user_id)    {$where[]='la.user_id = ?';           $params[]=$user_id;    $types.='i';}
+    if ($start_date) {$where[]='DATE(la.created_at) >= ?'; $params[]=$start_date; $types.='s';}
+    if ($end_date)   {$where[]='DATE(la.created_at) <= ?'; $params[]=$end_date;   $types.='s';}
+    if ($aksi !== ''){$where[]='la.activity_type = ?';     $params[]=$aksi;       $types.='s';}
     $where_clause = $where?('WHERE '.implode(' AND ',$where)) : '';
 
     $sql = "SELECT la.id,u.nama_lengkap nama_user,ua.role_id,r.nama_role role,la.activity_type aksi,la.description deskripsi,la.ip_address,la.user_agent,la.created_at
@@ -26,6 +28,7 @@ try {
             LEFT JOIN user_account ua ON u.id=ua.pengguna_id
             LEFT JOIN role r ON ua.role_id=r.id $where_clause ORDER BY la.created_at DESC";
     $stmt=$mysqli->prepare($sql);
+    if(!$stmt) throw new Exception('Query gagal: '.$mysqli->error);
     if($params){$stmt->bind_param($types,...$params);} $stmt->execute();
     $res=$stmt->get_result();$rows=[];while($r=$res->fetch_assoc()){$rows[]=$r;} $stmt->close();
     $rowCount=count($rows);
@@ -69,7 +72,7 @@ try {
         if($user_id){$sheet->setCellValue('A'.$ln,'Filter User ID:');$sheet->setCellValue('B'.$ln,$user_id);$ln++;}
         if($start_date){$sheet->setCellValue('A'.$ln,'Tanggal Mulai:');$sheet->setCellValue('B'.$ln,date('d/m/Y',strtotime($start_date)));$ln++;}
         if($end_date){$sheet->setCellValue('A'.$ln,'Tanggal Akhir:');$sheet->setCellValue('B'.$ln,date('d/m/Y',strtotime($end_date)));$ln++;}
-        $sheet->setCellValue('A'.$ln,'Exported by:');$sheet->setCellValue('B'.$ln,$_SESSION['nama']??'System');
+        $sheet->setCellValue('A'.$ln,'Exported by:');$sheet->setCellValue('B'.$ln,$_SESSION['username']??($_SESSION['nama_lengkap']??'System'));
         foreach(range('A','E') as $col){$sheet->getColumnDimension($col)->setAutoSize(true);} $sheet->getStyle('A1:E1')->getFont()->setBold(true);
         if(class_exists('PhpOffice\\PhpSpreadsheet\\Style\\Fill')){
             $sheet->getStyle('A1:E1')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setARGB('FFE0E0E0');
@@ -107,7 +110,7 @@ try {
         if($user_id) echo '<tr><td>Filter User ID</td><td colspan="7">'.$user_id.'</td></tr>';
         if($start_date) echo '<tr><td>Tanggal Mulai</td><td colspan="7">'.date('d/m/Y',strtotime($start_date)).'</td></tr>';
         if($end_date) echo '<tr><td>Tanggal Akhir</td><td colspan="7">'.date('d/m/Y',strtotime($end_date)).'</td></tr>';
-        echo '<tr><td>Exported by</td><td colspan="7">'.htmlspecialchars($_SESSION['nama']??'System').'</td></tr>';
+        echo '<tr><td>Exported by</td><td colspan="7">'.htmlspecialchars($_SESSION['username']??($_SESSION['nama_lengkap']??'System')).'</td></tr>';
         echo '</table>';
     } else { // CSV
         $filename.='.csv';
@@ -135,18 +138,16 @@ try {
         if($user_id) fputcsv($out,['Filter User ID:',$user_id]);
         if($start_date) fputcsv($out,['Tanggal Mulai:',date('d/m/Y',strtotime($start_date))]);
         if($end_date) fputcsv($out,['Tanggal Akhir:',date('d/m/Y',strtotime($end_date))]);
-        fputcsv($out,['Exported by:',$_SESSION['nama']??'System']);
+        fputcsv($out,['Exported by:',$_SESSION['username']??($_SESSION['nama_lengkap']??'System')]);
         fclose($out);
     }
 
-    // Log activity (not for fallback already logged?)
     $desc='Export log aktivitas format: '.strtoupper($format==='xls-fallback'?'XLS-FALLBACK':$format);
     if($user_id) $desc.=' untuk user ID: '.$user_id;
+    if($aksi!=='') $desc.=' aksi: '.$aksi;
     if($start_date||$end_date) $desc.=' periode: '.($start_date?:'semua').' s/d '.($end_date?:'sekarang');
     $desc.=' (Total: '.$rowCount.' record)';
-    $lg=$mysqli->prepare('INSERT INTO log_aktivitas (user_id, activity_type, description, ip_address, user_agent) VALUES (?,?,?,?,?)');
-    $lg->bind_param('issss', $_SESSION['user_id'], 'EXPORT', $desc, $_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_USER_AGENT']);
-    $lg->execute();$lg->close();
+    log_activity('EXPORT', $desc);
     exit;
 } catch(Exception $e){
     if(!headers_sent()) header('Content-Type: application/json');

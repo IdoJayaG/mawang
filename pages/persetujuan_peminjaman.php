@@ -93,7 +93,7 @@ if ($_POST && in_array($action, ['approve', 'reject', 'edit', 'approve_surat', '
     if (!validate_csrf_token($_POST['csrf_token'] ?? '')) {
         $msg = '<div class="alert alert-danger">Token keamanan tidak valid!</div>';
     } else {
-        $peminjaman_id = (int)$_POST['peminjaman_id'];
+        $peminjaman_id = (int)($_POST['peminjaman_id'] ?? 0);
         $notes = trim($_POST['notes'] ?? '');
         
         if ($action === 'approve') {
@@ -604,6 +604,9 @@ if ($_POST && in_array($action, ['approve', 'reject', 'edit', 'approve_surat', '
                             if ($notify_uid) {
                                 insert_notification($mysqli, $notify_uid, "Surat tugas {$surat_info['nomor_surat']} telah disetujui pimpinan.", 'Surat Tugas Disetujui');
                             }
+                            // Kirim email notifikasi instan ke pengguna & driver (tidak menunggu reminder H-1/H0)
+                            require_once dirname(__DIR__) . '/lib/email_triggers.php';
+                            try { queue_and_send_surat_tugas_approved_email($mysqli, $surat_id_post); } catch (Throwable $e) { error_log('[email_triggers] approved email gagal: ' . $e->getMessage()); }
                             $msg = '<div class="alert alert-success">Surat tugas berhasil disetujui pimpinan!</div>';
                             log_user_activity("Menyetujui surat tugas ID: {$surat_id_post}");
                             log_peminjaman_role_activity($current_role, "Menyetujui surat tugas ID: {$surat_id_post}");

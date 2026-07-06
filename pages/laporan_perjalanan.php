@@ -415,8 +415,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       if ($srow && ( (int)$srow['pengguna_id'] === (int)$current_user_id || (function_exists('can_access_vehicle') && can_access_vehicle((int)$srow['kendaraan_id'])) || can_admin() )) {
         $newStatus = 'Selesai';
-        $up = $mysqli->prepare("UPDATE surat_tugas SET status = ?, updated_at = NOW() WHERE id = ?");
-        $up->bind_param('si', $newStatus, $sid);
+        // Catatan: bbm_terpakai TIDAK diinput manual di sini — nilainya otomatis dihitung dari
+        // total log_bahan_bakar yang dikaitkan ke trip ini (lihat recompute_surat_bbm_terpakai
+        // di pages/log_bahan_bakar.php, dipicu tiap kali driver menambah/mengubah log BBM).
+        $km_kembali_in = trim((string)($_POST['km_kembali'] ?? ''));
+        $km_kembali_val = ($km_kembali_in !== '' && is_numeric($km_kembali_in)) ? (int)$km_kembali_in : null;
+
+        if ($km_kembali_val !== null) {
+          $up = $mysqli->prepare("UPDATE surat_tugas SET status = ?, km_kembali = ?, updated_at = NOW() WHERE id = ?");
+          $up->bind_param('sii', $newStatus, $km_kembali_val, $sid);
+        } else {
+          $up = $mysqli->prepare("UPDATE surat_tugas SET status = ?, updated_at = NOW() WHERE id = ?");
+          $up->bind_param('si', $newStatus, $sid);
+        }
         $up->execute();
         $up->close();
         // Ensure kendaraan marked available when surat tugas finished
@@ -725,6 +736,36 @@ if ($action === 'assigned') {
       </div>
     </div>
   </div>
+
+  <!-- Modal: input KM Kembali saat driver menyelesaikan perjalanan.
+       BBM aktual TIDAK diinput di sini — otomatis dihitung dari total log BBM
+       yang dikaitkan ke trip ini (lihat pages/log_bahan_bakar.php). -->
+  <div class="modal fade" id="finishTripModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fas fa-flag-checkered me-2"></i>Selesaikan Perjalanan</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small mb-2">
+            <i class="fas fa-gas-pump me-1"></i>
+            BBM terpakai dihitung otomatis dari log BBM yang sudah Anda catat selama trip ini
+            (menu <strong>Log Bahan Bakar</strong>) — tidak perlu diisi ulang di sini.
+          </p>
+          <div class="mb-1">
+            <label class="form-label">KM Kembali (opsional)</label>
+            <input type="number" step="1" min="0" class="form-control" id="finishKmInput" placeholder="Odometer saat kembali">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+          <button type="button" class="btn btn-success" id="finishTripSubmitBtn"><i class="fas fa-check me-1"></i>Selesaikan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
   (function(){
     function submitForm(data){
@@ -742,6 +783,10 @@ if ($action === 'assigned') {
       form.submit();
     }
 
+    var finishModalEl = document.getElementById('finishTripModal');
+    var finishModal = (finishModalEl && typeof bootstrap !== 'undefined') ? new bootstrap.Modal(finishModalEl) : null;
+    var pendingFinish = { sid: null, csrf: null };
+
     document.addEventListener('click', function(e){
       var btn = e.target.closest('.start-surat-btn, .finish-surat-btn');
       if (!btn) return;
@@ -750,13 +795,39 @@ if ($action === 'assigned') {
       var sid = btn.getAttribute('data-surat-id');
       var csrf = btn.getAttribute('data-csrf');
       if (!sid || !csrf) return alert('Invalid data');
-      var confirmMsg = isStart ? 'Mulai perjalanan sekarang?' : 'Selesaikan perjalanan?';
-      if (!confirm(confirmMsg)) return;
-      btn.disabled = true;
-      var payload = { csrf_token: csrf };
-      if (isStart) payload.start_surat_id = sid; else payload.finish_surat_id = sid;
-      submitForm(payload);
+
+      if (isStart) {
+        if (!confirm('Mulai perjalanan sekarang?')) return;
+        btn.disabled = true;
+        submitForm({ csrf_token: csrf, start_surat_id: sid });
+        return;
+      }
+
+      // Selesai: tawarkan input KM Kembali (opsional) lewat modal
+      pendingFinish = { sid: sid, csrf: csrf };
+      var kmEl = document.getElementById('finishKmInput');
+      if (kmEl) kmEl.value = '';
+      if (finishModal) { finishModal.show(); }
+      else {
+        if (!confirm('Selesaikan perjalanan?')) return;
+        btn.disabled = true;
+        submitForm({ csrf_token: csrf, finish_surat_id: sid });
+      }
     });
+
+    var submitBtn = document.getElementById('finishTripSubmitBtn');
+    if (submitBtn) {
+      submitBtn.addEventListener('click', function(){
+        if (!pendingFinish.sid) return;
+        var kmEl = document.getElementById('finishKmInput');
+        submitBtn.disabled = true;
+        submitForm({
+          csrf_token: pendingFinish.csrf,
+          finish_surat_id: pendingFinish.sid,
+          km_kembali: (kmEl && kmEl.value !== '') ? kmEl.value : '',
+        });
+      });
+    }
   })();
   </script>
   <?php
@@ -774,6 +845,10 @@ if ($action === 'detail_surat') {
   $s = $stmt->get_result()->fetch_assoc();
   $stmt->close();
   if (!$s) { echo '<div class="alert alert-danger">Surat tidak ditemukan</div>'; exit; }
+
+  // Rute rencana dari surat tugas: asal + daftar tujuan (dipisah '||')
+  $origin_label = trim((string)($s['berangkat_dari'] ?? '')) ?: 'SPBT Kemhan Cawang';
+  $destinations = array_values(array_filter(array_map('trim', explode('||', (string)($s['tujuan'] ?? ''))), fn($d) => $d !== ''));
 
   // Laporan perjalanan for this trip (jarak_km, route, created_at for tracking start)
   $lp_start = null; $lp_id = null; $lp_jarak = null; $lp_route = null;
@@ -793,6 +868,11 @@ if ($action === 'detail_surat') {
     default            => ['secondary', $s['status']],
   };
   ?>
+  <!-- Leaflet Routing Machine: dipakai untuk menggambar rute rencana mengikuti jalan (seperti Google Maps),
+       dimuat lokal di halaman ini saja (Leaflet inti sudah dimuat global di header.php). -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+  <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
+
   <div class="page-header">
     <h1><i class="fas fa-map-marked-alt me-2"></i>Detail Perjalanan — <?= htmlspecialchars($s['nomor_surat']) ?></h1>
     <div class="header-actions">
@@ -849,18 +929,67 @@ if ($action === 'detail_surat') {
     </div>
   </div>
 
-  <!-- Map + GPS stats -->
-  <div class="card shadow-sm">
-    <div class="card-header bg-dark text-white">
-      <strong><i class="fas fa-route me-2"></i>Rute GPS (Traccar)</strong>
-      <span class="small text-muted ms-2"><?= $lp_start ? 'sejak ' . date('d/m/Y H:i', strtotime($lp_start)) : 'seluruh hari' ?></span>
+  <!-- Sub-tab: Rute GPS (aktual) vs Rute Rencana (surat tugas) -->
+  <!-- Catatan: style.css punya aturan lama ".tab-content { display:none }" untuk sistem tab custom lain
+       (non-Bootstrap). Karena itu selector generik, ia juga menimpa wrapper Bootstrap ".tab-content" di
+       bawah ini. Override khusus (ID + !important) supaya wrapper Bootstrap ini tidak ikut ter-hide,
+       sekaligus tetap mempertahankan aturan Bootstrap ".tab-content > .tab-pane" (butuh nama class asli). -->
+  <style>
+    #ruteTabContent.tab-content { display: block !important; }
+  </style>
+  <ul class="nav nav-tabs mb-3" id="ruteTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="tab-gps-btn" data-bs-toggle="tab" data-bs-target="#tab-gps" type="button" role="tab" aria-controls="tab-gps" aria-selected="true">
+        <i class="fas fa-satellite-dish me-1"></i>Rute GPS (Traccar)
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-rencana-btn" data-bs-toggle="tab" data-bs-target="#tab-rencana" type="button" role="tab" aria-controls="tab-rencana" aria-selected="false">
+        <i class="fas fa-route me-1"></i>Rute Rencana (Surat Tugas)
+      </button>
+    </li>
+  </ul>
+
+  <div class="tab-content" id="ruteTabContent">
+    <!-- Tab 1: Map + GPS stats (rute aktual dari Traccar) -->
+    <div class="tab-pane fade show active" id="tab-gps" role="tabpanel" aria-labelledby="tab-gps-btn">
+      <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white">
+          <strong><i class="fas fa-route me-2"></i>Rute GPS (Traccar)</strong>
+          <span class="small text-muted ms-2"><?= $lp_start ? 'sejak ' . date('d/m/Y H:i', strtotime($lp_start)) : 'seluruh hari' ?></span>
+        </div>
+        <div class="card-body p-0">
+          <div id="suratTrackMap" style="height:450px; width:100%;"></div>
+        </div>
+        <div class="card-footer p-2">
+          <div id="trackSummary" class="row g-2 text-center small">
+            <div class="col text-muted">Memuat data GPS...</div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="card-body p-0">
-      <div id="suratTrackMap" style="height:450px; width:100%;"></div>
-    </div>
-    <div class="card-footer p-2">
-      <div id="trackSummary" class="row g-2 text-center small">
-        <div class="col text-muted">Memuat data GPS...</div>
+
+    <!-- Tab 2: Rute Rencana dari Surat Tugas (asal + daftar tujuan) -->
+    <div class="tab-pane fade" id="tab-rencana" role="tabpanel" aria-labelledby="tab-rencana-btn">
+      <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center flex-wrap gap-1">
+          <strong><i class="fas fa-route me-2"></i>Rute Rencana (dari Surat Tugas)</strong>
+          <span class="small text-muted" id="planRouteSummary">Estimasi surat tugas: <?= is_numeric($s['estimasi_km'] ?? null) ? number_format($s['estimasi_km']) . ' km' : '-' ?></span>
+        </div>
+        <div class="card-body p-0">
+          <div id="suratPlanMap" style="height:450px; width:100%;"></div>
+        </div>
+        <div class="card-footer p-2">
+          <ol class="mb-0 ps-3 small">
+            <li><strong>Berangkat dari:</strong> <?= htmlspecialchars($origin_label) ?></li>
+            <?php foreach ($destinations as $di => $d): ?>
+              <li><strong>Tujuan <?= $di + 1 ?>:</strong> <?= htmlspecialchars($d) ?></li>
+            <?php endforeach; ?>
+            <?php if (empty($destinations)): ?>
+              <li class="text-muted">Tidak ada tujuan tercatat pada surat tugas ini.</li>
+            <?php endif; ?>
+          </ol>
+        </div>
       </div>
     </div>
   </div>
@@ -971,6 +1100,126 @@ if ($action === 'detail_surat') {
       });
   });
   </script>
+
+  <script>
+  // ── Tab "Rute Rencana (Surat Tugas)": geocode asal+tujuan, gambar rute mengikuti jalan (Leaflet Routing Machine) ──
+  document.addEventListener('DOMContentLoaded', function(){
+    const planBtn = document.getElementById('tab-rencana-btn');
+    if (!planBtn) return;
+    let planInited = false;
+
+    planBtn.addEventListener('shown.bs.tab', function(){
+      if (planInited) return;
+      planInited = true;
+      initPlanRouteMap();
+    });
+
+    // Lokasi yang sering dipakai tapi sulit/gagal di-geocode Nominatim (nama internal, bukan nama publik di OSM).
+    const KNOWN_COORDS = {
+      'spbt kemhan cawang': { lat: -6.200, lng: 106.816 },
+    };
+
+    async function geocodeAddr(q){
+      const key = (q || '').toLowerCase().trim();
+      if (KNOWN_COORDS[key]) return KNOWN_COORDS[key];
+      try {
+        const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } });
+        const list = await res.json();
+        if (list && list.length) return { lat: parseFloat(list[0].lat), lng: parseFloat(list[0].lon) };
+      } catch (e) { /* ignore, treated as unresolved */ }
+      return null;
+    }
+
+    function pinIcon(color) {
+      const urls = {
+        green: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+        red:   'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+        blue:  'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+      };
+      return L.icon({
+        iconUrl: urls[color] || urls.blue,
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41],
+      });
+    }
+
+    async function initPlanRouteMap(){
+      const mapEl = document.getElementById('suratPlanMap');
+      if (!mapEl || typeof L === 'undefined') return;
+      const summaryBase = 'Estimasi surat tugas: <?= is_numeric($s['estimasi_km'] ?? null) ? number_format($s['estimasi_km']) . ' km' : '-' ?>';
+      const summaryEl = document.getElementById('planRouteSummary');
+
+      const origin = <?= json_encode($origin_label) ?>;
+      const destinations = <?= json_encode($destinations) ?>;
+
+      if (!destinations.length) {
+        mapEl.innerHTML = '<div class="p-4 text-center text-muted">Tidak ada tujuan tercatat pada surat tugas ini untuk digambar.</div>';
+        return;
+      }
+
+      const planMap = L.map('suratPlanMap').setView([-6.200, 106.816], 11);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(planMap);
+
+      // Berangkat -> tujuan 1..n -> kembali ke asal (PP)
+      const labels = [origin, ...destinations, origin];
+      const points = [];
+      for (const label of labels) {
+        const p = await geocodeAddr(label);
+        if (p) points.push({ label, lat: p.lat, lng: p.lng });
+        else console.warn('Gagal geocoding lokasi:', label);
+      }
+
+      if (points.length < 2) {
+        mapEl.innerHTML = '<div class="p-4 text-center text-muted">Lokasi tidak dapat ditemukan (gagal geocoding alamat).</div>';
+        return;
+      }
+
+      const waypoints = points.map(p => L.latLng(p.lat, p.lng));
+
+      if (typeof L.Routing === 'undefined') {
+        // Library routing gagal dimuat (mis. CDN diblokir) — tampilkan garis lurus putus-putus sebagai fallback.
+        points.forEach((p, idx) => {
+          const isFirst = idx === 0, isLast = idx === points.length - 1;
+          const tag = isFirst ? 'Berangkat' : (isLast ? 'Kembali' : ('Tujuan ' + idx));
+          L.marker([p.lat, p.lng], { icon: pinIcon(isFirst ? 'green' : (isLast ? 'red' : 'blue')) })
+            .addTo(planMap).bindPopup(`<strong>${tag}</strong><br>${p.label}`);
+        });
+        L.polyline(waypoints, { color: '#4285F4', weight: 4, opacity: 0.7, dashArray: '6,6' }).addTo(planMap);
+        planMap.fitBounds(L.latLngBounds(waypoints), { padding: [30, 30] });
+        return;
+      }
+
+      const routingControl = L.Routing.control({
+        waypoints: waypoints,
+        lineOptions: { styles: [{ color: '#4285F4', opacity: 0.9, weight: 6 }] }, // biru khas Google Maps
+        createMarker: function(i, wp) {
+          const isFirst = i === 0, isLast = i === waypoints.length - 1;
+          const tag = isFirst ? 'Berangkat' : (isLast ? 'Kembali' : ('Tujuan ' + i));
+          return L.marker(wp.latLng, { icon: pinIcon(isFirst ? 'green' : (isLast ? 'red' : 'blue')) })
+            .bindPopup(`<strong>${tag}</strong><br>${points[i].label}`);
+        },
+        addWaypoints: false,
+        routeWhileDragging: false,
+        fitSelectedRoutes: true,
+        show: false, // sembunyikan panel instruksi teks bawaan, cukup garis + marker di peta
+        router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
+      }).addTo(planMap);
+
+      routingControl.on('routesfound', function(e){
+        const summary = e.routes && e.routes[0] && e.routes[0].summary;
+        if (summary && summaryEl) {
+          const distKm = (summary.totalDistance / 1000).toFixed(1);
+          summaryEl.innerHTML = summaryBase + ` • Rute jalan: ${distKm} km`;
+        }
+      });
+      routingControl.on('routingerror', function(){
+        L.polyline(waypoints, { color: '#4285F4', weight: 4, opacity: 0.7, dashArray: '6,6' }).addTo(planMap);
+        planMap.fitBounds(L.latLngBounds(waypoints), { padding: [30, 30] });
+      });
+    }
+  });
+  </script>
   <?php
   exit;
 }
@@ -1034,8 +1283,8 @@ if ($action === 'list') {
   // Data
   if (function_exists('can_admin') && can_admin()) {
     // Admin: include laporan_perjalanan plus surat_tugas with status 'Selesai' that don't have a laporan yet
-    $sql_lp = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km, COALESCE((SELECT estimasi_km FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_berangkat) = DATE(lp.tanggal) LIMIT 1), (SELECT estimasi_km FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_kembali) = DATE(lp.tanggal) LIMIT 1)) AS surat_estimasi_km, COALESCE((SELECT estimasi_bbm FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_berangkat) = DATE(lp.tanggal) LIMIT 1), (SELECT estimasi_bbm FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_kembali) = DATE(lp.tanggal) LIMIT 1)) AS surat_estimasi_bbm, k.id AS kendaraan_id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, p.id AS pengguna_id, p.nama_lengkap, p.pangkat, p.nrp_nip, 'laporan' AS source FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id LEFT JOIN pengguna p ON lp.pengguna_id = p.id";
-    $sql_st = "SELECT DISTINCT NULL AS id, st.tanggal_berangkat AS tanggal, COALESCE(st.laporan_perjalanan, st.keperluan, st.nomor_surat, '') AS uraian_kegiatan, st.tujuan AS route, NULL AS jarak_km, st.estimasi_km AS surat_estimasi_km, st.estimasi_bbm AS surat_estimasi_bbm, k.id AS kendaraan_id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, NULL AS pengguna_id, NULL AS nama_lengkap, NULL AS pangkat, NULL AS nrp_nip, 'surat' AS source FROM surat_tugas st JOIN kendaraan k ON st.kendaraan_id = k.id WHERE LOWER(TRIM(st.status)) = 'selesai' AND NOT EXISTS (SELECT 1 FROM laporan_perjalanan lp2 WHERE lp2.kendaraan_id = st.kendaraan_id AND (DATE(lp2.tanggal) = DATE(st.tanggal_berangkat) OR (st.tanggal_kembali IS NOT NULL AND DATE(lp2.tanggal) = DATE(st.tanggal_kembali))))";
+    $sql_lp = "SELECT lp.id, lp.tanggal, lp.uraian_kegiatan, lp.route, lp.jarak_km, COALESCE((SELECT estimasi_km FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_berangkat) = DATE(lp.tanggal) LIMIT 1), (SELECT estimasi_km FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_kembali) = DATE(lp.tanggal) LIMIT 1)) AS surat_estimasi_km, COALESCE((SELECT estimasi_bbm FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_berangkat) = DATE(lp.tanggal) LIMIT 1), (SELECT estimasi_bbm FROM surat_tugas st WHERE st.kendaraan_id = k.id AND DATE(st.tanggal_kembali) = DATE(lp.tanggal) LIMIT 1)) AS surat_estimasi_bbm, k.id AS kendaraan_id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, p.id AS pengguna_id, p.nama_lengkap, p.pangkat, p.nrp_nip, 'laporan' AS source, (SELECT st.id FROM surat_tugas st WHERE st.kendaraan_id = k.id AND (DATE(st.tanggal_berangkat) = DATE(lp.tanggal) OR (st.tanggal_kembali IS NOT NULL AND DATE(st.tanggal_kembali) = DATE(lp.tanggal))) ORDER BY st.tanggal_berangkat DESC, st.id DESC LIMIT 1) AS surat_id FROM laporan_perjalanan lp JOIN kendaraan k ON lp.kendaraan_id = k.id LEFT JOIN pengguna p ON lp.pengguna_id = p.id";
+    $sql_st = "SELECT DISTINCT NULL AS id, st.tanggal_berangkat AS tanggal, COALESCE(st.laporan_perjalanan, st.keperluan, st.nomor_surat, '') AS uraian_kegiatan, st.tujuan AS route, NULL AS jarak_km, st.estimasi_km AS surat_estimasi_km, st.estimasi_bbm AS surat_estimasi_bbm, k.id AS kendaraan_id, k.no_reg, k.no_polisi, k.merk, k.tipe, k.bahan_bakar, NULL AS pengguna_id, NULL AS nama_lengkap, NULL AS pangkat, NULL AS nrp_nip, 'surat' AS source, st.id AS surat_id FROM surat_tugas st JOIN kendaraan k ON st.kendaraan_id = k.id WHERE LOWER(TRIM(st.status)) = 'selesai' AND NOT EXISTS (SELECT 1 FROM laporan_perjalanan lp2 WHERE lp2.kendaraan_id = st.kendaraan_id AND (DATE(lp2.tanggal) = DATE(st.tanggal_berangkat) OR (st.tanggal_kembali IS NOT NULL AND DATE(lp2.tanggal) = DATE(st.tanggal_kembali))))";
     $sql = "($sql_lp) UNION ALL ($sql_st) ORDER BY tanggal DESC LIMIT ? OFFSET ?";
     $stmt = $mysqli->prepare($sql);
     $stmt->bind_param('ii', $limit, $offset);
@@ -1499,11 +1748,15 @@ document.addEventListener('DOMContentLoaded', function(){
                 <td><?= $jarak_display !== null ? htmlspecialchars($jarak_display) . ' Km' : '-' ?></td>
                 <td>
                   <?php
-                    
-                      // Drivers should see detail route when linked to surat_tugas.
+                      $hasLaporan = !empty($r['id']);
+                      $hasSuratId = !empty($r['surat_id']);
+                      // Admin & pimpinan: tampilkan Edit (jika ada laporan) dan Detail rute (jika terkait surat tugas).
                       if (can_admin()):
-                        ?><a href="?page=laporan_perjalanan&action=edit&id=<?= (int)$r['id'] ?>" class="btn btn-sm btn-outline-primary"><i class="fas fa-edit"></i> Edit</a><?php
-                      elseif ($current_role === 'driver' && !empty($r['surat_id'])):
+                        if ($hasLaporan): ?><a href="?page=laporan_perjalanan&action=edit&id=<?= (int)$r['id'] ?>" class="btn btn-sm btn-outline-primary"><i class="fas fa-edit"></i> Edit</a><?php endif;
+                        if ($hasSuratId): ?><a href="?page=laporan_perjalanan&action=detail_surat&surat_id=<?= (int)$r['surat_id'] ?>" class="btn btn-sm btn-outline-info ms-1"><i class="fas fa-map-marker-alt"></i> Detail</a><?php endif;
+                        if (!$hasLaporan && !$hasSuratId): echo '<span class="text-muted">-</span>'; endif;
+                      // Driver: tampilkan Detail rute jika laporan ini terkait surat tugas miliknya.
+                      elseif ($current_role === 'driver' && $hasSuratId):
                         ?><a href="?page=laporan_perjalanan&action=detail_surat&surat_id=<?= (int)$r['surat_id'] ?>" class="btn btn-sm btn-outline-info"><i class="fas fa-map-marker-alt"></i> Detail</a><?php
                       else:
                         echo '<span class="text-muted">-</span>';
@@ -1583,7 +1836,7 @@ document.addEventListener('DOMContentLoaded', function(){
             <label class="form-label">Catatan</label>
             <ul class="small ps-3 mb-0">
               <li>Pilih satu atau beberapa bulan, atau pilih satu tahun penuh.</li>
-              <li>Perhitungan kolom BBM (L) otomatis dari Jarak Km & Jenis BBM: non-solar 12 km/L, Bio Solar 6 km/L. Jarak dihitung PP (x2).</li>
+              <li>Perhitungan kolom BBM (L) otomatis dari Jarak Km & Merk Kendaraan: mercedes 3 km/L, mitsubishi 4 km/L, hino 5 km/L. Jarak dihitung PP (x2).</li>
               <li>Gunakan filter di halaman utama bila ingin memastikan data sudah lengkap sebelum export.</li>
             </ul>
           </div>

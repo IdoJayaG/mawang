@@ -3,8 +3,13 @@ require_once dirname(__DIR__) . '/includes/auth.php';
 
 $current_role = get_current_role();
 $can_crud = can_admin();
-$can_notify_driver = in_array($current_role, ['admin', 'pimpinan'], true);
-$where = ["j.status != 'Selesai'"]; 
+$jadwal_page  = max(1, (int)($_GET['jadwal_page'] ?? 1));
+$limit_jp     = 10;
+$offset_jp    = ($jadwal_page - 1) * $limit_jp;
+$where = ["j.status != 'Selesai'"];
+// Untuk jadwal rutin: hanya tampilkan entry paling dekat per grup (kendaraan + keterangan).
+// Ketika entry selesai, entry berikutnya otomatis menjadi yang terdepan.
+$where[] = "(j.keterangan IS NULL OR j.keterangan NOT LIKE 'Penjadwalan rutin%' OR j.id = (SELECT j2.id FROM jadwal_perawatan j2 WHERE j2.kendaraan_id = j.kendaraan_id AND j2.keterangan = j.keterangan AND j2.status NOT IN ('Selesai','Dibatalkan') ORDER BY j2.tanggal_perawatan ASC LIMIT 1))";
 $params = []; $types = '';
 
 // If current user is a driver, restrict to vehicles they are responsible for / have access to
@@ -40,7 +45,31 @@ if ($current_role === 'driver' && ($current_user_id = get_current_user_id())) {
 }
 
 $where_sql = 'WHERE ' . implode(' AND ', $where);
-$sql = "SELECT j.*, k.no_polisi, k.no_reg, k.merk, k.tipe FROM jadwal_perawatan j LEFT JOIN kendaraan k ON j.kendaraan_id = k.id $where_sql ORDER BY j.tanggal_perawatan ASC, j.prioritas DESC";
+
+// Count total records for pagination
+$count_sql = "SELECT COUNT(*) AS total FROM jadwal_perawatan j LEFT JOIN kendaraan k ON j.kendaraan_id = k.id $where_sql";
+$total_records = 0;
+if (!empty($params)) {
+    $params_copy = $params;
+    $types_copy  = $types;
+    $cs = $mysqli->prepare($count_sql);
+    if ($cs) {
+        $cbind = [&$types_copy];
+        for ($i = 0; $i < count($params_copy); $i++) { $cbind[] = &$params_copy[$i]; }
+        call_user_func_array([$cs, 'bind_param'], $cbind);
+        $cs->execute();
+        $total_records = (int)($cs->get_result()->fetch_assoc()['total'] ?? 0);
+        $cs->close();
+    }
+} else {
+    $cr = $mysqli->query($count_sql);
+    if ($cr) $total_records = (int)($cr->fetch_assoc()['total'] ?? 0);
+}
+$total_pages = max(1, (int)ceil($total_records / $limit_jp));
+$jadwal_page = min($jadwal_page, $total_pages);
+$offset_jp   = ($jadwal_page - 1) * $limit_jp;
+
+$sql = "SELECT j.*, k.no_polisi, k.no_reg, k.merk, k.tipe FROM jadwal_perawatan j LEFT JOIN kendaraan k ON j.kendaraan_id = k.id $where_sql ORDER BY j.tanggal_perawatan ASC, j.prioritas DESC LIMIT $limit_jp OFFSET $offset_jp";
 
 if (!empty($params)) {
     $stmt = $mysqli->prepare($sql);
@@ -53,13 +82,12 @@ if (!empty($params)) {
         $result = $stmt->get_result();
         $stmt->close();
     } else {
-        // fallback to non-filtered query if prepare fails
-        $result = $mysqli->query("SELECT j.*, k.no_polisi, k.no_reg, k.merk, k.tipe FROM jadwal_perawatan j LEFT JOIN kendaraan k ON j.kendaraan_id = k.id WHERE j.status != 'Selesai' ORDER BY j.tanggal_perawatan ASC, j.prioritas DESC");
+        $result = $mysqli->query("SELECT j.*, k.no_polisi, k.no_reg, k.merk, k.tipe FROM jadwal_perawatan j LEFT JOIN kendaraan k ON j.kendaraan_id = k.id WHERE j.status != 'Selesai' ORDER BY j.tanggal_perawatan ASC, j.prioritas DESC LIMIT $limit_jp OFFSET $offset_jp");
     }
 } else {
     $result = $mysqli->query($sql);
 }
-$no = 1;
+$no = $offset_jp + 1;
 
 if ($result && $result->num_rows > 0):
     while ($row = $result->fetch_assoc()):
@@ -140,6 +168,15 @@ if ($result && $result->num_rows > 0):
     <td>
         <?= !empty($row['bengkel']) ? htmlspecialchars($row['bengkel']) : '<span class="text-muted">-</span>' ?>
     </td>
+    <td>
+        <?php
+        if (preg_match('/Penjadwalan rutin setiap (\d+) bulan/i', $row['keterangan'] ?? '', $tm)) {
+            echo '<span class="badge bg-info text-dark">Rutin &middot; ' . (int)$tm[1] . ' Bulanan</span>';
+        } else {
+            echo '<span class="badge bg-secondary">Satu Kali</span>';
+        }
+        ?>
+    </td>
     <!-- Estimasi Biaya column removed per privacy request -->
     <td>
         <?php if ($can_crud): ?>
@@ -182,7 +219,7 @@ if ($result && $result->num_rows > 0):
         }
         ?>
     </td>
-    <?php if ($can_crud || $can_notify_driver): ?>
+    <?php if ($can_crud): ?>
     <td>
         <div class="btn-group" role="group">
             <a href="?page=jadwal_perawatan&action=view&id=<?= $row['id'] ?>" class="btn btn-sm btn-outline-info" title="Lihat Detail"><i class="fas fa-eye"></i></a>
@@ -193,26 +230,60 @@ if ($result && $result->num_rows > 0):
                 <?php endif; ?>
             <?php endif; ?>
         </div>
-
-        <?php if ($can_notify_driver): ?>
-            <form method="POST" action="?page=jadwal_perawatan" style="display:inline-block; margin-left:6px;">
-                <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
-                <input type="hidden" name="action" value="notify_driver_routine">
-                <input type="hidden" name="jadwal_id" value="<?= (int)$row['id'] ?>">
-                <input type="hidden" name="interval_bulan" value="3">
-                <button type="submit" class="btn btn-sm btn-outline-warning" title="Notifikasi Driver 3 Bulanan"><i class="fas fa-bell"></i></button>
-            </form>
-        <?php endif; ?>
     </td>
     <?php endif; ?>
 </tr>
-<?php 
+<?php
     endwhile;
-else: 
+else:
 ?>
 <tr>
-    <td colspan="<?= ($can_crud || $can_notify_driver) ? '8' : '7' ?>" class="text-center text-muted">
-        Belum ada jadwal perawatan
+    <td colspan="<?= $can_crud ? '9' : '8' ?>" class="text-center text-muted py-3">
+        <i class="fas fa-calendar-times me-1"></i>Belum ada jadwal perawatan
+    </td>
+</tr>
+<?php endif; ?>
+<?php if ($total_pages > 1 || $total_records > 0): ?>
+<tr class="table-light border-top">
+    <td colspan="<?= $can_crud ? '9' : '8' ?>" class="py-2 px-3">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <small class="text-muted">
+                Menampilkan <strong><?= $total_records > 0 ? $offset_jp + 1 : 0 ?></strong>–<strong><?= min($offset_jp + $limit_jp, $total_records) ?></strong>
+                dari <strong><?= $total_records ?></strong> data
+            </small>
+            <?php if ($total_pages > 1): ?>
+            <nav aria-label="Paginasi jadwal">
+                <ul class="pagination pagination-sm mb-0">
+                    <li class="page-item <?= $jadwal_page <= 1 ? 'disabled' : '' ?>">
+                        <a class="page-link" href="javascript:void(0)" onclick="JadwalPerawatan.goToPage(1)">«</a>
+                    </li>
+                    <li class="page-item <?= $jadwal_page <= 1 ? 'disabled' : '' ?>">
+                        <a class="page-link" href="javascript:void(0)" onclick="JadwalPerawatan.goToPage(<?= $jadwal_page - 1 ?>)">‹</a>
+                    </li>
+                    <?php
+                    $p_start = max(1, $jadwal_page - 2);
+                    $p_end   = min($total_pages, $jadwal_page + 2);
+                    if ($p_start > 1): ?>
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    <?php endif;
+                    for ($p = $p_start; $p <= $p_end; $p++): ?>
+                        <li class="page-item <?= $p === $jadwal_page ? 'active' : '' ?>">
+                            <a class="page-link" href="javascript:void(0)" onclick="JadwalPerawatan.goToPage(<?= $p ?>)"><?= $p ?></a>
+                        </li>
+                    <?php endfor;
+                    if ($p_end < $total_pages): ?>
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    <?php endif; ?>
+                    <li class="page-item <?= $jadwal_page >= $total_pages ? 'disabled' : '' ?>">
+                        <a class="page-link" href="javascript:void(0)" onclick="JadwalPerawatan.goToPage(<?= $jadwal_page + 1 ?>)">›</a>
+                    </li>
+                    <li class="page-item <?= $jadwal_page >= $total_pages ? 'disabled' : '' ?>">
+                        <a class="page-link" href="javascript:void(0)" onclick="JadwalPerawatan.goToPage(<?= $total_pages ?>)">»</a>
+                    </li>
+                </ul>
+            </nav>
+            <?php endif; ?>
+        </div>
     </td>
 </tr>
 <?php endif; ?>

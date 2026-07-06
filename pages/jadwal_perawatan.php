@@ -14,7 +14,6 @@ if ($current_role === 'guest') {
 }
 
 $can_crud = can_admin(); // hanya admin yang mengatur perawatan
-$can_notify_driver = in_array($current_role, ['admin', 'pimpinan'], true);
 $can_view = is_logged_in();
 
 $action = $_GET['action'] ?? 'list';
@@ -26,72 +25,6 @@ if ($_POST) {
     if (!validate_csrf_token($_POST['csrf_token'] ?? '')) {
         $msg = '<div class="alert alert-danger">Token keamanan tidak valid!</div>';
     } else {
-        if (($action === 'notify_driver_routine' || ($_POST['action'] ?? '') === 'notify_driver_routine') && $can_notify_driver) {
-            $jadwal_for_notify = (int)($_POST['jadwal_id'] ?? 0);
-            $interval_month = max(1, (int)($_POST['interval_bulan'] ?? 3));
-
-            if ($jadwal_for_notify <= 0) {
-                $msg = '<div class="alert alert-danger">Jadwal perawatan tidak valid.</div>';
-                goto end_post;
-            }
-
-            $stmt_j = $mysqli->prepare("SELECT jp.id, jp.kendaraan_id, jp.jenis_perawatan, jp.tanggal_perawatan, k.no_polisi, k.no_reg, k.merk, k.tipe FROM jadwal_perawatan jp LEFT JOIN kendaraan k ON jp.kendaraan_id = k.id WHERE jp.id = ? LIMIT 1");
-            if (!$stmt_j) {
-                $msg = '<div class="alert alert-danger">Gagal menyiapkan data jadwal.</div>';
-                goto end_post;
-            }
-
-            $stmt_j->bind_param('i', $jadwal_for_notify);
-            $stmt_j->execute();
-            $jadwal_row = $stmt_j->get_result()->fetch_assoc();
-            $stmt_j->close();
-
-            if (!$jadwal_row) {
-                $msg = '<div class="alert alert-danger">Data jadwal perawatan tidak ditemukan.</div>';
-                goto end_post;
-            }
-
-            $driver_ids = [];
-            $stmt_dr = $mysqli->prepare("SELECT DISTINCT pengguna_id FROM surat_tugas WHERE kendaraan_id = ? AND status IN ('Disetujui','Dalam Perjalanan') AND pengguna_id IS NOT NULL");
-            if ($stmt_dr) {
-                $stmt_dr->bind_param('i', $jadwal_row['kendaraan_id']);
-                $stmt_dr->execute();
-                $res_dr = $stmt_dr->get_result();
-                while ($r = $res_dr->fetch_assoc()) {
-                    $uid = (int)($r['pengguna_id'] ?? 0);
-                    if ($uid > 0) {
-                        $driver_ids[$uid] = true;
-                    }
-                }
-                $stmt_dr->close();
-            }
-
-            $next_date = $jadwal_row['tanggal_perawatan'];
-            if (!empty($next_date)) {
-                $next_date = date('d/m/Y', strtotime('+' . $interval_month . ' months', strtotime($next_date)));
-            } else {
-                $next_date = '-';
-            }
-
-            $kendaraan_label = (!empty($jadwal_row['no_reg']) ? $jadwal_row['no_reg'] : $jadwal_row['no_polisi']) . ' - ' . trim(($jadwal_row['merk'] ?? '') . ' ' . ($jadwal_row['tipe'] ?? ''));
-            $notif_msg = 'Pemberitahuan pimpinan: Perawatan rutin 3 bulanan untuk kendaraan ' . $kendaraan_label . ' (' . ($jadwal_row['jenis_perawatan'] ?? 'Perawatan Berkala') . ') dijadwalkan. Estimasi jadwal berikutnya: ' . $next_date . '.';
-
-            $sent = 0;
-            foreach (array_keys($driver_ids) as $uid) {
-                if (insert_notification($mysqli, (int)$uid, $notif_msg, 'Pemberitahuan Perawatan Rutin', 'info', 'maintenance')) {
-                    $sent++;
-                }
-            }
-
-            if ($sent > 0) {
-                $msg = '<div class="alert alert-success">Notifikasi perawatan rutin berhasil dikirim ke ' . $sent . ' driver.</div>';
-            } else {
-                $msg = '<div class="alert alert-warning">Tidak ada driver aktif yang terkait kendaraan ini untuk dikirimi notifikasi.</div>';
-            }
-
-            goto end_post;
-        }
-
         if ($action === 'add' && $can_crud) {
             $kendaraan_id = (int)($_POST['kendaraan_id'] ?? 0);
             // validate kendaraan selection
@@ -115,7 +48,42 @@ if ($_POST) {
             $satuan = trim($_POST['satuan'] ?? '');
             $teknisi_id = isset($_POST['teknisi_id']) && $_POST['teknisi_id'] !== '' ? (int)$_POST['teknisi_id'] : null;
             $prioritas = $_POST['prioritas'];
-            $keterangan = trim($_POST['keterangan']);
+            $keterangan = trim($_POST['keterangan'] ?? '');
+            $is_rutin = ($_POST['is_rutin'] ?? '') === '1';
+            $interval_bulan = (int)($_POST['interval_bulan'] ?? 3);
+            if (!in_array($interval_bulan, [2, 3, 4, 5])) $interval_bulan = 3;
+            $tanggal_berakhir_rutin = trim($_POST['tanggal_berakhir_rutin'] ?? '');
+
+            // Rutin mode: create multiple recurring entries, skip per-date overlap check
+            if ($is_rutin && !empty($tanggal_perawatan)) {
+                $tgl_akhir = !empty($tanggal_berakhir_rutin) ? $tanggal_berakhir_rutin : date('Y-m-d', strtotime('+1 year', strtotime($tanggal_perawatan)));
+                $ket_rutin = 'Penjadwalan rutin setiap ' . $interval_bulan . ' bulan';
+                $stmt_r = $mysqli->prepare("INSERT INTO jadwal_perawatan (kendaraan_id, jenis_perawatan, deskripsi, bengkel, tanggal_perawatan, km_kembali, km_saat_perawatan, banyaknya, satuan, prioritas, keterangan, created_by, teknisi_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                if (!$stmt_r) {
+                    $msg = '<div class="alert alert-danger">Gagal menyiapkan query: ' . $mysqli->error . '</div>';
+                    goto end_post;
+                }
+                $banyaknya_r = (float)1;
+                $satuan_r    = '';
+                $tgl_iter    = $tanggal_perawatan;
+                $stmt_r->bind_param('issssiidsssii', $kendaraan_id, $jenis_perawatan, $deskripsi, $bengkel, $tgl_iter, $km_kembali, $km_saat_perawatan, $banyaknya_r, $satuan_r, $prioritas, $ket_rutin, $current_user_id, $teknisi_id);
+                $created_r = 0;
+                while ($tgl_iter !== null && $tgl_iter <= $tgl_akhir) {
+                    if ($stmt_r->execute()) $created_r++;
+                    $next_ts = strtotime("+{$interval_bulan} months", strtotime($tgl_iter));
+                    $tgl_iter = $next_ts ? date('Y-m-d', $next_ts) : null;
+                }
+                $stmt_r->close();
+                $_SESSION['swal'] = [
+                    'icon'  => 'success',
+                    'title' => 'Berhasil!',
+                    'text'  => "$created_r jadwal rutin berhasil dibuat (setiap $interval_bulan bulan)!"
+                ];
+                log_activity('ADD_JADWAL_RUTIN', "Membuat $created_r jadwal rutin setiap $interval_bulan bulan untuk kendaraan ID $kendaraan_id");
+                header('Location: index.php?page=jadwal_perawatan');
+                exit;
+            }
+
             // Server-side overlap checks to enforce availability rules
             if (!empty($tanggal_perawatan)) {
                 $tgl_mulai = $tanggal_perawatan;
@@ -452,10 +420,10 @@ if (!empty($_SESSION['swal'])): ?>
                                     <th>Jenis Perawatan</th>
                                     <th>Tanggal Perawatan</th>
                                     <th>Bengkel</th>
-                                    <!-- Estimasi Biaya column removed -->
+                                    <th>Tipe Jadwal</th>
                                     <th>Status</th>
                                     <th>Prioritas</th>
-                                    <?php if ($can_crud || $can_notify_driver): ?>
+                                    <?php if ($can_crud): ?>
                                         <th>Aksi</th>
                                     <?php endif; ?>
                                 </tr>
@@ -559,25 +527,61 @@ if (!empty($_SESSION['swal'])): ?>
                             <!-- Estimasi Biaya input removed -->
                         </div>
 
+                        <?php if ($action === 'add'): ?>
+                        <div class="card border-info mb-3">
+                            <div class="card-body py-2 px-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_rutin" name="is_rutin" value="1">
+                                    <label class="form-check-label fw-semibold" for="is_rutin">
+                                        <i class="fas fa-sync-alt me-1 text-info"></i>Jadwal Rutin
+                                    </label>
+                                    <small class="text-muted ms-2">Buat jadwal berulang otomatis untuk periode tertentu</small>
+                                </div>
+                                <div id="rutin-fields" class="mt-3" style="display:none;">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <div class="form-group mb-2">
+                                                <label for="interval_bulan" class="form-label">Frekuensi *</label>
+                                                <select name="interval_bulan" id="interval_bulan" class="form-select">
+                                                    <option value="2">Setiap 2 Bulan (6 jadwal/tahun)</option>
+                                                    <option value="3" selected>Setiap 3 Bulan (4 jadwal/tahun)</option>
+                                                    <option value="4">Setiap 4 Bulan (3 jadwal/tahun)</option>
+                                                    <option value="5">Setiap 5 Bulan (2 jadwal/tahun)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="form-group mb-2">
+                                                <label for="tanggal_berakhir_rutin" class="form-label">Tanggal Berakhir <small class="text-muted">(default: 1 tahun)</small></label>
+                                                <input type="date" name="tanggal_berakhir_rutin" id="tanggal_berakhir_rutin" class="form-control">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if ($action === 'edit'): ?>
                         <div class="row">
                             <div class="col-md-4">
                                 <div class="form-group">
                                     <label for="banyaknya">Banyaknya</label>
                                     <input type="number" name="banyaknya" id="banyaknya"
                                            class="form-control" min="0"
-                                           value="<?= isset($jadwal_data) ? htmlspecialchars($jadwal_data['banyaknya'] ?? '1') : '1' ?>"
-                                           >
+                                           value="<?= htmlspecialchars($jadwal_data['banyaknya'] ?? '1') ?>">
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="form-group">
                                     <label for="satuan">Satuan</label>
                                     <input type="text" name="satuan" id="satuan" class="form-control"
-                                           value="<?= isset($jadwal_data) ? htmlspecialchars($jadwal_data['satuan'] ?? '') : '' ?>"
+                                           value="<?= htmlspecialchars($jadwal_data['satuan'] ?? '') ?>"
                                            placeholder="Liter, pcs, botol">
                                 </div>
                             </div>
                         </div>
+                        <?php endif; ?>
 
                         <div class="row">
                             <?php if ($action === 'edit'): ?>
@@ -642,6 +646,7 @@ if (!empty($_SESSION['swal'])): ?>
                             <?php endif; ?>
                         </div>
 
+                        <?php if ($action === 'edit'): ?>
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
@@ -649,12 +654,13 @@ if (!empty($_SESSION['swal'])): ?>
                                     <select name="teknisi_id" id="teknisi_id" class="form-control">
                                         <option value="">-- Pilih Teknisi (opsional) --</option>
                                         <?php foreach ($users as $u): ?>
-                                            <option value="<?= $u['id'] ?>" <?= (isset($jadwal_data) && ($jadwal_data['teknisi_id'] ?? '') == $u['id']) ? 'selected' : '' ?>><?= htmlspecialchars($u['nama_lengkap']) ?></option>
+                                            <option value="<?= $u['id'] ?>" <?= ($jadwal_data['teknisi_id'] ?? '') == $u['id'] ? 'selected' : '' ?>><?= htmlspecialchars($u['nama_lengkap']) ?></option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
                             </div>
                         </div>
+                        <?php endif; ?>
 
                         <!-- <div class="form-group">
                             <label for="keterangan">Keterangan</label>
@@ -721,16 +727,18 @@ if (!empty($_SESSION['swal'])): ?>
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize Jadwal Perawatan module if on list page
     if (document.getElementById('jadwal-table-container')) {
-        // Reload table content to enable AJAX features
         JadwalPerawatan.loadTable();
     }
-    
-    // Handle form submission: allow normal POST so server-side PHP will process add/edit and redirect.
-    const jadwalForm = document.getElementById('jadwal-form');
-    if (jadwalForm) {
-        // Intentionally do not intercept the submit event here.
-        // The form uses method="POST" and the top of this PHP file handles add/edit and redirects back to the jadwal page.
-        // If you later want AJAX saving, implement JadwalPerawatan.saveJadwal to POST and handle the redirect on the client.
+
+    // Rutin toggle: show/hide rutin fields and relabel tanggal_perawatan
+    const rutinToggle = document.getElementById('is_rutin');
+    if (rutinToggle) {
+        rutinToggle.addEventListener('change', function() {
+            const rutinFields = document.getElementById('rutin-fields');
+            if (rutinFields) rutinFields.style.display = this.checked ? 'block' : 'none';
+            const tglLabel = document.querySelector('label[for="tanggal_perawatan"]');
+            if (tglLabel) tglLabel.textContent = this.checked ? 'Tanggal Mulai *' : 'Tanggal Perawatan *';
+        });
     }
 });
 </script>

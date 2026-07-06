@@ -744,7 +744,7 @@ if ($action === 'edit' && $user_id) {
                 <a href="?page=manajemen_user&action=import_csv" class="btn btn-secondary btn-lg">
                     <i class="fas fa-file-import me-1"></i> Import Excel
                 </a>
-                <a href="?page=manajemen_user&action=export_excel<?= !empty($q) ? '&q=' . urlencode($q) : '' ?>" class="btn btn-outline-secondary btn-lg">
+                <a href="?page=manajemen_user&action=export_excel<?= !empty($q) ? '&q=' . urlencode($q) : '' ?>" class="btn btn-warning btn-lg">
                     <i class="fas fa-file-excel me-1"></i> Export Excel
                 </a>
             </div>

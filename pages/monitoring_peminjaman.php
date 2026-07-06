@@ -8,10 +8,11 @@ if (!is_admin_like()) {
     exit();
 }
 
-$current_user = get_logged_in_user();
+$current_user    = get_logged_in_user();
+$current_page    = 'monitoring_peminjaman';
 
 // Pagination
-$limit = 20;
+$limit = 10;
 $page_num = isset($_GET['p']) ? (int)$_GET['p'] : 1;
 $offset = ($page_num - 1) * $limit;
 
@@ -146,10 +147,6 @@ if (!empty($tanggal_sampai)) {
     $params[] = $tanggal_sampai;
 }
 
-if ($has_pimpinan_approval) {
-    $where_conditions[] = "LOWER(CONVERT(p.approval_pimpinan_status USING utf8mb4)) = 'approved'";
-}
-
 $where_clause = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_conditions) : "";
 
 // Approver column detection for admin display
@@ -212,7 +209,7 @@ $stmt->execute();
 $peminjaman_list = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
 // Statistics
-$stats_where = $has_pimpinan_approval ? "WHERE LOWER(CONVERT(p.approval_pimpinan_status USING utf8mb4)) = 'approved'" : "";
+$stats_where = "";
 $stats_from = "FROM peminjaman_kendaraan p" . $join_surat;
 $stats_query = "SELECT 
                 COUNT(*) as total,
@@ -503,151 +500,144 @@ function formatDateTime($datetime) {
 }
 ?>
 
-<div class="container-fluid">
-    <!-- Header -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="d-flex justify-content-between align-items-center">
+<!-- ── Welcome Header ─────────────────────────────────────────────────────── -->
+<div class="gradient-header d-flex align-items-center justify-content-between">
+    <div>
+        <h5 class="mb-1 fw-bold">
+            <i class="fas fa-chart-line me-2 opacity-75"></i>Monitoring Peminjaman Kendaraan
+        </h5>
+        <p class="mb-0 opacity-75 small">Monitor status dan riwayat seluruh peminjaman</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-light" onclick="exportData('excel')">
+            <i class="fas fa-file-excel me-1"></i>Excel
+        </button>
+        <button type="button" class="btn btn-sm btn-light" onclick="exportData('pdf')">
+            <i class="fas fa-file-pdf me-1"></i>PDF
+        </button>
+    </div>
+</div>
+
+<!-- ── Stat Cards ─────────────────────────────────────────────────────────── -->
+<div class="row mb-3">
+    <div class="col-lg-2 col-md-4 col-6 mb-3">
+        <div class="card bg-primary text-white shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3 py-3">
+                <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width:44px;height:44px;">
+                    <i class="fas fa-list fa-lg text-white"></i>
+                </div>
                 <div>
-                    <h2><i class="fas fa-monitor"></i> Monitoring Peminjaman Kendaraan</h2>
-                    <p class="text-muted">Monitor dan kelola semua peminjaman kendaraan</p>
+                    <h4 class="mb-0 fw-bold"><?= number_format($stats['total']) ?></h4>
+                    <p class="mb-0 opacity-75 small">Total</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-2 col-md-4 col-6 mb-3">
+        <div class="card bg-warning text-dark shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3 py-3">
+                <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width:44px;height:44px;">
+                    <i class="fas fa-clock fa-lg text-dark"></i>
                 </div>
                 <div>
-                    <button type="button" class="btn btn-success" onclick="exportData('excel')">
-                        <i class="fas fa-file-excel"></i> Export Excel
-                    </button>
-                    <button type="button" class="btn btn-danger" onclick="exportData('pdf')">
-                        <i class="fas fa-file-pdf"></i> Export PDF
-                    </button>
+                    <h4 class="mb-0 fw-bold"><?= number_format($stats['pending']) ?></h4>
+                    <p class="mb-0 opacity-75 small">Menunggu</p>
                 </div>
             </div>
         </div>
     </div>
-
-    <!-- Statistics Cards -->
-    <div class="row mb-4">
-        <div class="col-lg-2 col-md-4 col-6">
-            <div class="stat-card">
-                <div class="stat-icon bg-primary">
-                    <i class="fas fa-list"></i>
+    <div class="col-lg-2 col-md-4 col-6 mb-3">
+        <div class="card bg-info text-dark shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3 py-3">
+                <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width:44px;height:44px;">
+                    <i class="fas fa-check fa-lg text-dark"></i>
                 </div>
-                <div class="stat-content">
-                    <h3><?= number_format($stats['total']) ?></h3>
-                    <p>Total Peminjaman</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-2 col-md-4 col-6">
-            <div class="stat-card">
-                <div class="stat-icon bg-warning">
-                    <i class="fas fa-clock"></i>
-                </div>
-                <div class="stat-content">
-                    <h3><?= number_format($stats['pending']) ?></h3>
-                    <p>Menunggu</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-2 col-md-4 col-6">
-            <div class="stat-card">
-                <div class="stat-icon bg-info">
-                    <i class="fas fa-check"></i>
-                </div>
-                <div class="stat-content">
-                    <h3><?= number_format($stats['approved']) ?></h3>
-                    <p>Disetujui</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-2 col-md-4 col-6">
-            <div class="stat-card">
-                <div class="stat-icon bg-primary">
-                    <i class="fas fa-play"></i>
-                </div>
-                <div class="stat-content">
-                    <h3><?= number_format($stats['ongoing']) ?></h3>
-                    <p>Berlangsung</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-2 col-md-4 col-6">
-            <div class="stat-card">
-                <div class="stat-icon bg-success">
-                    <i class="fas fa-check-circle"></i>
-                </div>
-                <div class="stat-content">
-                    <h3><?= number_format($stats['completed']) ?></h3>
-                    <p>Selesai</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-2 col-md-4 col-6">
-            <div class="stat-card">
-                <div class="stat-icon bg-danger">
-                    <i class="fas fa-times-circle"></i>
-                </div>
-                <div class="stat-content">
-                    <h3><?= number_format($stats['rejected'] + $stats['cancelled']) ?></h3>
-                    <p>Ditolak/Batal</p>
+                <div>
+                    <h4 class="mb-0 fw-bold"><?= number_format($stats['approved']) ?></h4>
+                    <p class="mb-0 opacity-75 small">Disetujui</p>
                 </div>
             </div>
         </div>
     </div>
-
-    <!-- Filters -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5><i class="fas fa-filter"></i> Filter & Pencarian</h5>
-        </div>
-        <div class="card-body">
-            <form method="GET" action="">
-                <input type="hidden" name="page" value="monitoring_peminjaman">
-                <div class="row">
-                    <div class="col-md-3">
-                        <label>Status:</label>
-                        <select name="status" class="form-control">
-                            <option value="">Semua Status</option>
-                            <option value="pending" <?= $status_filter === 'pending' ? 'selected' : '' ?>>Menunggu</option>
-                            <option value="approved" <?= $status_filter === 'approved' ? 'selected' : '' ?>>Disetujui</option>
-                            <option value="rejected" <?= $status_filter === 'rejected' ? 'selected' : '' ?>>Ditolak</option>
-                            <option value="ongoing" <?= $status_filter === 'ongoing' ? 'selected' : '' ?>>Berlangsung</option>
-                            <option value="completed" <?= $status_filter === 'completed' ? 'selected' : '' ?>>Selesai</option>
-                            <option value="cancelled" <?= $status_filter === 'cancelled' ? 'selected' : '' ?>>Dibatalkan</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label>Pencarian:</label>
-                        <input type="text" name="search" class="form-control" placeholder="Nama, NRP, No. Reg, Merk..." value="<?= htmlspecialchars($search) ?>">
-                    </div>
-                    <div class="col-md-2">
-                        <label>Dari:</label>
-                        <input type="date" name="tanggal_dari" class="form-control" value="<?= $tanggal_dari ?>">
-                    </div>
-                    <div class="col-md-2">
-                        <label>Sampai:</label>
-                        <input type="date" name="tanggal_sampai" class="form-control" value="<?= $tanggal_sampai ?>">
-                    </div>
-                    <div class="col-md-2">
-                        <label>&nbsp;</label>
-                        <div>
-                            <button type="submit" class="btn btn-primary btn-block">
-                                <i class="fas fa-search"></i> Filter
-                            </button>
-                        </div>
-                    </div>
+    <div class="col-lg-2 col-md-4 col-6 mb-3">
+        <div class="card bg-primary text-white shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3 py-3">
+                <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width:44px;height:44px;">
+                    <i class="fas fa-car fa-lg text-white"></i>
                 </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Peminjaman Table -->
-    <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h5><i class="fas fa-table"></i> Data Peminjaman (<?= number_format($total_records) ?> records)</h5>
-            <div>
-                Halaman <?= $page_num ?> dari <?= $total_pages ?>
+                <div>
+                    <h4 class="mb-0 fw-bold"><?= number_format($stats['ongoing']) ?></h4>
+                    <p class="mb-0 opacity-75 small">Berlangsung</p>
+                </div>
             </div>
         </div>
+    </div>
+    <div class="col-lg-2 col-md-4 col-6 mb-3">
+        <div class="card bg-success text-white shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3 py-3">
+                <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width:44px;height:44px;">
+                    <i class="fas fa-check-circle fa-lg text-white"></i>
+                </div>
+                <div>
+                    <h4 class="mb-0 fw-bold"><?= number_format($stats['completed']) ?></h4>
+                    <p class="mb-0 opacity-75 small">Selesai</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-2 col-md-4 col-6 mb-3">
+        <div class="card bg-danger text-white shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3 py-3">
+                <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width:44px;height:44px;">
+                    <i class="fas fa-times-circle fa-lg text-white"></i>
+                </div>
+                <div>
+                    <h4 class="mb-0 fw-bold"><?= number_format($stats['rejected'] + $stats['cancelled']) ?></h4>
+                    <p class="mb-0 opacity-75 small">Ditolak/Batal</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Pencarian ──────────────────────────────────────────────────────────── -->
+<?php $qs = !empty($search) ? '&search=' . urlencode($search) : ''; ?>
+<div class="mb-3">
+    <form method="GET" action="index.php">
+        <input type="hidden" name="page" value="monitoring_peminjaman">
+        <div class="input-group shadow-sm">
+            <span class="input-group-text bg-white border-end-0">
+                <i class="fas fa-search text-muted"></i>
+            </span>
+            <input type="text" name="search" class="form-control border-start-0 border-end-0"
+                   placeholder="Cari nama peminjam, NRP, no. registrasi, merk, atau keperluan..."
+                   value="<?= htmlspecialchars($search) ?>">
+            <button type="submit" class="btn btn-primary px-4">
+                <i class="fas fa-search me-1"></i>
+            </button>
+            <?php if (!empty($search)): ?>
+                <a href="index.php?page=monitoring_peminjaman" class="btn btn-outline-secondary" title="Hapus pencarian">
+                    <i class="fas fa-times"></i>
+                </a>
+            <?php endif; ?>
+        </div>
+    </form>
+    <?php if (!empty($search)): ?>
+        <p class="text-muted small mt-1 mb-0">
+            Menampilkan hasil untuk "<strong><?= htmlspecialchars($search) ?></strong>"
+            — <?= number_format($total_records) ?> data ditemukan
+        </p>
+    <?php endif; ?>
+</div>
+
+<!-- ── Tabel Peminjaman ───────────────────────────────────────────────────── -->
+<div class="card shadow-sm">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="fas fa-table me-2"></i>Data Peminjaman
+            <span class="badge bg-light text-primary ms-2"><?= number_format($total_records) ?></span>
+        </h6>
+        <span class="small opacity-75">Hal. <?= $page_num ?> / <?= max(1,$total_pages) ?></span>
+    </div>
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-striped table-hover mb-0">
@@ -745,36 +735,58 @@ function formatDateTime($datetime) {
         </div>
         
         <!-- Pagination -->
-        <?php if ($total_pages > 1): ?>
-            <div class="card-footer">
-                <nav aria-label="Pagination">
-                    <ul class="pagination justify-content-center mb-0">
-                        <?php if ($page_num > 1): ?>
-                            <li class="page-item">
-                                <a class="page-link" href="?page=monitoring_peminjaman&p=<?= $page_num - 1 ?><?= !empty($status_filter) ? '&status='.$status_filter : '' ?><?= !empty($search) ? '&search='.urlencode($search) : '' ?><?= !empty($tanggal_dari) ? '&tanggal_dari='.$tanggal_dari : '' ?><?= !empty($tanggal_sampai) ? '&tanggal_sampai='.$tanggal_sampai : '' ?>">Previous</a>
-                            </li>
-                        <?php endif; ?>
-                        
-                        <?php 
-                        $start_page = max(1, $page_num - 2);
-                        $end_page = min($total_pages, $page_num + 2);
-                        
-                        for ($i = $start_page; $i <= $end_page; $i++): 
-                        ?>
-                            <li class="page-item <?= $i === $page_num ? 'active' : '' ?>">
-                                <a class="page-link" href="?page=monitoring_peminjaman&p=<?= $i ?><?= !empty($status_filter) ? '&status='.$status_filter : '' ?><?= !empty($search) ? '&search='.urlencode($search) : '' ?><?= !empty($tanggal_dari) ? '&tanggal_dari='.$tanggal_dari : '' ?><?= !empty($tanggal_sampai) ? '&tanggal_sampai='.$tanggal_sampai : '' ?>"><?= $i ?></a>
-                            </li>
-                        <?php endfor; ?>
-                        
-                        <?php if ($page_num < $total_pages): ?>
-                            <li class="page-item">
-                                <a class="page-link" href="?page=monitoring_peminjaman&p=<?= $page_num + 1 ?><?= !empty($status_filter) ? '&status='.$status_filter : '' ?><?= !empty($search) ? '&search='.urlencode($search) : '' ?><?= !empty($tanggal_dari) ? '&tanggal_dari='.$tanggal_dari : '' ?><?= !empty($tanggal_sampai) ? '&tanggal_sampai='.$tanggal_sampai : '' ?>">Next</a>
-                            </li>
-                        <?php endif; ?>
-                    </ul>
-                </nav>
-            </div>
-        <?php endif; ?>
+        <?php
+        $record_from = $total_records > 0 ? $offset + 1 : 0;
+        $record_to   = min($offset + $limit, $total_records);
+        $base_url    = 'index.php?page=monitoring_peminjaman' . $qs;
+        ?>
+        <div class="card-footer d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2">
+            <span class="text-muted small">
+                Menampilkan <strong><?= $record_from ?>–<?= $record_to ?></strong>
+                dari <strong><?= number_format($total_records) ?></strong> data
+            </span>
+            <?php if ($total_pages > 1): ?>
+            <nav aria-label="Pagination">
+                <ul class="pagination pagination-sm mb-0">
+                    <!-- Halaman pertama -->
+                    <li class="page-item <?= $page_num <= 1 ? 'disabled' : '' ?>">
+                        <a class="page-link" href="<?= $base_url ?>&p=1">&laquo;</a>
+                    </li>
+                    <!-- Sebelumnya -->
+                    <li class="page-item <?= $page_num <= 1 ? 'disabled' : '' ?>">
+                        <a class="page-link" href="<?= $base_url ?>&p=<?= $page_num - 1 ?>">
+                            <i class="fas fa-chevron-left"></i>
+                        </a>
+                    </li>
+                    <!-- Nomor halaman (±2 dari current) -->
+                    <?php
+                    $pg_start = max(1, $page_num - 2);
+                    $pg_end   = min($total_pages, $page_num + 2);
+                    if ($pg_start > 1): ?>
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    <?php endif;
+                    for ($i = $pg_start; $i <= $pg_end; $i++): ?>
+                        <li class="page-item <?= $i === $page_num ? 'active' : '' ?>">
+                            <a class="page-link" href="<?= $base_url ?>&p=<?= $i ?>"><?= $i ?></a>
+                        </li>
+                    <?php endfor;
+                    if ($pg_end < $total_pages): ?>
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    <?php endif; ?>
+                    <!-- Berikutnya -->
+                    <li class="page-item <?= $page_num >= $total_pages ? 'disabled' : '' ?>">
+                        <a class="page-link" href="<?= $base_url ?>&p=<?= $page_num + 1 ?>">
+                            <i class="fas fa-chevron-right"></i>
+                        </a>
+                    </li>
+                    <!-- Halaman terakhir -->
+                    <li class="page-item <?= $page_num >= $total_pages ? 'disabled' : '' ?>">
+                        <a class="page-link" href="<?= $base_url ?>&p=<?= $total_pages ?>">&raquo;</a>
+                    </li>
+                </ul>
+            </nav>
+            <?php endif; ?>
+        </div>
     </div>
 </div>
 
@@ -796,82 +808,47 @@ function formatDateTime($datetime) {
 </div>
 
 <script>
-function viewDetail(id) {
-    // Ensure modal is in body to avoid stacking context issues
-    $('#detailModal').appendTo('body');
-    $('#detailContent').html('<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</div>');
-    $('#detailModal').modal('show');
-    
-    fetch(`ajax/get_peminjaman_detail.php?id=${id}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                $('#detailContent').html(data.html);
-            } else {
-                $('#detailContent').html('<div class="alert alert-danger">Error: ' + data.message + '</div>');
-            }
-        })
-        .catch(error => {
-            $('#detailContent').html('<div class="alert alert-danger">Error loading data</div>');
-        });
+let _detailModal = null;
+function getDetailModal() {
+    if (!_detailModal) {
+        _detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
+    }
+    return _detailModal;
 }
-function closeDetailModal() {
-    const $modal = $('#detailModal');
-    // Try Bootstrap/jQuery API first (works for BS4)
-    try {
-        if ($modal.modal) {
-            $modal.modal('hide');
-            return;
-    } catch (e) { /* fall through */ }
-    // Try Bootstrap 5 native API if available
-    try {
-        const el = document.getElementById('detailModal');
-        if (window.bootstrap && el) {
-            const instance = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
-            instance.hide();
-            return;
-        }
-    } catch (e) { /* fall through */ }
-    // Hard fallback if no plugin present
-    $modal.removeClass('show').attr('aria-hidden', 'true').hide();
-    $('.modal-backdrop').remove();
-    $('body').removeClass('modal-open').css('padding-right', '');
+
+function viewDetail(id) {
+    document.getElementById('detailContent').innerHTML =
+        '<div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x text-primary"></i></div>';
+    getDetailModal().show();
+
+    fetch(`ajax/get_peminjaman_detail.php?id=${id}`)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('detailContent').innerHTML =
+                data.success ? data.html : `<div class="alert alert-danger">Error: ${data.message}</div>`;
+        })
+        .catch(() => {
+            document.getElementById('detailContent').innerHTML =
+                '<div class="alert alert-danger">Gagal memuat data.</div>';
+        });
 }
 
 function markCompleted(id) {
-    if (confirm('Tandai peminjaman ini sebagai selesai?')) {
-        fetch('ajax/update_peminjaman_status.php', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({
-                id: id,
-                status: 'completed'
-            })
-        })
-        .then(async response => {
-            const text = await response.text();
-            try {
-                return JSON.parse(text);
-            } catch (e) {
-                throw new Error(text || 'Response bukan JSON');
-            }
-        })
-        .then(data => {
-            if (data && data.success) {
-                location.reload();
-            } else {
-                const msg = data && data.message ? data.message : 'Gagal memperbarui status.';
-                alert('Error: ' + msg);
-            }
-        })
-        .catch(error => {
-            const raw = (error && error.message) ? String(error.message) : 'Terjadi kesalahan.';
-            alert('Error: ' + raw);
-        });
-    }
+    if (!confirm('Tandai peminjaman ini sebagai selesai?')) return;
+    fetch('ajax/update_peminjaman_status.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ id, status: 'completed' })
+    })
+    .then(async r => {
+        const text = await r.text();
+        try { return JSON.parse(text); } catch (e) { throw new Error(text || 'Bukan JSON'); }
+    })
+    .then(data => {
+        if (data && data.success) { location.reload(); }
+        else { alert('Error: ' + (data?.message ?? 'Gagal memperbarui status.')); }
+    })
+    .catch(e => alert('Error: ' + (e?.message ?? 'Terjadi kesalahan.')));
 }
 
 function exportData(format) {
@@ -879,14 +856,4 @@ function exportData(format) {
     url.searchParams.set('export', format);
     window.open(url.toString(), '_blank');
 }
-
-// Safety: on DOM ready, keep modal attached to body
-$(function(){
-    $('#detailModal').appendTo('body');
-    // Fallback: wire close buttons to hide modal if data attributes miss
-    $(document).on('click', '[data-bs-dismiss="modal"], [data-dismiss="modal"]', function(e){
-        e.preventDefault();
-        closeDetailModal();
-    });
-});
 </script>

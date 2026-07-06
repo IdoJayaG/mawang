@@ -149,4 +149,19 @@ function base_url($path = '') {
 // ====================
 // Include auth functions after database connection is established
 require_once __DIR__ . '/includes/auth.php';
+
+// ====================
+// EMAIL AUTOMATION (pseudo-cron)
+// ====================
+// Menjalankan antrean + pengiriman reminder email secara otomatis setiap ~10 menit,
+// dipicu oleh request halaman biasa (bukan AJAX) sehingga tidak perlu Windows Task Scheduler.
+// Dibungkus try/catch supaya kegagalan email tidak pernah mematahkan halaman.
+if (!$__is_ajax) {
+    try {
+        require_once __DIR__ . '/lib/email_triggers.php';
+        run_email_automation_if_due($mysqli, 600);
+    } catch (Throwable $e) {
+        error_log('[email_automation] ' . $e->getMessage());
+    }
+}
 ?>

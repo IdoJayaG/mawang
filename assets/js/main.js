@@ -167,9 +167,18 @@ const JadwalPerawatan = {
         return false;
     },
 
+    // Current pagination page
+    currentPage: 1,
+
+    // Go to a specific page
+    goToPage: function(page) {
+        this.currentPage = page;
+        this.reloadTable();
+    },
+
     // Reload table content
     reloadTable: function() {
-        $('#jadwal-table-container').load('ajax/load_jadwal_table.php', function() {
+        $('#jadwal-table-container').load('ajax/load_jadwal_table.php?jadwal_page=' + this.currentPage, function() {
             JadwalPerawatan.initStatusDropdowns();
             JadwalPerawatan.initDeleteButtons();
         });
@@ -264,15 +273,22 @@ const LogAktivitas = {
     },
 
     // Export log data (csv/xlsx)
-    exportData: function(userId = null, startDate = null, endDate = null, format = 'csv') {
+    exportData: function(userId = null, startDate = null, endDate = null, format = 'csv', aksi = null) {
         let url = ajaxUrl('ajax/export_log.php');
         let params = [];
         if (userId) params.push('user_id=' + encodeURIComponent(userId));
         if (startDate) params.push('start_date=' + encodeURIComponent(startDate));
         if (endDate) params.push('end_date=' + encodeURIComponent(endDate));
+        if (aksi) params.push('aksi=' + encodeURIComponent(aksi));
         if (format) params.push('format=' + encodeURIComponent(format));
         if (params.length > 0) url += '?' + params.join('&');
-        window.open(url, '_blank');
+        // Hidden anchor click: triggers download without popup blocker
+        const a = document.createElement('a');
+        a.href = url;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
         showSuccess('Export ' + format.toUpperCase() + ' dimulai, file akan didownload');
     },
 
