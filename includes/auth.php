@@ -1075,31 +1075,51 @@ function build_upcoming_items($pengguna_id, $targetDate = null) {
         }
     }
 
-    // surat_tugas
-    if (db_table_exists('surat_tugas')) {
-        $cols = db_table_columns('surat_tugas');
-        $hasDriver = in_array('driver_id', $cols, true);
-        $selectCols = "s.id, s.nomor_surat, s.tanggal_berangkat, s.tujuan, s.keperluan, s.kendaraan_id, s.pengguna_id";
-        if ($hasDriver) $selectCols .= ", s.driver_id";
-        $sql = "SELECT " . $selectCols . ", k.no_reg, k.no_polisi FROM surat_tugas s LEFT JOIN kendaraan k ON s.kendaraan_id = k.id WHERE DATE(s.tanggal_berangkat) = ? AND (s.status IS NULL OR LOWER(s.status) NOT IN ('selesai','dibatalkan')) AND (s.pengguna_id = ?";
-        if ($hasDriver) $sql .= " OR s.driver_id = ?";
-        $sql .= " OR k.pengguna_id = ?)";
-        $st = $mysqli->prepare($sql);
-        if ($st) {
-            if ($hasDriver) { $st->bind_param('siii', $targetDate, $pengguna_id, $pengguna_id, $pengguna_id); }
-            else { $st->bind_param('sii', $targetDate, $pengguna_id, $pengguna_id); }
-            $st->execute();
-            $res = $st->get_result();
-            while ($r = $res->fetch_assoc()) {
-                $label = trim((string)($r['no_reg'] ?: $r['no_polisi']));
-                if ($label === '') $label = 'Surat Tugas ' . ($r['nomor_surat'] ?? $r['id']);
-                $items[] = ['type' => 'Surat Tugas', 'label' => $label, 'date' => $r['tanggal_berangkat'], 'note' => ($r['tujuan'] ?? $r['keperluan'] ?? '-')];
-            }
-            $st->close();
-        }
-    }
-
     return $items;
+}
+
+// Shared status badge (HTML) for peminjaman_kendaraan/peminjaman_terjadwal records.
+// Kept for pages/peminjaman_terjadwal.php and any reporting pages that still read
+// historical peminjaman_kendaraan rows (e.g. riwayat_pemakaian.php).
+if (!function_exists('render_peminjaman_status_badge')) {
+    function render_peminjaman_status_badge($status) {
+        $colors = [
+            'pending' => ['bg' => '#ffc107', 'text' => '#212529'],
+            'draft' => ['bg' => '#ffc107', 'text' => '#212529'],
+            'menunggu' => ['bg' => '#ffc107', 'text' => '#212529'],
+            'approved' => ['bg' => '#17a2b8', 'text' => '#ffffff'],
+            'disetujui' => ['bg' => '#17a2b8', 'text' => '#ffffff'],
+            'rejected' => ['bg' => '#dc3545', 'text' => '#ffffff'],
+            'ditolak' => ['bg' => '#dc3545', 'text' => '#ffffff'],
+            'ongoing' => ['bg' => '#007bff', 'text' => '#ffffff'],
+            'dalam perjalanan' => ['bg' => '#007bff', 'text' => '#ffffff'],
+            'completed' => ['bg' => '#28a745', 'text' => '#ffffff'],
+            'selesai' => ['bg' => '#28a745', 'text' => '#ffffff'],
+            'cancelled' => ['bg' => '#6c757d', 'text' => '#ffffff'],
+            'dibatalkan' => ['bg' => '#6c757d', 'text' => '#ffffff'],
+        ];
+        $labels = [
+            'pending' => 'Menunggu',
+            'draft' => 'Draft',
+            'menunggu' => 'Menunggu',
+            'approved' => 'Disetujui',
+            'disetujui' => 'Disetujui',
+            'rejected' => 'Ditolak',
+            'ditolak' => 'Ditolak',
+            'ongoing' => 'Berlangsung',
+            'dalam perjalanan' => 'Dalam Perjalanan',
+            'completed' => 'Selesai',
+            'selesai' => 'Selesai',
+            'cancelled' => 'Dibatalkan',
+            'dibatalkan' => 'Dibatalkan',
+        ];
+
+        $key = strtolower((string)($status ?? ''));
+        $color = $colors[$key] ?? ['bg' => '#6c757d', 'text' => '#ffffff'];
+        $label = $labels[$key] ?? ucfirst((string)$status);
+
+        return '<span class="badge" style="background-color: ' . $color['bg'] . '; color: ' . $color['text'] . ';">' . htmlspecialchars($label) . '</span>';
+    }
 }
 
 if (!function_exists('insert_notification')) {

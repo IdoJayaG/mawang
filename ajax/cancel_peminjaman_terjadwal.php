@@ -22,7 +22,8 @@ try {
     $stmt->close();
 
     // Only owner or admin-like may cancel; owners may cancel only when pending
-    $is_owner = ((int)($row['pemohon_id'] ?? $row['peminjam_id'] ?? $row['created_by'] ?? 0) === (int)$current_user['id']);
+    $owner_id = (int)($row['pemohon_id'] ?? $row['peminjam_id'] ?? $row['created_by'] ?? 0);
+    $is_owner = ($owner_id === (int)$current_user['id']);
     $role = get_current_role();
 
     if ($is_owner && $row['status'] === 'pending') {
@@ -34,11 +35,7 @@ try {
     }
 
     // Attempt to persist reason to a reasonable column if available
-    $cols_res = $mysqli->query("SHOW COLUMNS FROM peminjaman_kendaraan");
-    $cols = [];
-    if ($cols_res) {
-        foreach ($cols_res->fetch_all(MYSQLI_ASSOC) as $r) $cols[] = $r['Field'];
-    }
+    $cols = db_table_columns('peminjaman_kendaraan');
 
     // Prefer dedicated cancel columns, then admin note
     $preferred = ['cancel_reason', 'alasan_batal', 'alasan_pembatalan', 'catatan_pembatalan', 'catatan_admin'];
@@ -59,23 +56,8 @@ try {
     if (!$update->execute()) throw new Exception('Gagal membatalkan: ' . $mysqli->error);
     $update->close();
 
-    // Notify the owner
-    $message = 'Peminjaman Anda telah dibatalkan';
-    if (function_exists('insert_notification')) {
-        insert_notification($mysqli, (int)($row['pemohon_id'] ?? $row['peminjam_id'] ?? $row['created_by'] ?? 0), $message, 'Peminjaman Dibatalkan');
-    } else {
-        // best-effort insert
-        if ($mysqli->query("SHOW TABLES LIKE 'notifikasi'")) {
-            $uid = (int)($row['pemohon_id'] ?? $row['peminjam_id'] ?? $row['created_by'] ?? 0);
-            $msg = $mysqli->real_escape_string($message);
-            if ($mysqli->query("SHOW COLUMNS FROM notifikasi")) {
-                $cols = array_column($mysqli->query("SHOW COLUMNS FROM notifikasi")->fetch_all(MYSQLI_ASSOC), 'Field');
-                if (in_array('message', $cols)) {
-                    $mysqli->query("INSERT INTO notifikasi (user_id, message, created_at) VALUES ({$uid}, '{$msg}', NOW())");
-                }
-            }
-        }
-    }
+    // Notify the owner (insert_notification() is provided by includes/auth.php, loaded via config.php)
+    insert_notification($mysqli, $owner_id, 'Peminjaman Anda telah dibatalkan', 'Peminjaman Dibatalkan');
 
     echo json_encode(['success' => true, 'message' => 'Peminjaman dibatalkan']);
 

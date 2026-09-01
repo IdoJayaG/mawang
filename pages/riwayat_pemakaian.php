@@ -107,8 +107,6 @@ if ($action === 'view' && $rec_id > 0) {
             <?= rp_sumber_badge($source) ?>
             <?php if ($source === 'surat_tugas'): ?>
                 <a href="index.php?page=surat_tugas&action=view&id=<?= $rec_id ?>" class="btn btn-outline-primary btn-sm"><i class="fas fa-external-link-alt me-1"></i>Buka Surat Tugas</a>
-            <?php else: ?>
-                <a href="index.php?page=persetujuan_peminjaman" class="btn btn-outline-primary btn-sm"><i class="fas fa-external-link-alt me-1"></i>Persetujuan Peminjaman</a>
             <?php endif; ?>
         </div>
 

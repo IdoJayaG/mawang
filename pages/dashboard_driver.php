@@ -52,18 +52,6 @@ if (db_table_exists('surat_tugas')) {
     }
 }
 
-// Active loans count
-$active_loans_count = 0;
-if (db_table_exists('peminjaman_kendaraan')) {
-    $cols = db_table_columns('peminjaman_kendaraan');
-    $borrower_col = null; foreach (['peminjam_id','pemohon_id','user_id','pengguna_id'] as $c) { if (in_array($c, $cols, true)) { $borrower_col = $c; break; } }
-    if ($borrower_col) {
-        $bindId = in_array($borrower_col, ['peminjam_id','pemohon_id','user_id'], true) ? (int)($_SESSION['user_id'] ?? 0) : $pengguna_id;
-        $st = $GLOBALS['mysqli']->prepare("SELECT COUNT(*) c FROM peminjaman_kendaraan WHERE " . $borrower_col . " = ? AND LOWER(status) IN ('approved','ongoing')");
-        if ($st) { $st->bind_param('i', $bindId); $st->execute(); $active_loans_count = (int)($st->get_result()->fetch_assoc()['c'] ?? 0); $st->close(); }
-    }
-}
-
 // BBM logs count
 $bbm_count = 0;
 if (db_table_exists('log_bahan_bakar')) {
@@ -85,7 +73,7 @@ $tomorrow_items = build_upcoming_items($pengguna_id, $tomorrow_date);
 </div>
 
 <div class="row g-3 mb-4">
-    <div class="col-md-4">
+    <div class="col-md-6">
         <div class="card h-100">
             <div class="card-body d-flex align-items-center gap-3">
                 <div class="icon bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width:56px;height:56px;font-size:20px;"><i class="fas fa-car"></i></div>
@@ -96,18 +84,7 @@ $tomorrow_items = build_upcoming_items($pengguna_id, $tomorrow_date);
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="icon bg-success text-white rounded-circle d-flex align-items-center justify-content-center" style="width:56px;height:56px;font-size:20px;"><i class="fas fa-road"></i></div>
-                <div>
-                    <div class="h4 mb-0"><?= $active_loans_count ?></div>
-                    <div class="text-muted">Peminjaman Aktif</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
+    <div class="col-md-6">
         <div class="card h-100">
             <div class="card-body d-flex align-items-center gap-3">
                 <div class="icon bg-warning text-dark rounded-circle d-flex align-items-center justify-content-center" style="width:56px;height:56px;font-size:20px;"><i class="fas fa-gas-pump"></i></div>
@@ -234,7 +211,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         Swal.fire({
             icon: 'info',
-            title: 'Pengingat Surat Tugas & Perawatan',
+            title: 'Pengingat Perawatan',
             html: html,
             confirmButtonText: 'OK'
         });

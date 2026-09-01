@@ -15,17 +15,6 @@ function has_column($mysqli, $table, $column) {
     return false;
 }
 
-// Helper: cek apakah tabel ada
-function table_exists_db($mysqli, $table) {
-    try {
-        $t = $mysqli->real_escape_string($table);
-        $res = $mysqli->query("SHOW TABLES LIKE '" . $t . "'");
-        $exists = $res && $res->num_rows > 0;
-        if ($res) $res->free_result();
-        return $exists;
-    } catch (mysqli_sql_exception $e) { return false; }
-}
-
 // Helper: ambil seluruh kolom dari sebuah tabel
 function get_table_columns($mysqli, $table) {
     $cols = [];
@@ -98,50 +87,6 @@ $user_nama_kesatuan = isset($user_info['nama_kesatuan'])? (string)$user_info['na
 $user_pangkat       = isset($user_info['pangkat'])      ? (string)$user_info['pangkat']       : '';
 $pengguna_id        = (int)($user_info['id'] ?? 0);
 
-// Statistik peminjaman user
-$peminjaman_stats = $mysqli->prepare("
-    SELECT
-        COUNT(*) as total_pengajuan,
-        SUM(CASE WHEN status = 'pending'    THEN 1 ELSE 0 END) as pending,
-        SUM(CASE WHEN status = 'approved'   THEN 1 ELSE 0 END) as approved,
-        SUM(CASE WHEN status = 'ongoing'    THEN 1 ELSE 0 END) as ongoing,
-        SUM(CASE WHEN status = 'completed'  THEN 1 ELSE 0 END) as completed
-    FROM peminjaman_kendaraan
-    WHERE peminjam_id = ?
-");
-$peminjaman_stats->bind_param('i', $user_id);
-$peminjaman_stats->execute();
-$stats = $peminjaman_stats->get_result()->fetch_assoc();
-$peminjaman_stats->close();
-
-// Peminjaman aktif (approved atau ongoing)
-$active_peminjaman = $mysqli->prepare("
-    SELECT p.*, k.no_reg, k.merk, k.tipe
-    FROM peminjaman_kendaraan p
-    LEFT JOIN kendaraan k ON p.kendaraan_id = k.id
-    WHERE p.peminjam_id = ? AND p.status IN ('approved', 'ongoing')
-    ORDER BY p.tanggal_mulai ASC
-    LIMIT 5
-");
-$active_peminjaman->bind_param('i', $user_id);
-$active_peminjaman->execute();
-$active_loans = $active_peminjaman->get_result()->fetch_all(MYSQLI_ASSOC);
-$active_peminjaman->close();
-
-// Riwayat peminjaman terbaru
-$recent_peminjaman = $mysqli->prepare("
-    SELECT p.*, k.no_reg, k.merk, k.tipe
-    FROM peminjaman_kendaraan p
-    LEFT JOIN kendaraan k ON p.kendaraan_id = k.id
-    WHERE p.peminjam_id = ?
-    ORDER BY p.created_at DESC
-    LIMIT 5
-");
-$recent_peminjaman->bind_param('i', $user_id);
-$recent_peminjaman->execute();
-$recent_loans = $recent_peminjaman->get_result()->fetch_all(MYSQLI_ASSOC);
-$recent_peminjaman->close();
-
 // Log BBM bulan ini
 $bbm_stats = $mysqli->prepare("
     SELECT COUNT(*) as log_bbm_bulan_ini
@@ -153,40 +98,6 @@ $bbm_stats->execute();
 $bbm_stats->bind_result($log_bbm_bulan_ini);
 $bbm_stats->fetch();
 $bbm_stats->close();
-
-// Total peminjaman selesai bulan ini
-$selesai_bulan = 0;
-$st_selesai = $mysqli->prepare("SELECT COUNT(*) FROM peminjaman_kendaraan WHERE peminjam_id = ? AND status = 'completed' AND MONTH(updated_at) = MONTH(CURDATE()) AND YEAR(updated_at) = YEAR(CURDATE())");
-if ($st_selesai) {
-    $st_selesai->bind_param('i', $user_id);
-    $st_selesai->execute();
-    $st_selesai->bind_result($selesai_bulan);
-    $st_selesai->fetch();
-    $st_selesai->close();
-}
-
-// Surat tugas aktif
-$active_st = [];
-if (table_exists_db($mysqli, 'surat_tugas')) {
-    $today_str = date('Y-m-d');
-    $st_q = $mysqli->prepare("
-        SELECT st.*, k.no_reg, k.merk, k.tipe
-        FROM surat_tugas st
-        LEFT JOIN kendaraan k ON st.kendaraan_id = k.id
-        WHERE st.pengguna_id = ?
-          AND st.status IN ('Disetujui','Dalam Perjalanan')
-          AND st.tanggal_berangkat <= ?
-          AND (st.tanggal_kembali IS NULL OR st.tanggal_kembali >= ?)
-        ORDER BY st.tanggal_berangkat ASC
-        LIMIT 3
-    ");
-    if ($st_q) {
-        $st_q->bind_param('iss', $pengguna_id, $today_str, $today_str);
-        $st_q->execute();
-        $active_st = $st_q->get_result()->fetch_all(MYSQLI_ASSOC);
-        $st_q->close();
-    }
-}
 
 // Notifikasi
 $notif_query = $mysqli->prepare("
@@ -208,31 +119,6 @@ $notif_query->close();
 $today_items    = build_upcoming_items($pengguna_id, date('Y-m-d'));
 $tomorrow_items = build_upcoming_items($pengguna_id, date('Y-m-d', strtotime('+1 day')));
 
-// Status badge
-function getStatusBadge($status) {
-    $map = [
-        'pending'   => ['bg-warning text-dark', 'Menunggu'],
-        'approved'  => ['bg-success',           'Disetujui'],
-        'rejected'  => ['bg-danger',            'Ditolak'],
-        'ongoing'   => ['bg-info text-dark',    'Berlangsung'],
-        'completed' => ['bg-primary',           'Selesai'],
-        'cancelled' => ['bg-secondary',         'Dibatalkan'],
-    ];
-    [$cls, $label] = $map[$status] ?? ['bg-secondary', $status];
-    return "<span class=\"badge $cls\">$label</span>";
-}
-
-function st_badge($status) {
-    $map = [
-        'Disetujui'       => 'bg-success',
-        'Dalam Perjalanan'=> 'bg-info text-dark',
-        'Menunggu'        => 'bg-warning text-dark',
-        'Ditolak'         => 'bg-danger',
-        'Selesai'         => 'bg-primary',
-    ];
-    $cls = $map[$status] ?? 'bg-secondary';
-    return "<span class=\"badge $cls\">" . htmlspecialchars($status) . "</span>";
-}
 ?>
 
 <div id="dashboard-user-page">
@@ -258,55 +144,6 @@ function st_badge($status) {
             <i class="fas fa-calendar me-1"></i><?= date('d F Y') ?>
         </span>
  </div>
-</div>
-
-<!-- ── Stat Cards ─────────────────────────────────────────────────────────── -->
-<div class="row mb-3">
-    <div class="col-lg-4 col-md-6 mb-3">
-        <div class="card bg-warning text-dark shadow-sm card-hover h-100">
-            <div class="card-body d-flex align-items-center">
-                <div class="me-3">
-                    <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center stat-icon-circle">
-                        <i class="fas fa-clock fa-2x text-dark"></i>
-                    </div>
-                </div>
-                <div>
-                    <h3 class="mb-0 fw-bold"><?= (int)($stats['pending'] ?? 0) ?></h3>
-                    <p class="mb-0 opacity-75">Menunggu Persetujuan</p>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-lg-4 col-md-6 mb-3">
-        <div class="card bg-success text-white shadow-sm card-hover h-100">
-            <div class="card-body d-flex align-items-center">
-                <div class="me-3">
-                    <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center stat-icon-circle">
-                        <i class="fas fa-car fa-2x text-white"></i>
-                    </div>
-                </div>
-                <div>
-                    <h3 class="mb-0 fw-bold"><?= (int)($stats['approved'] ?? 0) + (int)($stats['ongoing'] ?? 0) ?></h3>
-                    <p class="mb-0 opacity-75">Peminjaman Aktif</p>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-lg-4 col-md-6 mb-3">
-        <div class="card bg-primary text-white shadow-sm card-hover h-100">
-            <div class="card-body d-flex align-items-center">
-                <div class="me-3">
-                    <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center stat-icon-circle">
-                        <i class="fas fa-check-circle fa-2x text-white"></i>
-                    </div>
-                </div>
-                <div>
-                    <h3 class="mb-0 fw-bold"><?= (int)($stats['completed'] ?? 0) ?></h3>
-                    <p class="mb-0 opacity-75">Total Selesai</p>
-             </div>
-            </div>
-        </div>
-    </div>
 </div>
 
 <!-- ── Pengingat ──────────────────────────────────────────────────────────── -->
@@ -361,99 +198,6 @@ function st_badge($status) {
     </div>
 </div>
 
-<!-- ── Surat Tugas Aktif (if any) ────────────────────────────────────────── -->
-<?php if (!empty($active_st)): ?>
-<div class="card shadow-sm mb-4">
-    <div class="card-header bg-success text-white">
-        <h6 class="mb-0"><i class="fas fa-file-alt me-2"></i>Surat Tugas Aktif</h6>
- </div>
-    <div class="card-body pt-0">
-        <div class="row g-2">
-        <?php foreach ($active_st as $st): ?>
-            <div class="col-md-4">
-                <div class="p-2 rounded border bg-light">
-                    <div class="fw-semibold small"><?= htmlspecialchars($st['no_reg'] ?? '-') ?> — <?= htmlspecialchars(trim(($st['merk'] ?? '').' '.($st['tipe'] ?? ''))) ?></div>
-                    <div class="text-muted" style="font-size:.8rem;">
-                        <?= date('d/m/Y', strtotime($st['tanggal_berangkat'])) ?>
-                        <?php if (!empty($st['tanggal_kembali'])): ?> s/d <?= date('d/m/Y', strtotime($st['tanggal_kembali'])) ?><?php endif; ?>
-                    </div>
-                    <div class="mt-1"><?= st_badge($st['status']) ?></div>
-                </div>
-            </div>
-        <?php endforeach; ?>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
-
-<!-- ── Peminjaman Aktif + Riwayat ─────────────────────────────────────────── -->
-<div class="row g-3 mb-4">
-    <!-- Peminjaman Aktif -->
-    <div class="col-md-6">
-           <div class="card shadow-sm h-100">
-            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                <h6 class="mb-0"><i class="fas fa-car me-2"></i>Peminjaman Aktif</h6>
-                <a href="index.php?page=riwayat_peminjaman" class="btn btn-sm btn-light py-0 text-primary">Semua</a>
-            </div>
-            <div class="card-body">
-             <?php if (!empty($active_loans)): ?>
-                    <ul class="list-unstyled mb-0">
-                    <?php foreach ($active_loans as $loan): ?>
-                        <li class="d-flex align-items-start gap-2 mb-3 pb-2 border-bottom">
-                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0" style="width:36px;height:36px;font-size:.8rem;">
-                                <i class="fas fa-car"></i>
-                            </div>
-                            <div class="flex-grow-1 min-w-0">
-                                <div class="fw-semibold small"><?= htmlspecialchars($loan['no_reg'] ?? '-') ?> <span class="text-muted fw-normal"><?= htmlspecialchars($loan['merk'].' '.$loan['tipe']) ?></span></div>
-                                <div class="text-muted" style="font-size:.8rem;"><?= htmlspecialchars($loan['keperluan']) ?></div>
-                                <div class="text-muted" style="font-size:.75rem;"><?= date('d/m/Y', strtotime($loan['tanggal_mulai'])) ?> – <?= date('d/m/Y', strtotime($loan['tanggal_selesai'])) ?></div>
-                            </div>
-                            <div><?= getStatusBadge($loan['status']) ?></div>
-                        </li>
-                    <?php endforeach; ?>
-                    </ul>
-                <?php else: ?>
-                    <div class="text-center py-4 text-muted">
-                        <i class="fas fa-car fa-2x mb-2 opacity-25 d-block"></i>
-                        <div class="small">Tidak ada peminjaman aktif</div>
-                        <a href="index.php?page=form_peminjaman" class="btn btn-primary btn-sm mt-2">Ajukan Peminjaman</a>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-    </div>
-
-    <!-- Riwayat Terbaru -->
-    <div class="col-md-6">
-           <div class="card shadow-sm h-100">
-            <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
-                <h6 class="mb-0"><i class="fas fa-history me-2"></i>Riwayat Terbaru</h6>
-                <a href="index.php?page=riwayat_peminjaman" class="btn btn-sm btn-light py-0 text-secondary">Semua</a>
-            </div>
-            <div class="card-body">
-             <?php if (!empty($recent_loans)): ?>
-                    <ul class="list-unstyled mb-0">
-                    <?php foreach ($recent_loans as $loan): ?>
-                        <li class="d-flex align-items-center gap-2 mb-2 pb-2 border-bottom">
-                            <div class="flex-grow-1 min-w-0">
-                                <div class="fw-semibold small"><?= htmlspecialchars($loan['no_reg'] ?? '-') ?> <span class="text-muted fw-normal"><?= htmlspecialchars($loan['merk'].' '.$loan['tipe']) ?></span></div>
-                                <div class="text-muted" style="font-size:.75rem;"><?= htmlspecialchars($loan['keperluan']) ?> · <?= date('d/m/Y', strtotime($loan['created_at'])) ?></div>
-                            </div>
-                            <div class="flex-shrink-0"><?= getStatusBadge($loan['status']) ?></div>
-                        </li>
-                    <?php endforeach; ?>
-                    </ul>
-                <?php else: ?>
-                    <div class="text-center py-4 text-muted">
-                        <i class="fas fa-history fa-2x mb-2 opacity-25 d-block"></i>
-                        <div class="small">Belum ada riwayat peminjaman</div>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- ── Notifikasi Terbaru ─────────────────────────────────────────────────── -->
 <?php if (!empty($user_notifications)): ?>
 <div class="card shadow-sm mb-4">
@@ -496,10 +240,7 @@ function st_badge($status) {
             <?php
             $menus = [
                 ['page' => 'kendaraan_saya',    'icon' => 'fas fa-car',       'color' => '#2980b9', 'label' => 'Kendaraan Saya',     'desc' => 'Kendaraan yang ditugaskan'],
-                ['page' => 'surat_tugas',        'icon' => 'fas fa-file-alt',  'color' => '#27ae60', 'label' => 'Surat Tugas',         'desc' => 'Tugas perjalanan dinas'],
                 ['page' => 'log_bahan_bakar',    'icon' => 'fas fa-gas-pump',  'color' => '#8e44ad', 'label' => 'Log BBM',             'desc' => 'Catat penggunaan BBM'],
-                ['page' => 'riwayat_peminjaman', 'icon' => 'fas fa-history',   'color' => '#16a085', 'label' => 'Riwayat Peminjaman',  'desc' => 'Riwayat pemakaian kendaraan'],
-                ['page' => 'form_peminjaman',    'icon' => 'fas fa-plus-circle','color'=> '#e67e22', 'label' => 'Ajukan Peminjaman',   'desc' => 'Buat pengajuan baru'],
                 ['page' => 'profil',             'icon' => 'fas fa-user-cog',  'color' => '#7f8c8d', 'label' => 'Profil',              'desc' => 'Lihat dan edit profil'],
             ];
             foreach ($menus as $m):

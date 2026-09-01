@@ -150,25 +150,8 @@ if (!empty($user['pengguna_id'])) {
 $stats = [];
 
 if ($current_role === 'user') {
-    // Get peminjaman statistics for user
     $pengguna_id = $user['pengguna_id'] ?? 0;
-    
-        // Some databases use different status casing/labels. Use a tolerant query that checks multiple variants.
-        $stats_query = $mysqli->prepare(
-            "SELECT 
-                COUNT(*) as total_peminjaman,
-                SUM(CASE WHEN LOWER(status) IN ('pending','menunggu','pending_approval') THEN 1 ELSE 0 END) as pending,
-                SUM(CASE WHEN LOWER(status) IN ('approved','disetujui') THEN 1 ELSE 0 END) as approved,
-                SUM(CASE WHEN LOWER(status) IN ('ongoing','dipinjam','in_progress') THEN 1 ELSE 0 END) as ongoing,
-                SUM(CASE WHEN LOWER(status) IN ('completed','selesai') THEN 1 ELSE 0 END) as completed
-            FROM peminjaman_kendaraan 
-            WHERE peminjam_id = ?"
-        );
-        $stats_query->bind_param('i', $pengguna_id);
-    $stats_query->execute();
-    $peminjaman_stats = $stats_query->get_result()->fetch_assoc();
-    $stats_query->close();
-    
+
     // Get riwayat pemakaian count (schema-aware: some installations use user_id, others pengguna_id)
     $riwayat_count = 0;
     if (function_exists('db_table_exists') && db_table_exists('riwayat_pemakaian')) {
@@ -196,7 +179,6 @@ if ($current_role === 'user') {
         }
     }
 
-    $stats['peminjaman'] = $peminjaman_stats;
     $stats['riwayat_count'] = $riwayat_count;
     
 } else {
@@ -233,7 +215,6 @@ if ($current_role === 'user') {
         $users_total = (int)$mysqli->query("SELECT COUNT(*) as total FROM user_account")->fetch_assoc()['total'];
     }
     $stats['users_total'] = $users_total;
-    $stats['peminjaman_aktif'] = $mysqli->query("SELECT COUNT(*) as total FROM peminjaman_kendaraan WHERE status IN ('Approved', 'Ongoing')")->fetch_assoc()['total'];
 }
 
 // Get recent activities for user
@@ -384,36 +365,6 @@ if ($current_role === 'user') {
                 </div>
                 <div class="card-body">
                     <?php if ($current_role === 'user'): ?>
-                        <div class="stat-item mb-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span>Total Peminjaman</span>
-                                <span class="badge bg-primary"><?= $stats['peminjaman']['total_peminjaman'] ?></span>
-                            </div>
-                        </div>
-                        <div class="stat-item mb-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span>Pending</span>
-                                <span class="badge bg-warning"><?= $stats['peminjaman']['pending'] ?></span>
-                            </div>
-                        </div>
-                        <div class="stat-item mb-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span>Disetujui</span>
-                                <span class="badge bg-info"><?= $stats['peminjaman']['approved'] ?></span>
-                            </div>
-                        </div>
-                        <div class="stat-item mb-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span>Sedang Berlangsung</span>
-                                <span class="badge bg-success"><?= $stats['peminjaman']['ongoing'] ?></span>
-                            </div>
-                        </div>
-                        <div class="stat-item mb-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span>Selesai</span>
-                                <span class="badge bg-secondary"><?= $stats['peminjaman']['completed'] ?></span>
-                            </div>
-                        </div>
                         <div class="stat-item">
                             <div class="d-flex justify-content-between align-items-center">
                                 <span>Riwayat Pemakaian</span>
@@ -427,16 +378,10 @@ if ($current_role === 'user') {
                                 <span class="badge bg-primary"><?= $stats['kendaraan_total'] ?></span>
                             </div>
                         </div>
-                        <div class="stat-item mb-3">
+                        <div class="stat-item">
                             <div class="d-flex justify-content-between align-items-center">
                                 <span>Total Users</span>
                                 <span class="badge bg-info"><?= $stats['users_total'] ?></span>
-                            </div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span>Peminjaman Aktif</span>
-                                <span class="badge bg-success"><?= $stats['peminjaman_aktif'] ?></span>
                             </div>
                         </div>
                     <?php endif; ?>

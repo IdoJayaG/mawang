@@ -16,9 +16,8 @@ if (!$peminjaman_id) {
 }
 
 // Detect columns and approver relationship dynamically
-$cols_info = $mysqli->query("SHOW COLUMNS FROM peminjaman_kendaraan")->fetch_all(MYSQLI_ASSOC);
-$cols_names = array_column($cols_info, 'Field');
-$peminjam_col = in_array('pemohon_id', $cols_names) ? 'pemohon_id' : (in_array('peminjam_id', $cols_names) ? 'peminjam_id' : null);
+$cols_names = db_table_columns('peminjaman_kendaraan');
+$peminjam_col = pk_applicant_column();
 $approver_col = null;
 foreach (['approved_by','approval_by','approver_id','approved_by_id','approver'] as $c) {
     if (in_array($c, $cols_names)) { $approver_col = $c; break; }
@@ -47,11 +46,9 @@ $surat_select = '';
 $driver_select = '';
 $creator_join_col = '';
 
-$tblRes = $mysqli->query("SHOW TABLES LIKE 'surat_tugas'");
-$has_surat_tbl = ($tblRes && $tblRes->num_rows > 0);
+$has_surat_tbl = db_table_exists('surat_tugas');
 if ($has_surat_tbl && in_array('surat_tugas_id', $cols_names, true)) {
-    $st_cols_res = $mysqli->query("SHOW COLUMNS FROM surat_tugas");
-    $st_cols = $st_cols_res ? array_column($st_cols_res->fetch_all(MYSQLI_ASSOC), 'Field') : [];
+    $st_cols = db_table_columns('surat_tugas');
 
     $join_surat = ' LEFT JOIN surat_tugas s ON p.surat_tugas_id = s.id';
 
@@ -198,21 +195,8 @@ ob_start();
 </div>
 <?php endif; ?>
 
-<?php if (is_admin_like() || $current['id'] === $owner_id): ?>
-<div class="text-right mt-2">
-    <?php if (strtolower($row['status']) === 'pending' && is_admin_like()): ?>
-        <a href="index.php?page=persetujuan_peminjaman&action=approve&id=<?= (int)$row['id'] ?>" class="btn btn-sm btn-success">Setujui</a>
-        <a href="index.php?page=persetujuan_peminjaman&action=reject&id=<?= (int)$row['id'] ?>" class="btn btn-sm btn-danger">Tolak</a>
-    <?php endif; ?>
-    <?php if (strtolower($row['status']) === 'ongoing' && is_admin_like()): ?>
-        <button class="btn btn-sm btn-info" onclick="markCompleted(<?= (int)$row['id'] ?>)">Tandai Selesai</button>
-    <?php endif; ?>
-</div>
-<?php endif; ?>
-
 <?php
 $html = ob_get_clean();
 echo json_encode(['success' => true, 'html' => $html]);
 exit();
 ?>
-```

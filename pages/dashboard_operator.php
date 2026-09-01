@@ -419,7 +419,7 @@ function getStatusBadge($status) {
                             </a>
                         </div>
                         <div class="col-md-3">
-                            <a href="index.php?page=monitoring_peminjaman" class="btn btn-success w-100">
+                            <a href="index.php?page=riwayat_pemakaian" class="btn btn-success w-100">
                                 <i class="fas fa-chart-line me-2"></i>Laporan
                             </a>
                         </div>

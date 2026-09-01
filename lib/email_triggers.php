@@ -14,8 +14,12 @@
  *  - scripts/queue_maintenance_email_reminders.php (CLI)
  *  - scripts/send_scheduled_emails.php (CLI)
  *  - pages/email_queue.php (tombol manual admin)
- *  - pages/persetujuan_peminjaman.php (trigger saat pimpinan approve)
  *  - config.php (auto-run berkala tanpa perlu cron OS)
+ *
+ * Catatan: queue_and_send_surat_tugas_approved_email() sebelumnya dipanggil dari
+ * pages/persetujuan_peminjaman.php (aksi approve_surat). Halaman itu sudah dihapus
+ * bersama seluruh fitur peminjaman, sehingga fungsi ini saat ini tidak lagi dipanggil
+ * di manapun — perlu dikaitkan ke UI approval Surat Tugas yang baru bila dibutuhkan lagi.
  */
 
 if (!function_exists('_eqt_table_exists')) {

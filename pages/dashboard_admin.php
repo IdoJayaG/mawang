@@ -39,10 +39,9 @@ if ($res) {
 }
 
 // Master counts
-$tables = ['kendaraan', 'user_account', 'peminjaman_kendaraan', 'jadwal_perawatan'];
+$tables = ['kendaraan', 'user_account', 'jadwal_perawatan'];
 $table_aliases = [
     'user_account' => 'users',
-    'peminjaman_kendaraan' => 'peminjaman',
     'jadwal_perawatan' => 'jadwal_perawatan'
 ];
 foreach ($tables as $table) {
@@ -57,11 +56,6 @@ foreach ($tables as $table) {
     $display = $table_aliases[$table] ?? $table;
     $master_counts[$display] = $cnt;
 }
-
-// Monthly peminjaman stats
-$stats_bulanan = [];
-$r = $mysqli->query("SELECT MONTH(tanggal_mulai) as bulan, COUNT(*) as jumlah FROM peminjaman_kendaraan WHERE YEAR(tanggal_mulai) = YEAR(CURDATE()) GROUP BY MONTH(tanggal_mulai) ORDER BY bulan");
-if ($r) $stats_bulanan = $r->fetch_all(MYSQLI_ASSOC);
 
 // Maintenance statistics (top 5)
 $maintenance_stats = [];
@@ -85,99 +79,6 @@ if ($r) $scheduled_maintenance = $r->fetch_all(MYSQLI_ASSOC);
 $log_aktivitas = [];
 $r = $mysqli->query("SELECT la.*, la.activity_type AS aktivitas, la.description AS deskripsi, p.nama_lengkap FROM log_aktivitas la LEFT JOIN pengguna p ON la.user_id = p.id ORDER BY la.created_at DESC LIMIT 10");
 if ($r) $log_aktivitas = $r->fetch_all(MYSQLI_ASSOC);
-
-// Current loans ordered by ascending start date (for main table under activity log)
-$current_loans_asc = [];
-try {
-    $r = $mysqli->query("SELECT pk.id, pk.nomor_surat, pk.tanggal_mulai, pk.tanggal_selesai, pk.status,
-                                k.no_reg, k.merk, k.tipe,
-                                p.nama_lengkap AS peminjam_nama
-                         FROM peminjaman_kendaraan pk
-                         LEFT JOIN kendaraan k ON pk.kendaraan_id = k.id
-                         LEFT JOIN pengguna p ON pk.peminjam_id = p.id
-                         WHERE LOWER(pk.status) = 'ongoing'
-                         ORDER BY pk.tanggal_mulai ASC
-                         LIMIT 10");
-    if ($r) $current_loans_asc = $r->fetch_all(MYSQLI_ASSOC);
-} catch (Throwable $e) {
-    // ignore
-}
-
-// Pending approvals (peminjaman) notifications
-$pending_approvals_total = 0;
-$pending_approvals_items = [];
-
-// Count and fetch from peminjaman_kendaraan
-try {
-    $cq = $mysqli->query("SELECT COUNT(*) AS cnt FROM peminjaman_kendaraan WHERE LOWER(status) = 'pending'");
-    if ($cq) {
-        $pending_approvals_total += intval(($cq->fetch_assoc()['cnt'] ?? 0));
-    }
-
-    $q = $mysqli->query("SELECT pk.id, pk.nomor_surat, pk.tanggal_mulai, pk.tanggal_selesai, pk.status, pk.created_at,
-                                 k.no_reg, k.merk, k.tipe,
-                                 p.nama_lengkap AS peminjam_nama
-                          FROM peminjaman_kendaraan pk
-                          LEFT JOIN kendaraan k ON pk.kendaraan_id = k.id
-                          LEFT JOIN pengguna p ON pk.peminjam_id = p.id
-                          WHERE LOWER(pk.status) = 'pending'
-                          ORDER BY pk.created_at DESC
-                          LIMIT 5");
-    if ($q) {
-        while ($row = $q->fetch_assoc()) {
-            $row['source'] = 'pk';
-            $pending_approvals_items[] = $row;
-        }
-    }
-} catch (Throwable $e) {
-    // ignore
-}
-
-// Active loans (Approved/Ongoing) for table card
-$active_loans = [];
-try {
-    $r = $mysqli->query("SELECT pk.id, pk.nomor_surat, pk.tanggal_mulai, pk.tanggal_selesai, pk.status,
-                                k.no_reg, k.merk, k.tipe,
-                                p.nama_lengkap AS peminjam_nama
-                         FROM peminjaman_kendaraan pk
-                         LEFT JOIN kendaraan k ON pk.kendaraan_id = k.id
-                         LEFT JOIN pengguna p ON pk.peminjam_id = p.id
-                         WHERE LOWER(pk.status) IN ('approved','ongoing','disetujui','berjalan','aktif','dipinjam','sedang_dipinjam')
-                         ORDER BY pk.tanggal_mulai DESC
-                         LIMIT 10");
-    if ($r) $active_loans = $r->fetch_all(MYSQLI_ASSOC);
-} catch (Throwable $e) {
-    // ignore
-}
-
-// Optionally include peminjaman_terjadwal if table exists
-try {
-    $pt_exists = $mysqli->query("SHOW TABLES LIKE 'peminjaman_terjadwal'");
-    if ($pt_exists && $pt_exists->num_rows > 0) {
-        $cq2 = $mysqli->query("SELECT COUNT(*) AS cnt FROM peminjaman_terjadwal WHERE LOWER(status) = 'pending'");
-        if ($cq2) {
-            $pending_approvals_total += intval(($cq2->fetch_assoc()['cnt'] ?? 0));
-        }
-
-        $q2 = $mysqli->query("SELECT pt.id, pt.tanggal_mulai, pt.tanggal_selesai, pt.status,
-                                     k.no_reg, k.merk, k.tipe,
-                                     p.nama_lengkap AS peminjam_nama
-                              FROM peminjaman_terjadwal pt
-                              LEFT JOIN kendaraan k ON pt.kendaraan_id = k.id
-                              LEFT JOIN pengguna p ON pt.pemohon_id = p.id
-                              WHERE LOWER(pt.status) = 'pending'
-                              ORDER BY pt.tanggal_mulai ASC
-                              LIMIT 5");
-        if ($q2) {
-            while ($row = $q2->fetch_assoc()) {
-                $row['source'] = 'pt';
-                $pending_approvals_items[] = $row;
-            }
-        }
-    }
-} catch (Throwable $e) {
-    // ignore
-}
 
 // Documents expiring and jadwal_perawatan will be fetched later in rendering where needed
 
@@ -251,22 +152,6 @@ render_sidebar($current_page, 'admin');
             </div>
         </div>
 
-        <!-- <div class="col-lg-4 col-md-6 mb-3">
-            <div class="card bg-info text-white shadow-sm card-hover h-100">
-                <div class="card-body d-flex align-items-center">
-                    <div class="me-3">
-                        <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center stat-icon-circle">
-                            <i class="fas fa-clipboard-list fa-2x text-white"></i>
-                        </div>
-                    </div>
-                    <div>
-                        <h3 class="mb-0 fw-bold"><?= number_format($master_counts['peminjaman'] ?? 0) ?></h3>
-                        <p class="mb-0 opacity-75">Total Peminjaman</p>
-                    </div>
-                </div>
-            </div>
-        </div> -->
-        
         <div class="col-lg-4 col-md-6 mb-3">
             <div class="card bg-warning text-dark shadow-sm card-hover h-100">
                 <div class="card-body d-flex align-items-center">
@@ -421,82 +306,6 @@ render_sidebar($current_page, 'admin');
                 </div>
             </div>
 
-            <!-- Peminjam Kendaraan (Ascending Start Date) -->
-            <!-- <div class="card shadow-sm mt-3">
-                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="fas fa-id-card-alt me-2"></i>Peminjam Kendaraan</h5>
-                    <a href="index.php?page=monitoring_peminjaman" class="btn btn-sm btn-light">
-                        <i class="fas fa-eye"></i> Lihat Semua
-                    </a>
-                </div>
-                <div class="card-body p-0">
-                    <?php if (!empty($current_loans_asc)): ?>
-                        <div class="table-responsive table-scroll-400">
-                            <table class="table table-sm mb-0">
-                                <thead class="bg-light sticky-top">
-                                    <tr>
-                                        <th>Waktu Mulai</th>
-                                        <th>Peminjam</th>
-                                        <th>Kendaraan</th>
-                                        <th>Periode</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($current_loans_asc as $row): ?>
-                                        <tr>
-                                            <td>
-                                                <small class="text-muted">
-                                                    <?= !empty($row['tanggal_mulai']) ? date('d/m/Y', strtotime($row['tanggal_mulai'])) : '-' ?>
-                                                </small>
-                                            </td>
-                                            <td>
-                                                <div class="fw-semibold"><?= htmlspecialchars($row['peminjam_nama'] ?? 'N/A') ?></div>
-                                                <?php if (!empty($row['nomor_surat'])): ?>
-                                                    <small class="text-muted">No: <?= htmlspecialchars($row['nomor_surat']) ?></small>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <div class="fw-semibold"><?= htmlspecialchars($row['no_polisi'] ?? '') ?></div>
-                                                <small class="text-muted"><?= htmlspecialchars($row['merk'] ?? '') ?> <?= htmlspecialchars($row['tipe'] ?? '') ?></small>
-                                            </td>
-                                            <td>
-                                                <small class="text-muted">
-                                                    <?= !empty($row['tanggal_mulai']) ? date('d/m/Y', strtotime($row['tanggal_mulai'])) : '-' ?>
-                                                    <?= !empty($row['tanggal_selesai']) ? ' - ' . date('d/m/Y', strtotime($row['tanggal_selesai'])) : '' ?>
-                                                </small>
-                                            </td>
-                                            <td>
-                                                <?php 
-                                                    $sraw = strtolower($row['status'] ?? '');
-                                                    $active_aliases = ['approved','ongoing','disetujui','berjalan','aktif','dipinjam','sedang_dipinjam'];
-                                                    $cls = in_array($sraw, $active_aliases, true) ? 'success' : 'secondary';
-                                                    $label_map = [
-                                                        'approved' => 'Disetujui',
-                                                        'disetujui' => 'Disetujui',
-                                                        'ongoing' => 'Berjalan',
-                                                        'berjalan' => 'Berjalan',
-                                                        'aktif' => 'Aktif',
-                                                        'dipinjam' => 'Dipinjam',
-                                                        'sedang_dipinjam' => 'Dipinjam',
-                                                    ];
-                                                    $label = $label_map[$sraw] ?? ucfirst($row['status'] ?? '');
-                                                ?>
-                                                <span class="badge bg-<?= $cls ?>"><?= htmlspecialchars($label) ?></span>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php else: ?>
-                        <div class="text-center py-5">
-                            <i class="fas fa-clipboard-list fa-3x text-muted mb-3"></i>
-                            <p class="text-muted">Tidak ada peminjaman aktif</p>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div> -->
         </div>
 
         <!-- System Management Panel -->
@@ -513,9 +322,6 @@ render_sidebar($current_page, 'admin');
                         <a href="index.php?page=kendaraan" class="btn btn-success btn-sm">
                             <i class="fas fa-car me-2"></i>Kelola Kendaraan
                         </a>
-                        <a href="index.php?page=surat_tugas" class="btn btn-warning btn-sm">
-                            <i class="fas fa-file-alt me-2"></i>Surat Tugas
-                        </a>
                         <a href="index.php?page=riwayat" class="btn btn-info btn-sm">
                             <i class="fas fa-chart-line me-2"></i>Laporan Lengkap
                         </a>
@@ -523,160 +329,6 @@ render_sidebar($current_page, 'admin');
                 </div>
             </div>
 
-            <!-- Quick Stats Panel -->
-            <!-- <div class="card shadow-sm mt-3">
-                <div class="card-header bg-secondary text-white">
-                    <h6 class="mb-0"><i class="fas fa-tachometer-alt me-2"></i>Statistik Cepat</h6>
-                </div>
-                <div class="card-body">
-                    <div class="row text-center">
-                        <div class="col-6 mb-3">
-                            <div class="border-end">
-                                <h4 class="text-primary mb-1"><?= $master_counts['users'] ?? 0 ?></h4>
-                                <small class="text-muted">Aktif Users</small>
-                            </div>
-                        </div>
-                        <div class="col-6 mb-3">
-                            <h4 class="text-success mb-1"><?= $stats['kendaraan_status']['Operasional'] ?? 0 ?></h4>
-                            <small class="text-muted">Operasional</small>
-                        </div>
-                        <div class="col-6">
-                            <div class="border-end">
-                                <h4 class="text-warning mb-1"><?= $stats['kendaraan_status']['Perbaikan'] ?? 0 ?></h4>
-                                <small class="text-muted">Perbaikan</small>
-                            </div>
-                        </div>
-                        <div class="col-6">
-                            <h4 class="text-info mb-1"><?= $master_counts['peminjaman'] ?? 0 ?></h4>
-                            <small class="text-muted">Peminjaman</small>
-                        </div>
-                    </div>
-                </div>
-            </div> -->
-
-            <!-- Pending Approval Notifications -->
-            <!-- <div class="card shadow-sm mt-3">
-                <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
-                    <h6 class="mb-0"><i class="fas fa-clipboard-check me-2"></i>Persetujuan Peminjaman</h6>
-                    <span class="badge bg-dark text-white"><?= intval($pending_approvals_total) ?></span>
-                </div>
-                <div class="card-body">
-                    <?php if ($pending_approvals_total > 0): ?>
-                        <div class="list-group list-group-flush">
-                            <?php foreach (array_slice($pending_approvals_items, 0, 5) as $item): ?>
-                                <div class="list-group-item px-0 d-flex justify-content-between">
-                                    <div>
-                                        <div class="fw-semibold">
-                                            <?php if (!empty($item['no_polisi'])): ?>
-                                                <?= htmlspecialchars($item['no_polisi']) ?>
-                                            <?php else: ?>
-                                                <?= htmlspecialchars($item['merk'] ?? '') ?> <?= htmlspecialchars($item['tipe'] ?? '') ?>
-                                            <?php endif; ?>
-                                        </div>
-                                        <small class="text-muted">
-                                            <?= htmlspecialchars($item['peminjam_nama'] ?? 'Pemohon') ?>
-                                            • <?= !empty($item['tanggal_mulai']) ? date('d/m/Y', strtotime($item['tanggal_mulai'])) : '-' ?>
-                                            <?= !empty($item['tanggal_selesai']) ? ' - ' . date('d/m/Y', strtotime($item['tanggal_selesai'])) : '' ?>
-                                        </small>
-                                    </div>
-                                    <div class="text-nowrap">
-                                        <a href="index.php?page=persetujuan_peminjaman" class="btn btn-sm btn-outline-dark">
-                                            <i class="fas fa-check"></i>
-                                        </a>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                        <div class="text-end mt-2">
-                            <a href="index.php?page=persetujuan_peminjaman" class="btn btn-sm btn-dark">
-                                Lihat Semua
-                            </a>
-                        </div>
-                    <?php else: ?>
-                        <div class="text-center py-3">
-                            <i class="fas fa-inbox fa-2x text-muted mb-2"></i>
-                            <p class="text-muted mb-0">Tidak ada pengajuan menunggu</p>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div> -->
-
-            <!-- Active Borrowers Table -->
-            <!-- <div class="card shadow-sm mt-3">
-                <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
-                    <h6 class="mb-0"><i class="fas fa-id-card-alt me-2"></i>Peminjam Kendaraan Aktif</h6>
-                    <a href="index.php?page=monitoring_peminjaman" class="btn btn-sm btn-light">
-                        <i class="fas fa-eye"></i> Lihat Semua
-                    </a>
-                </div>
-                <div class="card-body p-0">
-                    <?php if (!empty($active_loans)): ?>
-                        <div class="table-responsive table-scroll-300">
-                            <table class="table table-sm mb-0">
-                                <thead class="bg-light sticky-top">
-                                    <tr>
-                                        <th>Peminjam</th>
-                                        <th>Kendaraan</th>
-                                        <th>Periode</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($active_loans as $al): ?>
-                                        <tr>
-                                            <td>
-                                                <div class="fw-semibold"><?= htmlspecialchars($al['peminjam_nama'] ?? 'N/A') ?></div>
-                                                <?php if (!empty($al['nomor_surat'])): ?>
-                                                    <small class="text-muted">No: <?= htmlspecialchars($al['nomor_surat']) ?></small>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <div class="fw-semibold">
-                                                    <?= htmlspecialchars($al['no_polisi'] ?? '') ?>
-                                                </div>
-                                                <small class="text-muted">
-                                                    <?= htmlspecialchars($al['merk'] ?? '') ?> <?= htmlspecialchars($al['tipe'] ?? '') ?>
-                                                </small>
-                                            </td>
-                                            <td>
-                                                <small class="text-muted">
-                                                    <?= !empty($al['tanggal_mulai']) ? date('d/m/Y', strtotime($al['tanggal_mulai'])) : '-' ?>
-                                                    <?= !empty($al['tanggal_selesai']) ? ' - ' . date('d/m/Y', strtotime($al['tanggal_selesai'])) : '' ?>
-                                                </small>
-                                            </td>
-                                            <td>
-                                                <?php 
-                                                    $sraw = strtolower($al['status'] ?? '');
-                                                    $active_aliases = ['approved','ongoing','disetujui','berjalan','aktif','dipinjam','sedang_dipinjam'];
-                                                    $cls = in_array($sraw, $active_aliases, true) ? 'success' : 'secondary';
-                                                    $label_map = [
-                                                        'approved' => 'Disetujui',
-                                                        'disetujui' => 'Disetujui',
-                                                        'ongoing' => 'Berjalan',
-                                                        'berjalan' => 'Berjalan',
-                                                        'aktif' => 'Aktif',
-                                                        'dipinjam' => 'Dipinjam',
-                                                        'sedang_dipinjam' => 'Dipinjam',
-                                                    ];
-                                                    $label = $label_map[$sraw] ?? ucfirst($al['status'] ?? '');
-                                                ?>
-                                                <span class="badge bg-<?= $cls ?>">
-                                                    <?= htmlspecialchars($label) ?>
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php else: ?>
-                        <div class="text-center py-3">
-                            <i class="fas fa-clipboard-list fa-3x text-muted mb-2"></i>
-                            <p class="text-muted mb-0">Tidak ada peminjaman aktif</p>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div> -->
         </div>
     </div>
 

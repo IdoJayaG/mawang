@@ -181,11 +181,6 @@ function getAvailabilityStatus($vehicle) {
 <!-- ── Page Header ─────────────────────────────────────────────────────────── -->
 <div class="page-header">
     <h1><i class="fas fa-car"></i> Daftar Kendaraan</h1>
-    <div class="action-buttons">
-        <a href="index.php?page=form_peminjaman" class="btn btn-primary">
-            <i class="fas fa-plus me-1"></i>Ajukan Peminjaman
-        </a>
-    </div>
 </div>
 
 <!-- ── Stat Cards ─────────────────────────────────────────────────────────── -->
@@ -322,8 +317,6 @@ $stats = $mysqli->query("
             $display_reg = !empty($vehicle['no_reg']) ? $vehicle['no_reg'] : ($vehicle['no_polisi'] ?? '-');
             $detailParams = 'page=kendaraan_detail_publik&id=' . urlencode($vehicle['id']) . '&kendaraan_id=' . urlencode($vehicle['id']);
             if (!empty($vehicle['no_reg'])) $detailParams .= '&no_reg=' . urlencode($vehicle['no_reg']);
-            $requestParams = 'page=form_peminjaman&kendaraan_id=' . urlencode($vehicle['id']) . '&id=' . urlencode($vehicle['id']);
-            if (!empty($vehicle['no_reg'])) $requestParams .= '&no_reg=' . urlencode($vehicle['no_reg']);
         ?>
         <div class="card shadow-sm mb-2 <?= !$availability['can_request'] ? 'border-start border-3 border-secondary' : '' ?>">
             <div class="card-body p-3">
@@ -379,15 +372,6 @@ $stats = $mysqli->query("
                                 <a href="index.php?<?= $detailParams ?>" class="btn btn-outline-primary btn-sm">
                                     <i class="fas fa-eye me-1"></i>Detail
                                 </a>
-                                <?php if ($availability['can_request']): ?>
-                                    <a href="index.php?<?= $requestParams ?>" class="btn btn-success btn-sm">
-                                        <i class="fas fa-plus me-1"></i>Ajukan
-                                    </a>
-                                <?php else: ?>
-                                    <button class="btn btn-secondary btn-sm" disabled>
-                                        <i class="fas fa-ban me-1"></i>Tidak Tersedia
-                                    </button>
-                                <?php endif; ?>
                             </div>
                         </div>
                     </div>

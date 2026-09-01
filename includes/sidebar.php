@@ -79,17 +79,9 @@
                     <li><a href="index.php?page=riwayat_perbaikan" class="<?= ($current_page == 'riwayat_perbaikan') ? 'active' : '' ?>">Riwayat Perbaikan</a></li>
                 </ul>
             </li>
-            <li class="has-submenu <?= in_array($current_page, ['dokumen_kendaraan', 'surat_tugas','laporan_perjalanan']) ? 'active' : '' ?>">
-                <a href="javascript:void(0)" class="submenu-toggle">
-                    <i class="fas fa-file-alt"></i><span>Dokumen</span>
-                    <i class="fas fa-chevron-down submenu-arrow"></i>
-                </a>
-                <ul class="submenu">
-                    <li><a href="index.php?page=dokumen_kendaraan" class="<?= ($current_page == 'dokumen_kendaraan') ? 'active' : '' ?>">Dokumen Kendaraan</a></li>
-                    <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">Surat Tugas</a></li>
-                    <li><a href="index.php?page=laporan_perjalanan&action=assigned" class="<?= ($current_page == 'laporan_perjalanan' && ($_GET['action'] ?? '') === 'assigned') ? 'active' : '' ?>">Laporan Perjalanan</a></li>
-                </ul>
-            </li>
+            <li><a href="index.php?page=dokumen_kendaraan" class="<?= ($current_page == 'dokumen_kendaraan') ? 'active' : '' ?>">
+                <i class="fas fa-file-alt"></i><span>Dokumen Kendaraan</span>
+            </a></li>
             <li><a href="index.php?page=profil" class="<?= ($current_page == 'profil') ? 'active' : '' ?>">
                 <i class="fas fa-user"></i><span>Profil</span>
             </a></li>
@@ -107,19 +99,12 @@
                 </a>
                 <ul class="submenu">
                     <li><a href="index.php?page=list_kendaraan" class="<?= ($current_page == 'list_kendaraan') ? 'active' : '' ?>">List Kendaraan</a></li>
-                    <li><a href="index.php?page=form_peminjaman" class="<?= ($current_page == 'form_peminjaman') ? 'active' : '' ?>">Pengajuan Peminjaman</a></li>
                     <li><a href="index.php?page=map_kendaraan" class="<?= ($current_page == 'map_kendaraan') ? 'active' : '' ?>">Peta Kendaraan</a></li>
                 </ul>
             </li>
 
             <li><a href="index.php?page=profil" class="<?= ($current_page == 'profil') ? 'active' : '' ?>">
                 <i class="fas fa-user"></i><span>Profil Saya</span>
-            </a></li>
-            <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">
-                <i class="fas fa-file-signature"></i><span>Pengajuan Surat Tugas</span>
-            </a></li>
-            <li><a href="index.php?page=riwayat_peminjaman" class="<?= ($current_page == 'riwayat_peminjaman') ? 'active' : '' ?>">
-                <i class="fas fa-history"></i><span>Riwayat Peminjaman</span>
             </a></li>
             <li><a class="btn-logout" href="logout.php">
                 <i class="fas fa-sign-out-alt"></i><span>Logout</span>
@@ -138,27 +123,7 @@
             <li><a href="index.php?page=map_kendaraan" class="<?= ($current_page == 'map_kendaraan') ? 'active' : '' ?>">Peta Kendaraan</a></li>
                 </ul>
             </li>
-            
 
-            <!-- peminjaman -->
-            <?php
-            $peminjaman_pages = $current_role === 'pimpinan'
-                ? ['persetujuan_peminjaman', 'monitoring_peminjaman']
-                : ['monitoring_peminjaman'];
-            ?>
-            <li class="has-submenu <?= in_array($current_page, $peminjaman_pages) ? 'active' : '' ?>">
-                <a href="javascript:void(0)" class="submenu-toggle">
-                    <i class="fas fa-clipboard-check"></i><span>Peminjaman</span>
-                    <i class="fas fa-chevron-down submenu-arrow"></i>
-                </a>
-                <ul class="submenu">
-                    <?php if ($current_role === 'pimpinan'): ?>
-                    <li><a href="index.php?page=persetujuan_peminjaman" class="<?= ($current_page == 'persetujuan_peminjaman') ? 'active' : '' ?>">Persetujuan Peminjaman</a></li>
-                    <?php endif; ?>
-                    <li><a href="index.php?page=monitoring_peminjaman" class="<?= ($current_page == 'monitoring_peminjaman') ? 'active' : '' ?>">Monitoring Peminjaman</a></li>
-                </ul>
-            </li>
-            
             <li class="has-submenu <?= in_array($current_page, ['riwayat_pemakaian', 'riwayat_perawatan', 'riwayat_perbaikan']) ? 'active' : '' ?>">
                 <a href="javascript:void(0)" class="submenu-toggle">
                     <i class="fas fa-history"></i><span>Riwayat</span>
@@ -178,17 +143,9 @@
 
 
 
-             <li class="has-submenu <?= in_array($current_page, ['dokumen_kendaraan','laporan_perjalanan','surat_tugas']) ? 'active' : '' ?>">
-                <a href="javascript:void(0)" class="submenu-toggle">
-                    <i class="fas fa-folder"></i><span>Dokumen</span>
-                    <i class="fas fa-chevron-down submenu-arrow"></i>
-                </a>
-                <ul class="submenu">
-                    <li><a href="index.php?page=dokumen_kendaraan" class="<?= ($current_page == 'dokumen_kendaraan') ? 'active' : '' ?>">Dokumen Kendaraan</a></li>
-                    <li><a href="index.php?page=laporan_perjalanan" class="<?= ($current_page == 'laporan_perjalanan') ? 'active' : '' ?>">Laporan Perjalanan</a></li>
-                    <li><a href="index.php?page=surat_tugas" class="<?= ($current_page == 'surat_tugas') ? 'active' : '' ?>">Surat Tugas</a></li>
-                </ul>
-            </li>
+             <li><a href="index.php?page=dokumen_kendaraan" class="<?= ($current_page == 'dokumen_kendaraan') ? 'active' : '' ?>">
+                <i class="fas fa-folder"></i><span>Dokumen Kendaraan</span>
+            </a></li>
 
             <?php $user_pages = $current_role === 'admin'
                 ? ['manajemen_user', 'manajemen_pengguna', 'log_aktivitas', 'email_queue']

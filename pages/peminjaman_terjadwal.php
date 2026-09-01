@@ -8,11 +8,10 @@ $msg = '';
 
 // Helper: check if a table exists
 function table_exists($mysqli, $table) {
-    $res = $mysqli->query("SHOW TABLES LIKE '" . $mysqli->real_escape_string($table) . "'");
-    return $res && $res->num_rows > 0;
+    return db_table_exists($table);
 }
 
-// Handle form submission (adapted from form_peminjaman)
+// Handle form submission
 if ($_POST) {
     if (!function_exists('validate_csrf_token') || !validate_csrf_token($_POST['csrf_token'] ?? '')) {
         $msg = '<div class="alert alert-danger">Token keamanan tidak valid!</div>';
@@ -186,13 +185,9 @@ if (in_array('status', $cols_names)) {
 // Get user's peminjaman from the same table used by the main form (peminjaman_kendaraan)
 // Detect which applicant column exists and query accordingly
 $peminjaman_list = [];
-if ($mysqli->query("SHOW TABLES LIKE 'peminjaman_kendaraan'")->num_rows > 0) {
-    $cols_info = $mysqli->query("SHOW COLUMNS FROM peminjaman_kendaraan")->fetch_all(MYSQLI_ASSOC);
-    $cols = array_column($cols_info, 'Field');
-    $applicant_col = null;
-    foreach (['pemohon_id', 'peminjam_id', 'pengguna_id', 'user_id'] as $c) {
-        if (in_array($c, $cols)) { $applicant_col = $c; break; }
-    }
+if (db_table_exists('peminjaman_kendaraan')) {
+    $cols = db_table_columns('peminjaman_kendaraan');
+    $applicant_col = pk_applicant_column();
 
     // detect approver column variants to avoid unknown column errors
     $approver_col = null;
@@ -225,39 +220,12 @@ if ($mysqli->query("SHOW TABLES LIKE 'peminjaman_kendaraan'")->num_rows > 0) {
     }
 }
 
-// Status badges
-function getStatusBadge($status) {
-    $badges = [
-        'pending' => 'badge-warning',
-        'approved' => 'badge-success',
-        'rejected' => 'badge-danger',
-        'ongoing' => 'badge-info',
-        'completed' => 'badge-primary',
-        'cancelled' => 'badge-secondary'
-    ];
-    
-    $labels = [
-        'pending' => 'Menunggu Persetujuan',
-        'approved' => 'Disetujui',
-        'rejected' => 'Ditolak',
-        'ongoing' => 'Sedang Berlangsung',
-        'completed' => 'Selesai',
-        'cancelled' => 'Dibatalkan'
-    ];
-    
-    $badge_class = $badges[$status] ?? 'badge-secondary';
-    $label = $labels[$status] ?? $status;
-    
-    return "<span class=\"badge $badge_class\">$label</span>";
-}
+// Status badge rendering: render_peminjaman_status_badge() from includes/auth.php
 ?>
 
 <div class="container-fluid">
     <div class="page-header">
         <h1><i class="fas fa-calendar-check"></i> Peminjaman Terjadwal</h1>
-            <div class="proposal-actions">
-                <a href="index.php?page=form_peminjaman" class="btn btn-primary btn-md"><i class="fas fa-plus"></i> Buka Form</a>
-            </div>
     </div>
 
     <?= $msg ?>
@@ -303,7 +271,7 @@ function getStatusBadge($status) {
                                             <small class="text-info">s/d <?= date('d/m/Y', strtotime($p['tanggal_selesai'])) ?></small>
                                         <?php endif; ?>
                                     </td>
-                                    <td><?= getStatusBadge($p['status']) ?></td>
+                                    <td><?= render_peminjaman_status_badge($p['status']) ?></td>
                                     <td><?= date('d/m/Y H:i', strtotime($p['created_at'])) ?></td>
                                     <td>
                                         <button type="button" class="btn btn-sm btn-info" onclick="viewDetail(<?= $p['id'] ?>)">
